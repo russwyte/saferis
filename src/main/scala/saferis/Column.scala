@@ -4,7 +4,6 @@ import zio.*
 
 import java.sql.ResultSet
 import scala.annotation.StaticAnnotation
-import scala.annotation.experimental
 
 /** Represents a label for a column in a result set. Fields in a case class can be annotated with this to specify the
   * column name/label Example:
