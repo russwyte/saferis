@@ -2,6 +2,11 @@ package saferis
 
 import scala.quoted.*
 
+/** helpful when debugging macros etc...
+  *
+  * @param x
+  * @return
+  */
 inline def show[T](inline x: T) = ${ showImpl('x) }
 
 private def showImpl[T: Type](x: Expr[T])(using Quotes): Expr[T] =
