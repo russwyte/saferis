@@ -19,7 +19,7 @@ object ConnectionProvider:
     * @param connection
     */
   final case class FromConnection(connection: Connection) extends ConnectionProvider:
-    // note we don't use aquire and release here because we did not acquire the connection - it was provided to us
+    // note we don't use acquire and release here because we did not acquire the connection - it was provided to us
     val getConnection = ZIO.succeed(connection)
 
   /** A connection provider that provides a connection from a DataSource.
