@@ -3,7 +3,6 @@ package saferis
 import zio.*
 
 import java.sql.Connection
-import scala.annotation.experimental
 
 // alias for Transactor
 type xa = Transactor

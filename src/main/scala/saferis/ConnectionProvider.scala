@@ -4,7 +4,6 @@ import zio.*
 
 import java.sql.Connection
 import javax.sql.DataSource
-import scala.annotation.experimental
 
 /** A service that provides a connection. We can use this to provide a connection to a ZIO effect. Sometime we want to
   * provide a connection from a DataSource, and sometimes we want to provide a connection directly.
