@@ -12,7 +12,7 @@ sealed trait Table[A <: Product]:
   def columnMap = columns.map(c => c.name -> c.label).toMap
 
 object Table:
-  def apply[A <: Product](using table: Table[A]): Table[A] = table
+  def apply[A <: Product: Table as table]: Table[A] = table
 
   final case class Derived[A <: Product](name: String, columns: Seq[Column[?]]) extends Table[A]
 

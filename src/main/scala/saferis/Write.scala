@@ -10,12 +10,12 @@ import java.sql.PreparedStatement
   * @param a
   * @param writer
   */
-final case class Write[A: StatementWriter as writer](a: A):
+final class Write[A: StatementWriter as writer](a: A):
   /** convenience method to get the placeholder from the writer so that the writer does not need to be summoned
     *
     * @return
     */
-  def placeholder: String = writer.placeholder
+  def placeholder: String = writer.placeholder(a)
 
   /** convenience method to write the value to the prepared statement at the given index so that the writer does not
     * need to be summoned
@@ -24,6 +24,7 @@ final case class Write[A: StatementWriter as writer](a: A):
     * @param idx
     * @return
     */
-  def write(stmt: PreparedStatement, idx: Int): Task[Unit] =
+  def write(stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
     writer.write(a, stmt, idx)
+  override def toString(): String = s"Write($a:${a.getClass().getName()})"
 end Write

@@ -138,6 +138,6 @@ object Macros:
   // Metadata is a structural type
   private def refinement(fieldNames: Seq[String])(using Quotes) =
     import quotes.reflect.*
-    fieldNames.foldLeft(TypeRepr.of[Metadata])((t, n) => Refinement(t, n, TypeRepr.of[RawSql]))
+    fieldNames.foldLeft(TypeRepr.of[Metadata])((t, n) => Refinement(t, n, TypeRepr.of[Placeholder.RawSql]))
 
 end Macros

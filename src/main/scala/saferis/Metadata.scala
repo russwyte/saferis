@@ -10,12 +10,13 @@ package saferis
   */
 final case class Metadata(tableName: String, fieldNamesToLabels: Map[String, String], alias: Option[String])
     extends Selectable
-    with Placeholder[Unit]:
+    with Placeholder:
   private def getLabel(fieldName: String): String =
     val raw = fieldNamesToLabels.getOrElse(fieldName, fieldName)
     alias.map(a => s"$a.$raw").getOrElse(raw)
-  def selectDynamic(name: String)                 = RawSql(getLabel(name))
-  def sql: String                                 = alias.fold(tableName)(a => s"$tableName as $a")
+  def selectDynamic(name: String)                 = Placeholder.RawSql(getLabel(name))
+  override def sql: String                        = alias.fold(tableName)(a => s"$tableName as $a")
+  override def writes: Seq[Write[?]]              = Seq.empty
   transparent inline def withAlias(alias: String) = copy(alias = Some(alias)).asInstanceOf[this.type]
 end Metadata
 

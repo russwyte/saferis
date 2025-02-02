@@ -13,7 +13,7 @@ val xa = Transactor
   * @param cp
   * @param config
   */
-final case class Transactor(cp: ConnectionProvider, config: Connection => Unit):
+final class Transactor(cp: ConnectionProvider, config: Connection => Unit):
   /** Run a ZIO effect that requires a connection provider and a scope.
     *
     * This method will provide the connection provider and the scope to the ZIO effect.
@@ -24,7 +24,7 @@ final case class Transactor(cp: ConnectionProvider, config: Connection => Unit):
     * @tparam A
     * @return
     */
-  def run[A](zio: ZIO[ConnectionProvider & Scope, Throwable, A]): IO[Throwable, A] =
+  def run[A](zio: ZIO[ConnectionProvider & Scope, Throwable, A])(using Trace): IO[Throwable, A] =
     ZIO.scoped(zio).provideLayer(ZLayer.succeed(cp))
 
   /** Run a ZIO effect that requires a connection provider and a scope. The connection will be configured to run
@@ -33,7 +33,7 @@ final case class Transactor(cp: ConnectionProvider, config: Connection => Unit):
     * @param zio
     * @return
     */
-  def transact[A](zio: ZIO[ConnectionProvider & Scope, Throwable, A]): IO[Throwable, A] =
+  def transact[A](zio: ZIO[ConnectionProvider & Scope, Throwable, A])(using Trace): IO[Throwable, A] =
     val transaction = for
       connection <- cp.getConnection
       _ = config(connection)

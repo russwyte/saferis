@@ -1,17 +1,34 @@
 package saferis
 
-trait Placeholder[A]:
-  def write: Option[Write[A]] = None
+import zio.Tag
+
+/** A placeholder in a SQL query. This is used to represent a value in a SQL query that will be replaced with a value
+  * when the query is executed. It is used to build statements from fragments and values.
+  */
+trait Placeholder:
+  def writes: Seq[Write[?]]
   def sql: String
 
 object Placeholder:
-  def apply[A: StatementWriter as sw](a: A): Placeholder[A] = Derived(Some(sw(a)), sw.placeholder)
-  def apply[A](p: Placeholder[A])                           = p
-  def allWrites(ps: Seq[Placeholder[?]]): Seq[Write[?]]     = ps.flatMap(_.write)
-  final case class Derived[A](override val write: Option[Write[A]], sql: String) extends Placeholder[A]
+  def apply[A: StatementWriter as sw](a: A): Placeholder = Derived(Seq(sw(a)), sw.placeholder(a))
+  def apply[A](p: Placeholder)                           = p
+  def allWrites(ps: Seq[Placeholder]): Seq[Write[?]] = ps.flatMap: p =>
+    p.writes
+  final private case class Derived(override val writes: Seq[Write[?]], sql: String) extends Placeholder
 
-  given aToPlaceholder[A: StatementWriter as sw]: Conversion[A, Placeholder[A]] with
-    def apply(a: A): Placeholder[A] = Derived(Some(sw(a)), sw.placeholder)
+  given convertToPlaceholder[A: StatementWriter as sw: Tag]: Conversion[A, Placeholder] with
+    def apply(a: A): Placeholder =
+      Derived(Vector(sw(a)), sw.placeholder(a))
+
+  /** A raw SQL query fragment. This should be used sparingly, as it if misused it could open up the possibility of SQL
+    * injection attacks. Only use this when you are sure that the SQL fragment is safe - not derived from user input.
+    *
+    * @param sql
+    */
+  final class RawSql(val sql: String) extends Placeholder:
+    val writes = Seq.empty
+
+  object Empty extends Placeholder:
+    val sql    = ""
+    val writes = Seq.empty
 end Placeholder
-
-class RawSql(val sql: String) extends Placeholder[Unit]

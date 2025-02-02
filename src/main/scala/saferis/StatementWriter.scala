@@ -12,7 +12,7 @@ trait StatementWriter[A]:
     *
     * @return
     */
-  def placeholder: String = "?"
+  def placeholder(a: A): String = "?"
 
   /** Write the value to the prepared statement at the given index
     *
@@ -21,7 +21,7 @@ trait StatementWriter[A]:
     * @param idx
     * @return
     */
-  def write(a: A, stmt: PreparedStatement, idx: Int): Task[Unit]
+  def write(a: A, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit]
 
   /** Construct a Write instance for the given value
     *
@@ -33,27 +33,35 @@ end StatementWriter
 
 object StatementWriter:
   given StatementWriter[String] with
-    def write(a: String, stmt: PreparedStatement, idx: Int): Task[Unit] =
-      ZIO.attempt(stmt.setString(idx, a))
+    def write(a: String, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
+      ZIO.attempt:
+        stmt.setString(idx, a)
   given StatementWriter[Short] with
-    def write(a: Short, stmt: PreparedStatement, idx: Int): Task[Unit] =
-      ZIO.attempt(stmt.setShort(idx, a))
+    def write(a: Short, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
+      ZIO.attempt:
+        stmt.setShort(idx, a)
   given StatementWriter[Int] with
-    def write(a: Int, stmt: PreparedStatement, idx: Int): Task[Unit] =
-      ZIO.attempt(stmt.setInt(idx, a))
+    def write(a: Int, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
+      ZIO.attempt:
+        stmt.setInt(idx, a)
   given StatementWriter[Long] with
-    def write(a: Long, stmt: PreparedStatement, idx: Int): Task[Unit] =
-      ZIO.attempt(stmt.setLong(idx, a))
+    def write(a: Long, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
+      ZIO.attempt:
+        stmt.setLong(idx, a)
   given StatementWriter[Boolean] with
-    def write(a: Boolean, stmt: PreparedStatement, idx: Int): Task[Unit] =
-      ZIO.attempt(stmt.setBoolean(idx, a))
+    def write(a: Boolean, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
+      ZIO.attempt:
+        stmt.setBoolean(idx, a)
   given StatementWriter[Float] with
-    def write(a: Float, stmt: PreparedStatement, idx: Int): Task[Unit] =
-      ZIO.attempt(stmt.setFloat(idx, a))
+    def write(a: Float, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
+      ZIO.attempt:
+        stmt.setFloat(idx, a)
   given StatementWriter[Double] with
-    def write(a: Double, stmt: PreparedStatement, idx: Int): Task[Unit] =
-      ZIO.attempt(stmt.setDouble(idx, a))
+    def write(a: Double, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
+      ZIO.attempt:
+        stmt.setDouble(idx, a)
   given StatementWriter[java.sql.Date] with
-    def write(a: java.sql.Date, stmt: PreparedStatement, idx: Int): Task[Unit] =
-      ZIO.attempt(stmt.setDate(idx, a))
+    def write(a: java.sql.Date, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
+      ZIO.attempt:
+        stmt.setDate(idx, a)
 end StatementWriter

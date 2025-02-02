@@ -13,7 +13,8 @@ object MySuite extends ZIOSpecDefault:
   final case class TestTable(name: String, age: Option[Int], @label("email") e: Option[String]) derives Table
 
   val testTable = Table[TestTable].metadata
-  val sql1      = sql"select * from $testTable where ${testTable.name} like $bob"
+  val frag      = sql"where ${testTable.name} like $bob"
+  val sql1      = sql"select * from $testTable $frag"
   val allSql    = sql"select * from $testTable"
   val insertSql =
     import testTable.*

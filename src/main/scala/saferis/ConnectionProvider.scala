@@ -9,7 +9,7 @@ import javax.sql.DataSource
   * provide a connection from a DataSource, and sometimes we want to provide a connection directly.
   */
 trait ConnectionProvider:
-  def getConnection: ZIO[Scope, Throwable, Connection]
+  def getConnection(using Trace): ZIO[Scope, Throwable, Connection]
 
 object ConnectionProvider:
   /** A connection provider that provides a connection directly.
@@ -20,7 +20,8 @@ object ConnectionProvider:
     */
   final case class FromConnection(connection: Connection) extends ConnectionProvider:
     // note we don't use acquire and release here because we did not acquire the connection - it was provided to us
-    val getConnection = ZIO.succeed(connection)
+    val acquire                    = ZIO.succeed(connection)
+    def getConnection(using Trace) = acquire
 
   /** A connection provider that provides a connection from a DataSource.
     *
@@ -34,7 +35,7 @@ object ConnectionProvider:
         else if con.isClosed() then ZIO.unit
         else ZIO.attempt(con.close())
       res.orDie
-    val getConnection = ZIO.acquireRelease(acquire)(release)
+    def getConnection(using Trace) = ZIO.acquireRelease(acquire)(release)
   end FromDataSource
   object FromDataSource:
     val layer: ZLayer[DataSource, Nothing, ConnectionProvider] = ZLayer.derive[FromDataSource]
