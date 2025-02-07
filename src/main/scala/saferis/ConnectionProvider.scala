@@ -20,22 +20,22 @@ object ConnectionProvider:
     */
   final case class FromConnection(connection: Connection) extends ConnectionProvider:
     // note we don't use acquire and release here because we did not acquire the connection - it was provided to us
-    val acquire                    = ZIO.succeed(connection)
-    def getConnection(using Trace) = acquire
+    private val acquire                     = ZIO.succeed(connection)
+    override def getConnection(using Trace) = acquire
 
   /** A connection provider that provides a connection from a DataSource.
     *
     * @param dataSource
     */
   final case class FromDataSource(dataSource: DataSource) extends ConnectionProvider:
-    val acquire = ZIO.attempt(dataSource.getConnection())
-    val release = (con: Connection) =>
+    private val acquire = ZIO.attempt(dataSource.getConnection())
+    private val release = (con: Connection) =>
       val res =
         if con == null then ZIO.unit
         else if con.isClosed() then ZIO.unit
         else ZIO.attempt(con.close())
       res.orDie
-    def getConnection(using Trace) = ZIO.acquireRelease(acquire)(release)
+    override def getConnection(using Trace) = ZIO.acquireRelease(acquire)(release)
   end FromDataSource
   object FromDataSource:
     val layer: ZLayer[DataSource, Nothing, ConnectionProvider] = ZLayer.derive[FromDataSource]

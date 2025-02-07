@@ -10,7 +10,7 @@ type ScopedQuery[E] = ZIO[ConnectionProvider & Scope, Throwable, E]
 
 final case class SqlFragment(
     sql: String,
-    writes: Seq[Write[?]],
+    override private[saferis] val writes: Seq[Write[?]],
 ) extends Placeholder:
 
   inline private def make[E <: Product: Table as table](rs: ResultSet)(using Trace): Task[E] =
@@ -18,7 +18,7 @@ final case class SqlFragment(
     yield (Macros.make[E](cs))
   end make
 
-  def doWrites(statement: PreparedStatement)(using Trace) = ZIO.foreach(writes.zipWithIndex): (write, idx) =>
+  private def doWrites(statement: PreparedStatement)(using Trace) = ZIO.foreach(writes.zipWithIndex): (write, idx) =>
     write.write(statement, idx + 1)
 
   inline def query[E <: Product: Table](using Trace): ScopedQuery[Seq[E]] =

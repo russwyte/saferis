@@ -1,10 +1,11 @@
-package saferis.tests
+package foo.tests
 
 import saferis.*
 import zio.*
 import zio.test.*
 
 import java.sql.Connection
+import saferis.tests.DataSourceProvider
 
 object MySuite extends ZIOSpecDefault:
   val frank = "Frank"

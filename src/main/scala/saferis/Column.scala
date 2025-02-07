@@ -47,5 +47,5 @@ final case class Column[R: Reader as reader](
 
   private[saferis] def read(rs: ResultSet)(using Trace): Task[(String, R)] =
     reader.read(rs, label).map(v => name -> v)
-  def withTableAlias(alias: String) = copy(tableAlias = Some(alias))
+  private[saferis] def withTableAlias(alias: Option[String]) = copy(tableAlias = alias)
 end Column

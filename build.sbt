@@ -10,7 +10,7 @@ ThisBuild / scalacOptions ++= Seq(
 ThisBuild / scalafixDependencies += "com.github.vovapolu" %% "scaluzzi" % "0.1.23"
 ThisBuild / libraryDependencies ++= Seq(
   "dev.zio"           %% "zio"                       % zioVersion,
-  "dev.zio"           %% "zio-logging-slf4j2-bridge" % "2.4.0",
+  "dev.zio"           %% "zio-logging-slf4j2-bridge" % "2.4.0"    % Test,
   "dev.zio"           %% "zio-test"                  % zioVersion % Test,
   "dev.zio"           %% "zio-test-sbt"              % zioVersion % Test,
   "dev.zio"           %% "zio-test-magnolia"         % zioVersion % Test,

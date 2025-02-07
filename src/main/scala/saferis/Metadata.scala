@@ -10,12 +10,15 @@ import zio.Trace
   * @param fieldNamesToLabels
   * @param alias
   */
-final case class Metadata[E <: Product: Table](tableName: String, columns: Seq[Column[?]], alias: Option[String])
-    extends Selectable
+final case class Metadata[E <: Product: Table](
+    private val tableName: String,
+    private val columns: Seq[Column[?]],
+    private val alias: Option[String],
+) extends Selectable
     with Placeholder:
   private[saferis] val fieldNamesToLabels: Map[String, Column[?]] = columns.map(c => c.name -> c).toMap
-  private[saferis] def selectDynamic(name: String)                = fieldNamesToLabels(name)
-  private[saferis] def applyDynamic[A: StatementWriter](name: String)(args: A*) =
+  def selectDynamic(name: String)                                 = fieldNamesToLabels(name)
+  def applyDynamic[A: StatementWriter](name: String)(args: A*) =
     (name, args) match
       case (getByKey, as) =>
         val cs: Seq[Column[?]] =
@@ -32,8 +35,12 @@ final case class Metadata[E <: Product: Table](tableName: String, columns: Seq[C
   override private[saferis] def writes: Seq[Write[?]] = Seq.empty
 
   transparent inline def withAlias(alias: String) =
-    val newColumns = columns.map(_.withTableAlias(alias))
+    val newColumns = columns.map(_.withTableAlias(Some(alias)))
     copy(alias = Some(alias), columns = newColumns).asInstanceOf[this.type]
+
+  transparent inline def deAliased =
+    val newColumns = columns.map(_.withTableAlias(None))
+    copy(alias = None, columns = newColumns).asInstanceOf[this.type]
 
   final private[saferis] class TypedFragment(val fragment: SqlFragment):
     def sql                                                  = fragment.sql

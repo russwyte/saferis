@@ -4,6 +4,8 @@ import zio.*
 import java.sql.PreparedStatement
 
 trait StatementWriter[A]:
+  self =>
+
   /** Placeholder for the value in the SQL query
     *
     * for product types, this should be a comma separated list of placeholders
@@ -29,6 +31,10 @@ trait StatementWriter[A]:
     * @return
     */
   def apply(a: A): Write[A] = Write(a)(using this)
+  def transform[B](f: B => Task[A]): StatementWriter[B] =
+    new StatementWriter[B]:
+      def write(b: B, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
+        f(b).flatMap(a => self.write(a, stmt, idx))
 end StatementWriter
 
 object StatementWriter:

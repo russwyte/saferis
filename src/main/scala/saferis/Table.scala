@@ -5,11 +5,11 @@ import scala.annotation.StaticAnnotation
 final case class tableName(name: String) extends StaticAnnotation
 
 sealed trait Table[A <: Product]:
-  def name: String
+  private[saferis] def name: String
   def columns: Seq[Column[?]]
   override def toString(): String =
     s"Table($name, ${columns.mkString(", ")})"
-  def columnMap = columns.map(c => c.name -> c.label).toMap
+  private[saferis] def columnMap = columns.map(c => c.name -> c.label).toMap
 
 object Table:
   def apply[A <: Product: Table as table]: Table[A] = table

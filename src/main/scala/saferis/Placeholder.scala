@@ -14,7 +14,7 @@ object Placeholder:
   def apply[A](p: Placeholder)                           = p
   def allWrites(ps: Seq[Placeholder]): Seq[Write[?]] = ps.flatMap: p =>
     p.writes
-  final private case class Derived(override val writes: Seq[Write[?]], sql: String) extends Placeholder
+  final private case class Derived(override private[saferis] val writes: Seq[Write[?]], sql: String) extends Placeholder
 
   given convertToPlaceholder[A: StatementWriter as sw: Tag]: Conversion[A, Placeholder] with
     def apply(a: A): Placeholder =
@@ -33,13 +33,9 @@ object Placeholder:
     * @param sql
     */
   final class RawSql(val sql: String) extends Placeholder:
-    val writes = Seq.empty
-
-  private[saferis] case class FieldLabel(label: String) extends Placeholder:
-    val writes = Seq.empty
-    val sql    = label
+    override private[saferis] val writes = Seq.empty
 
   object Empty extends Placeholder:
-    val sql    = ""
-    val writes = Seq.empty
+    val sql                              = ""
+    override private[saferis] val writes = Seq.empty
 end Placeholder
