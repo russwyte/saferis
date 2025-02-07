@@ -3,6 +3,7 @@ package saferis
 import java.sql.SQLException
 import scala.annotation.experimental
 import scala.quoted.*
+import scala.annotation.StaticAnnotation
 
 object Macros:
 
@@ -25,14 +26,18 @@ object Macros:
     val fields = tpe.typeSymbol.caseFields
     val columns = fields.map { field =>
       val fieldName = field.name
+
       field.tree match
         case valDef: ValDef =>
           valDef.tpt.tpe.asType match
             case '[a] =>
               val reader = summonReader[a]
               '{
-                val label = ${ getLabel[A](fieldName) }
-                Column[a](${ Expr(fieldName) }, label)(using $reader)
+                val label       = ${ getLabel[A](fieldName) }
+                val isKey       = ${ elemHasAnnotation[A, saferis.key](fieldName) }
+                val isGenerated = ${ elemHasAnnotation[A, saferis.generated](fieldName) }
+
+                Column[a](${ Expr(fieldName) }, label, isKey | isGenerated, isGenerated)(using $reader)
               }
       end match
     }
@@ -43,27 +48,67 @@ object Macros:
   private transparent inline def metadataOf2[A <: Product](alias: Option[String]) = ${ metadataOfImpl[A]('alias) }
   private[saferis] transparent inline def metadataOf[A <: Product](alias: String) = metadataOf2[A](Some(alias))
 
-  private def metadataOfImpl[A: Type](alias: Expr[Option[String]])(using Quotes) =
+  private def metadataOfImpl[A <: Product: Type](alias: Expr[Option[String]])(using Quotes) =
     import quotes.reflect.*
-    val columns = columnsOfImpl[A]
-    val name    = nameOfImpl[A]
-    val tpe     = TypeRepr.of[A]
-    val fields  = tpe.typeSymbol.caseFields
-    val names   = fields.map(_.name)
-    val nameMap = '{ ${ columns }.map(c => c.name -> c.label).toMap }
-    val refined = refinement(names)
+    val columns             = columnsOfImpl[A]
+    val name                = nameOfImpl[A]
+    val tpe                 = TypeRepr.of[A]
+    val caseClassFields     = tpe.typeSymbol.caseFields
+    val caseClassFieldNames = caseClassFields.map(_.name)
+    val refined             = refinementForLabels(caseClassFieldNames)
+    val keys                = elemsWithAnnotation[A, key]
+    val x = MethodType(MethodTypeKind.Plain)(keys.map((name, _) => name))(
+      x =>
+        keys.map: (_, tpe) =>
+          tpe,
+      x => TypeRepr.of[SqlFragment],
+    )
 
-    val res = refined.asType match
+    val ref3 = Refinement(refined, Metadata.getByKey, x)
+    val res = ref3.asType match
       case '[t] =>
         '{
-          new Metadata(
+          val x = ${ summonTable[A] }
+          new Metadata[A](
             $name,
-            $nameMap,
+            $columns,
             $alias,
-          ).asInstanceOf[t]
+          )(using x).asInstanceOf[t]
         }
     res
   end metadataOfImpl
+
+  private def elemHasAnnotation[T: Type, A <: StaticAnnotation: Type](elemName: String)(using
+      Quotes
+  ): Expr[Boolean] =
+    import quotes.reflect.*
+    val a = TypeRepr.of[A].typeSymbol
+    Expr:
+      TypeRepr
+        .of[T]
+        .typeSymbol
+        .primaryConstructor
+        .paramSymss
+        .head
+        .find(sym => sym.name == elemName && sym.hasAnnotation(a))
+        .isDefined
+  end elemHasAnnotation
+
+  private def elemsWithAnnotation[T: Type, A <: StaticAnnotation: Type](using
+      Quotes
+  ): List[(String, x$1.reflect.TypeRepr)] =
+    import quotes.reflect.*
+    val a = TypeRepr.of[A].typeSymbol
+    val elems = TypeRepr
+      .of[T]
+      .typeSymbol
+      .primaryConstructor
+      .paramSymss
+      .head
+      .filter(sym => sym.hasAnnotation(a))
+      .map(sym => (sym.name, sym.info))
+    elems
+  end elemsWithAnnotation
 
   private def getLabel[T: Type](elemName: String)(using
       Quotes
@@ -97,6 +142,14 @@ object Macros:
       .getOrElse:
         report.errorAndAbort(s"Could not find a Reader instance for ${Type.show[T]}")
   end summonReader
+
+  private def summonTable[T <: Product: Type](using Quotes): Expr[Table[T]] =
+    import quotes.reflect.*
+    Expr
+      .summon[Table[T]]
+      .getOrElse:
+        report.errorAndAbort(s"Could not find a Table instance for ${Type.show[T]}")
+  end summonTable
 
   private[saferis] inline def make[A](args: Seq[(String, Any)]): A = ${ makeImpl[A]('args) }
 
@@ -134,10 +187,10 @@ object Macros:
     Apply(Select(Ref(companion), applyMethod), argsExprs.map(_.asTerm).toList).asExprOf[A]
   end makeImpl
 
-  // This method is used to refine the Metadata type with the field names
+  // This method is used to refine the Metadata type with the field names/labels
   // Metadata is a structural type
-  private def refinement(fieldNames: Seq[String])(using Quotes) =
+  private def refinementForLabels(fieldNames: Seq[String])(using Quotes) =
     import quotes.reflect.*
-    fieldNames.foldLeft(TypeRepr.of[Metadata])((t, n) => Refinement(t, n, TypeRepr.of[Placeholder.RawSql]))
+    fieldNames.foldLeft(TypeRepr.of[Metadata])((t, n) => Refinement(t, n, TypeRepr.of[Column[?]]))
 
 end Macros

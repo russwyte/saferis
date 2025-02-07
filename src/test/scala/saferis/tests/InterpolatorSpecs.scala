@@ -30,11 +30,15 @@ object InterpolatorSpecs extends ZIOSpecDefault:
         val name = "Bob"
         val age  = 42
 
-        val frag = sql"""|select *
-                         |from test_table
-                         |where name = $name and age = $age""".stripMargin
-        assertTrue(frag.sql == """select *
-                         |from test_table
-                         |where name = ? and age = ?""".stripMargin)
+        val frag =
+          sql"""|select *
+                |from test_table
+                |where name = $name and age = $age""".stripMargin
+        assertTrue(
+          frag.sql ==
+            """|select *
+               |from test_table
+               |where name = ? and age = ?""".stripMargin
+        )
 
 end InterpolatorSpecs

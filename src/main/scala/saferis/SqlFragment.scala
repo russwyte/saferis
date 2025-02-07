@@ -7,6 +7,8 @@ import scala.annotation.experimental
 import scala.collection.mutable as m
 import java.sql.PreparedStatement
 
+type ScopedQuery[E] = ZIO[ConnectionProvider & Scope, Throwable, E]
+
 final case class SqlFragment(
     sql: String,
     writes: Seq[Write[?]],
@@ -20,7 +22,8 @@ final case class SqlFragment(
   def doWrites(statement: PreparedStatement)(using Trace) = ZIO.foreach(writes.zipWithIndex): (write, idx) =>
     write.write(statement, idx + 1)
 
-  inline def query[E <: Product: Table](using Trace): ZIO[ConnectionProvider & Scope, Throwable, Seq[E]] =
+  // TODO: Make this a 'Query' class with a run method that returns a ZIO[ConnectionProvider & Scope, Throwable, E]
+  inline def query[E <: Product: Table](using Trace): ScopedQuery[Seq[E]] =
     for
       connection <- ZIO.serviceWithZIO[ConnectionProvider](_.getConnection)
       statement  <- ZIO.attempt(connection.prepareStatement(sql))
@@ -30,13 +33,13 @@ final case class SqlFragment(
         def loop(acc: m.Builder[E, Vector[E]]): ZIO[Any, Throwable, Vector[E]] =
           ZIO.attempt(rs.next()).flatMap { hasNext =>
             if hasNext then make[E](rs).flatMap(e => loop(acc.addOne(e)))
-            else ZIO.succeed(acc.result())
+            else ZIO.succeed(acc.result)
           }
         loop(Vector.newBuilder[E])
     yield results
   end query
 
-  inline def queryOne[E <: Product: Table](using Trace): ZIO[ConnectionProvider & Scope, Throwable, Option[E]] =
+  inline def queryOne[E <: Product: Table](using Trace): ScopedQuery[Option[E]] =
     for
       connection <- ZIO.serviceWithZIO[ConnectionProvider](_.getConnection)
       statement  <- ZIO.attempt(connection.prepareStatement(sql))
@@ -89,5 +92,8 @@ final case class SqlFragment(
 
   def stripMargin(marginChar: Char) = copy(sql = sql.stripMargin(marginChar))
   def stripMargin                   = copy(sql = sql.stripMargin)
+
+  def append(other: SqlFragment) = copy(sql = sql + other.sql, writes = writes ++ other.writes)
+  def :+(other: SqlFragment)     = append(other)
 
 end SqlFragment

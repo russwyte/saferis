@@ -20,13 +20,24 @@ object Placeholder:
     def apply(a: A): Placeholder =
       Derived(Vector(sw(a)), sw.placeholder(a))
 
-  /** A raw SQL query fragment. This should be used sparingly, as it if misused it could open up the possibility of SQL
-    * injection attacks. Only use this when you are sure that the SQL fragment is safe - not derived from user input.
+  given convertSeqOfPlaceholdersToPlaceholder: Conversion[Seq[Placeholder], Placeholder] with
+    def apply(as: Seq[Placeholder]): Placeholder =
+      val sql    = as.map(_.sql).mkString("")
+      val writes = as.flatMap(_.writes)
+      Derived(writes, sql)
+
+  /** A raw SQL query fragment. This should be used cautiously, as it if misused it could open up the possibility of SQL
+    * injection attacks. Only use this when you are sure that the SQL fragment is safe - not derived from user input for
+    * example.
     *
     * @param sql
     */
   final class RawSql(val sql: String) extends Placeholder:
     val writes = Seq.empty
+
+  private[saferis] case class FieldLabel(label: String) extends Placeholder:
+    val writes = Seq.empty
+    val sql    = label
 
   object Empty extends Placeholder:
     val sql    = ""
