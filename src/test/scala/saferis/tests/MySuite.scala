@@ -40,7 +40,7 @@ object MySuite extends ZIOSpecDefault:
           yield b1 ++ b2
         c <- xa.run(insertSql)
         all1 <- xa.run:
-          foo.query[TestTable]
+          foo.query
         all2 <- xa.run:
           allSql.query[TestTable]
       yield assertTrue(a.size == 1) && assertTrue(b.size == 2) && assertTrue(c == 1) && assertTrue(

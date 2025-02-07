@@ -61,7 +61,7 @@ object Macros:
       x =>
         keys.map: (_, tpe) =>
           tpe,
-      x => TypeRepr.of[SqlFragment],
+      x => TypeRepr.of[Metadata[A]#TypedFragment],
     )
 
     val ref3 = Refinement(refined, Metadata.getByKey, x)
