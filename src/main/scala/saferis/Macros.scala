@@ -1,7 +1,6 @@
 package saferis
 
 import java.sql.SQLException
-import scala.annotation.experimental
 import scala.quoted.*
 import scala.annotation.StaticAnnotation
 
@@ -37,16 +36,19 @@ object Macros:
                 val isKey       = ${ elemHasAnnotation[A, saferis.key](fieldName) }
                 val isGenerated = ${ elemHasAnnotation[A, saferis.generated](fieldName) }
 
-                Column[a](${ Expr(fieldName) }, label, isKey | isGenerated, isGenerated)(using $reader)
+                Column[a](${ Expr(fieldName) }, label, isKey, isGenerated, None)(using $reader)
               }
       end match
     }
     Expr.ofSeq(columns)
   end columnsOfImpl
 
-  private[saferis] transparent inline def metadataOf[A <: Product]                = ${ metadataOfImpl[A]('None) }
-  private transparent inline def metadataOf2[A <: Product](alias: Option[String]) = ${ metadataOfImpl[A]('alias) }
-  private[saferis] transparent inline def metadataOf[A <: Product](alias: String) = metadataOf2[A](Some(alias))
+  private[saferis] transparent inline def metadataOf[A <: Product] = ${ metadataOfImpl[A]('None) }
+  private transparent inline def metadataOf2[A <: Product](alias: Option[String]) = ${
+    metadataOfImpl[A]('alias)
+  }
+  private[saferis] transparent inline def metadataOf[A <: Product](alias: String) =
+    metadataOf2[A](Some(alias))
 
   private def metadataOfImpl[A <: Product: Type](alias: Expr[Option[String]])(using Quotes) =
     import quotes.reflect.*
@@ -98,7 +100,8 @@ object Macros:
       Quotes
   ): List[(String, x$1.reflect.TypeRepr)] =
     import quotes.reflect.*
-    val a = TypeRepr.of[A].typeSymbol
+    val a   = TypeRepr.of[A].typeSymbol
+    val tpe = TypeRepr.of[T]
     val elems = TypeRepr
       .of[T]
       .typeSymbol
@@ -106,7 +109,7 @@ object Macros:
       .paramSymss
       .head
       .filter(sym => sym.hasAnnotation(a))
-      .map(sym => (sym.name, sym.info))
+      .map(sym => (sym.name, tpe.memberType(sym)))
     elems
   end elemsWithAnnotation
 
@@ -166,7 +169,7 @@ object Macros:
 
     val argsExprs = fields.map { param =>
       val paramName = param.name
-      val paramType = param.info
+      val paramType = tpe.memberType(param)
       argsMap match
         case '{ $mapExpr: Map[String, Any] } =>
           paramType.asType match

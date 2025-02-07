@@ -39,11 +39,13 @@ final case class Column[R: Reader as reader](
     label: String,
     isKey: Boolean,
     isGenerated: Boolean,
+    tableAlias: Option[String],
 ) extends Placeholder:
   type ColumnType = R
   val writes = Seq.empty
-  val sql    = label
+  val sql    = tableAlias.fold(label)(a => s"$a.$label")
 
   private[saferis] def read(rs: ResultSet)(using Trace): Task[(String, R)] =
     reader.read(rs, label).map(v => name -> v)
+  def withTableAlias(alias: String) = copy(tableAlias = Some(alias))
 end Column

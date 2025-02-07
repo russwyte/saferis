@@ -4,8 +4,6 @@ val zioVersion = "2.1.14"
 
 ThisBuild / scalaVersion := scala3Version
 ThisBuild / scalacOptions ++= Seq(
-  "-experimental",
-  "-language:experimental.namedTuples",
   "-deprecation",
   "-Wunused:all",
 )

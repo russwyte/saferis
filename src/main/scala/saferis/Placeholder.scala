@@ -6,7 +6,7 @@ import zio.Tag
   * when the query is executed. It is used to build statements from fragments and values.
   */
 trait Placeholder:
-  def writes: Seq[Write[?]]
+  private[saferis] def writes: Seq[Write[?]]
   def sql: String
 
 object Placeholder:

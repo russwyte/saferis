@@ -18,10 +18,12 @@ object MySuite extends ZIOSpecDefault:
   ) derives Table
 
   val testTable = Table[TestTable].metadata
-  val foo       = testTable.getByKey(frank)
-  val frag      = sql"where ${testTable.name} like $frank"
-  val sql1      = sql"select * from $testTable $frag"
-  val allSql    = sql"select * from $testTable"
+  val foo       = testTable.withAlias("tt").getByKey(frank)
+  println(s"foo: ${foo.sql}")
+  val frag = sql"where ${testTable.name} like $frank"
+  println(frag.sql)
+  val sql1   = sql"select * from $testTable $frag"
+  val allSql = sql"select * from $testTable"
   val insertSql =
     import testTable.*
     sql"insert into $testTable ($name, $age, $e) values ($frank, 42, '')".update

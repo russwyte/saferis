@@ -3,7 +3,6 @@ package saferis
 import zio.*
 
 import java.sql.ResultSet
-import scala.annotation.experimental
 import scala.collection.mutable as m
 import java.sql.PreparedStatement
 
@@ -22,7 +21,6 @@ final case class SqlFragment(
   def doWrites(statement: PreparedStatement)(using Trace) = ZIO.foreach(writes.zipWithIndex): (write, idx) =>
     write.write(statement, idx + 1)
 
-  // TODO: Make this a 'Query' class with a run method that returns a ZIO[ConnectionProvider & Scope, Throwable, E]
   inline def query[E <: Product: Table](using Trace): ScopedQuery[Seq[E]] =
     for
       connection <- ZIO.serviceWithZIO[ConnectionProvider](_.getConnection)
