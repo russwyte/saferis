@@ -29,69 +29,76 @@ object TransactorSpecs extends ZIOSpecDefault:
 
   val testTable = Table[TestTable]
 
-  val spec =
-    suiteAll("A transactor"):
-      suiteAll("should run"):
-        test("a select all query"):
-          val sql = sql"select * from $testTable"
-          for
-            xa <- ZIO.service[Transactor]
-            a <- xa.run:
-              sql.query[TestTable]
-          yield assertTrue(a.size == 4)
+  val runSuite =
+    suiteAll("should run"):
+      test("a select all query"):
+        val sql = sql"select * from $testTable"
+        for
+          xa <- ZIO.service[Transactor]
+          a <- xa.run:
+            sql.query[TestTable]
+        yield assertTrue(a.size == 4)
 
-        test("a single row query"):
-          val sql = sql"select * from $testTable where name = $alice"
-          for
-            xa <- ZIO.service[Transactor]
-            a <- xa.run:
-              sql.queryOne[TestTable]
-          yield assertTrue(a == Some(TestTable("Alice", Some(30), Some("alice@example.com"))))
+      test("a single row query"):
+        val sql = sql"select * from $testTable where name = $alice"
+        for
+          xa <- ZIO.service[Transactor]
+          a <- xa.run:
+            sql.queryOne[TestTable]
+        yield assertTrue(a == Some(TestTable("Alice", Some(30), Some("alice@example.com"))))
+  end runSuite
 
-      suiteAll("should run statements in a transaction"):
-        test("yielding an effect of the result"):
-          for
-            xa <- ZIO.service[Transactor]
-            a <- xa.transact:
+  val transactionSuite =
+    suiteAll("should run statements in a transaction"):
+      test("yielding an effect of the result"):
+        for
+          xa <- ZIO.service[Transactor]
+          a <- xa.transact:
+            for
+              a <- sql"select * from $testTable where name = $alice".queryOne[TestTable]
+              b <- sql"select * from $testTable where name = $bob".queryOne[TestTable]
+            yield a.toSeq ++ b.toSeq
+        yield assertTrue(a.size == 2)
+
+      test("commit on success"):
+        for
+          xa <- ZIO.service[Transactor]
+          count <- xa
+            .transact:
+              for a <- sql"insert into $testTable values ($frank, 50, 'frank@danos_deli.com')".insert
+              yield (a)
+          newNames <- xa.run:
+            sql"select * from $testTable".query[TestTable].map(_.map(_.name))
+        yield assertTrue(count == 1) &&
+          assertTrue(newNames.contains(frank)) &&
+          assertTrue(newNames.size == 5)
+
+      test("rollback on effect failure"):
+        val names = sql"select * from $testTable".query[TestTable].map(_.map(_.name))
+        for
+          xa <- ZIO.service[Transactor]
+          before <- xa.run:
+            names
+          error <- xa
+            .transact:
               for
-                a <- sql"select * from $testTable where name = $alice".queryOne[TestTable]
-                b <- sql"select * from $testTable where name = $bob".queryOne[TestTable]
-              yield a.toSeq ++ b.toSeq
-          yield assertTrue(a.size == 2)
-
-        test("commit on success"):
-          for
-            xa <- ZIO.service[Transactor]
-            count <- xa
-              .transact:
-                for a <- sql"insert into $testTable values ($frank, 50, 'frank@danos_deli.com')".insert
-                yield (a)
-            newNames <- xa.run:
-              sql"select * from $testTable".query[TestTable].map(_.map(_.name))
-          yield assertTrue(count == 1) &&
-            assertTrue(newNames.contains(frank)) &&
-            assertTrue(newNames.size == 5)
-
-        test("rollback on effect failure"):
-          val names = sql"select * from $testTable".query[TestTable].map(_.map(_.name))
-          for
-            xa <- ZIO.service[Transactor]
-            before <- xa.run:
+                _ <- sql"delete from $testTable where name = $bob".delete
+                _ <- sql"delete from $testTable where name = $alice".delete
+                _ <- sql"deli meat from $testTable where name = $charlie".delete // pastrami please - this will fail
+              yield ()
+            .flip
+          after <- xa
+            .run:
               names
-            error <- xa
-              .transact:
-                for
-                  _ <- sql"delete from $testTable where name = $bob".delete
-                  _ <- sql"delete from $testTable where name = $alice".delete
-                  _ <- sql"deli meat from $testTable where name = $charlie".delete // pastrami please - this will fail
-                yield ()
-              .flip
-            after <- xa
-              .run:
-                names
-          yield assertTrue(error.isInstanceOf[java.sql.SQLException]) && // the pastrami is a lie
-            assertTrue(after == before)
-          end for
-      .provideShared(readCommitted)
-    .provideShared(datasource) @@ TestAspect.sequential
+        yield assertTrue(error.isInstanceOf[java.sql.SQLException]) && // the pastrami is a lie
+          assertTrue(after == before)
+        end for
+  end transactionSuite
+
+  val all = suiteAll("A transactor"):
+    runSuite.provideShared(datasource)
+    transactionSuite.provideShared(readCommitted)
+
+  val spec = all @@ TestAspect.sequential
+
 end TransactorSpecs
