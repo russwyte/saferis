@@ -1,5 +1,5 @@
 package saferis
-import Instance.*
+import saferis.Instance.*
 import zio.Trace
 
 /** Provides DDL information about a table.

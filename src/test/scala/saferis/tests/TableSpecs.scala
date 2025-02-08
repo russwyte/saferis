@@ -1,7 +1,7 @@
 package saferis.tests
-import zio.test.*
-import zio.*
 import saferis.*
+import zio.*
+import zio.test.*
 
 object TableSpecs extends ZIOSpecDefault:
   @tableName("test_table")
@@ -15,31 +15,39 @@ object TableSpecs extends ZIOSpecDefault:
   val spec = suiteAll("Table"):
     test("table name"):
       assertTrue(testTable.sql == "test_table")
+
     test("column labels"):
       assertTrue(testTable.name.sql == "name") &&
         assertTrue(testTable.age.sql == "age") &&
         assertTrue(testTable.e.sql == "email")
+
     test("generated annotation"):
       assertTrue(testTable.name.isGenerated) &&
         assertTrue(!testTable.age.isGenerated) &&
         assertTrue(!testTable.e.isGenerated)
+
     test("key is assumed by generated annotation"):
       assertTrue(testTable.name.isKey) &&
         assertTrue(!testTable.age.isKey) &&
         assertTrue(!testTable.e.isKey)
+
     test("alias for table"):
       assertTrue(testTable.withAlias("tt").sql == "test_table as tt")
+
     test("alias for columns"):
       val tt     = testTable.withAlias("tt")
       val labels = tt.columns.map(_.sql)
       assertTrue(labels.forall(_.startsWith("tt.")))
+
     test("de-aliasing"):
       val tt     = testTable.withAlias("tt")
       val labels = tt.deAliased.columns.map(_.sql)
       assertTrue(labels.forall(!_.contains(".")))
+
     test("columns scala field names and labels"):
       assertTrue(testTable.columns.map(_.name) == List("name", "age", "e")) &&
         assertTrue(testTable.columns.map(_.label) == List("name", "age", "email"))
+
     test("provide getByKey"):
       val sql = testTable.getByKey("Frank").sql
       assertTrue(sql == "select * from test_table where name = ?")

@@ -2,9 +2,9 @@ package saferis
 
 import zio.*
 
+import java.sql.PreparedStatement
 import java.sql.ResultSet
 import scala.collection.mutable as m
-import java.sql.PreparedStatement
 
 type ScopedQuery[E] = ZIO[ConnectionProvider & Scope, Throwable, E]
 

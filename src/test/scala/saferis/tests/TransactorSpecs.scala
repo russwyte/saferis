@@ -1,11 +1,11 @@
 package foo.tests
 
 import saferis.*
+import saferis.tests.DataSourceProvider
 import zio.*
 import zio.test.*
 
 import java.sql.Connection
-import saferis.tests.DataSourceProvider
 import java.sql.SQLException
 
 object TransactorSpecs extends ZIOSpecDefault:

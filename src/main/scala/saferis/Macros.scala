@@ -1,8 +1,8 @@
 package saferis
 
 import java.sql.SQLException
-import scala.quoted.*
 import scala.annotation.StaticAnnotation
+import scala.quoted.*
 
 object Macros:
 
