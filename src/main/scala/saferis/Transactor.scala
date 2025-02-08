@@ -52,8 +52,7 @@ final class Transactor(
         .provideSomeLayer[Scope](ZLayer.succeed(ConnectionProvider.FromConnection(connection))) <* ZIO
         .attempt(connection.commit())
         .catchNonFatalOrDie: e =>
-          connection.rollback()
-          ZIO.fail(e)
+          ZIO.attempt(connection.rollback()) *> ZIO.fail(e)
     yield result
     ZIO.scoped:
       ZIO
