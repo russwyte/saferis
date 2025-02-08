@@ -22,7 +22,6 @@ object InterpolatorSpecs extends ZIOSpecDefault:
         val id   = 1L
         val frag = sql"where name = $name and age = $age"
         val sql  = sql"select * from test_table $frag and id = $id"
-        println(s"sql: ${sql}")
         assertTrue(sql.sql == "select * from test_table where name = ? and age = ? and id = ?") && assertTrue(
           sql.writes.size == 3
         )

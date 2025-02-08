@@ -4,6 +4,8 @@ import zio.*
 
 import java.sql.Connection
 
+type Configurator = Connection => Unit
+
 /** A transactor that can run ZIO effects that require a connection provider and a scope.
   *
   * @param connectionProvider
@@ -14,7 +16,7 @@ import java.sql.Connection
   */
 final class Transactor(
     connectionProvider: ConnectionProvider,
-    config: Connection => Unit,
+    configurator: Configurator,
     semaphore: Option[Semaphore],
 ):
   /** Run a ZIO effect that requires a connection provider and a scope.
@@ -45,7 +47,7 @@ final class Transactor(
   def transact[A](zio: ZIO[ConnectionProvider & Scope, Throwable, A])(using Trace): IO[Throwable, A] =
     val transaction = for
       connection <- connectionProvider.getConnection.map: con =>
-        config(con)
+        configurator(con)
         con.setAutoCommit(false)
         con
       result <- zio
@@ -64,29 +66,28 @@ final class Transactor(
 end Transactor
 
 object Transactor:
-  val defaultConfig = ZLayer.succeed((_: Connection) => ())
-  val layer =
+  val layer: URLayer[ConnectionProvider & Configurator & Option[Semaphore], Transactor] =
     ZLayer.derive[Transactor]
-  val noSemaphore: ULayer[Option[Semaphore]] = ZLayer.succeed(None)
-  val default                                = defaultConfig ++ noSemaphore >>> layer
-  def configLayer(config: Connection => Unit) =
-    ZLayer.succeed(config)
-  def semaphoreLayer(permitCount: Long) =
+
+  private def semaphoreLayer(permitCount: Long): ULayer[Option[Semaphore]] =
     ZLayer:
       Semaphore.make(permitCount).map(Some(_))
 
-  /** Construct a transactor layer.
+  /** Construct a Transactor layer.
     *
-    * @param config
+    * @param configurator
     *   configuration function (mutation) to apply to the connection before it is used - default is no-op
     * @param maxConcurrency
     *   the maximum number of connections that can be used concurrently. default is no limit (-1L)
     * @return
     */
   def layer(
-      config: Connection => Unit = _ => (),
+      configurator: Configurator = _ => (),
       maxConcurrency: Long = -1L,
-  ): ZLayer[ConnectionProvider, Nothing, Transactor] = Transactor.configLayer(config) ++
-    (if maxConcurrency < 1L then Transactor.noSemaphore
-     else Transactor.semaphoreLayer(maxConcurrency)) >>> Transactor.layer
+  ): URLayer[ConnectionProvider, Transactor] = ZLayer.succeed(configurator) ++
+    (if maxConcurrency < 1L then ZLayer.succeed(None)
+     else semaphoreLayer(maxConcurrency)) >>> Transactor.layer
+
+  val default: URLayer[ConnectionProvider, Transactor] = layer()
+
 end Transactor
