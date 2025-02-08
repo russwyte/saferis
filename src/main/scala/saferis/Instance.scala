@@ -1,19 +1,19 @@
 package saferis
-import Metadata.*
+import Instance.*
 import zio.Trace
 
 /** Provides DDL information about a table.
   *
-  * This class is derived via a macro. It can be derived from any Table[A] instance.
+  * This class is derived via a macro. It can be derived from a Table[A].
   *
   * @param tableName
   * @param fieldNamesToLabels
   * @param alias
   */
-final case class Metadata[E <: Product: Table](
-    private val tableName: String,
-    private val columns: Seq[Column[?]],
-    private val alias: Option[String],
+final case class Instance[A <: Product: Table](
+    private[saferis] val tableName: String,
+    private[saferis] val columns: Seq[Column[?]],
+    private[saferis] val alias: Option[String],
 ) extends Selectable
     with Placeholder:
   private[saferis] val fieldNamesToLabels: Map[String, Column[?]] = columns.map(c => c.name -> c).toMap
@@ -44,16 +44,9 @@ final case class Metadata[E <: Product: Table](
 
   final private[saferis] class TypedFragment(val fragment: SqlFragment):
     def sql                                                  = fragment.sql
-    inline def query(using Trace): ScopedQuery[Seq[E]]       = fragment.query[E]
-    inline def queryOne(using Trace): ScopedQuery[Option[E]] = fragment.queryOne[E]
-end Metadata
+    inline def query(using Trace): ScopedQuery[Seq[A]]       = fragment.query[A]
+    inline def queryOne(using Trace): ScopedQuery[Option[A]] = fragment.queryOne[A]
+end Instance
 
-object Metadata:
+object Instance:
   val getByKey = "getByKey"
-  transparent inline def apply[A <: Product] =
-    Macros.metadataOf[A]
-
-  transparent inline def apply[A <: Product](alias: String) =
-    Macros.metadataOf[A](alias)
-
-end Metadata

@@ -43,14 +43,10 @@ object Macros:
     Expr.ofSeq(columns)
   end columnsOfImpl
 
-  private[saferis] transparent inline def metadataOf[A <: Product] = ${ metadataOfImpl[A]('None) }
-  private transparent inline def metadataOf2[A <: Product](alias: Option[String]) = ${
-    metadataOfImpl[A]('alias)
-  }
-  private[saferis] transparent inline def metadataOf[A <: Product](alias: String) =
-    metadataOf2[A](Some(alias))
+  private[saferis] transparent inline def instanceOf[A <: Product](alias: Option[String]) =
+    ${ instanceImpl[A]('alias) }
 
-  private def metadataOfImpl[A <: Product: Type](alias: Expr[Option[String]])(using Quotes) =
+  private def instanceImpl[A <: Product: Type](alias: Expr[Option[String]])(using Quotes) =
     import quotes.reflect.*
     val columns             = columnsOfImpl[A]
     val name                = nameOfImpl[A]
@@ -63,22 +59,22 @@ object Macros:
       x =>
         keys.map: (_, tpe) =>
           tpe,
-      x => TypeRepr.of[Metadata[A]#TypedFragment],
+      x => TypeRepr.of[Instance[A]#TypedFragment],
     )
 
-    val ref3 = Refinement(refined, Metadata.getByKey, x)
+    val ref3 = Refinement(refined, Instance.getByKey, x)
     val res = ref3.asType match
       case '[t] =>
         '{
           val x = ${ summonTable[A] }
-          new Metadata[A](
+          new Instance[A](
             $name,
             $columns,
             $alias,
           )(using x).asInstanceOf[t]
         }
     res
-  end metadataOfImpl
+  end instanceImpl
 
   private def elemHasAnnotation[T: Type, A <: StaticAnnotation: Type](elemName: String)(using
       Quotes
@@ -190,10 +186,10 @@ object Macros:
     Apply(Select(Ref(companion), applyMethod), argsExprs.map(_.asTerm).toList).asExprOf[A]
   end makeImpl
 
-  // This method is used to refine the Metadata type with the field names/labels
-  // Metadata is a structural type
+  // This method is used to refine the Instance type with the field names/labels
+  // Instance is a structural type
   private def refinementForLabels(fieldNames: Seq[String])(using Quotes) =
     import quotes.reflect.*
-    fieldNames.foldLeft(TypeRepr.of[Metadata])((t, n) => Refinement(t, n, TypeRepr.of[Column[?]]))
+    fieldNames.foldLeft(TypeRepr.of[Instance])((t, n) => Refinement(t, n, TypeRepr.of[Column[?]]))
 
 end Macros

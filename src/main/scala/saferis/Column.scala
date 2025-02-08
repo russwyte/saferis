@@ -22,7 +22,7 @@ final case class label(name: String) extends StaticAnnotation
   */
 class generated extends key
 
-/** denotes fields of a case class that are the primary key
+/** denotes fields of a case class that make up a primary key
   */
 class key extends StaticAnnotation
 

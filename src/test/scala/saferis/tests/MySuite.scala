@@ -18,8 +18,9 @@ object MySuite extends ZIOSpecDefault:
       @label("email") e: Option[String],
   ) derives Table
 
-  val testTable = Table[TestTable].metadata
-  val foo       = testTable.withAlias("tt").getByKey(frank)
+  val testTable = Table[TestTable]
+
+  val foo = testTable.withAlias("tt").getByKey(frank)
   println(s"foo: ${foo.sql}")
   val frag = sql"where ${testTable.name} like $frank"
   println(frag.sql)
