@@ -10,7 +10,7 @@ import java.sql.SQLException
 
 object TransactorSpecs extends ZIOSpecDefault:
   val readCommitted = DataSourceProvider.default >>> Transactor.layer(
-    config = _.setTransactionIsolation(Connection.TRANSACTION_READ_COMMITTED),
+    config = _.setTransactionIsolation(Connection.TRANSACTION_SERIALIZABLE),
     maxConcurrency = 1,
   )
   val datasource = DataSourceProvider.default >>> Transactor.default

@@ -81,7 +81,7 @@ object Transactor:
     * @param config
     *   configuration function (mutation) to apply to the connection before it is used - default is no-op
     * @param maxConcurrency
-    *   \- the maximum number of connections that can be used concurrently. default is no limit (-1L)
+    *   the maximum number of connections that can be used concurrently. default is no limit (-1L)
     * @return
     */
   def layer(
