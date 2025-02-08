@@ -9,14 +9,16 @@ import saferis.tests.DataSourceProvider
 import java.sql.SQLException
 
 object TransactorSpecs extends ZIOSpecDefault:
-  val readCommitted = DataSourceProvider.default >+> Transactor.withConfig(
-    _.setTransactionIsolation(Connection.TRANSACTION_READ_COMMITTED)
+  val readCommitted = DataSourceProvider.default >>> Transactor.layer(
+    config = _.setTransactionIsolation(Connection.TRANSACTION_READ_COMMITTED),
+    maxConcurrency = 1,
   )
-  val datasource = DataSourceProvider.default >+> Transactor.default
+  val datasource = DataSourceProvider.default >>> Transactor.default
 
-  val frank = "Frank"
-  val bob   = "Bob"
-  val alice = "Alice"
+  val frank   = "Frank"
+  val bob     = "Bob"
+  val alice   = "Alice"
+  val charlie = "Charlie"
 
   @tableName("test_table")
   final case class TestTable(
@@ -30,13 +32,14 @@ object TransactorSpecs extends ZIOSpecDefault:
   val spec =
     suiteAll("A transactor"):
       suiteAll("should run"):
-        test("an all query"):
+        test("a select all query"):
           val sql = sql"select * from $testTable"
           for
             xa <- ZIO.service[Transactor]
             a <- xa.run:
               sql.query[TestTable]
           yield assertTrue(a.size == 4)
+
         test("a single row query"):
           val sql = sql"select * from $testTable where name = $alice"
           for
@@ -44,6 +47,7 @@ object TransactorSpecs extends ZIOSpecDefault:
             a <- xa.run:
               sql.queryOne[TestTable]
           yield assertTrue(a == Some(TestTable("Alice", Some(30), Some("alice@example.com"))))
+
       suiteAll("should run statements in a transaction"):
         test("yielding an effect of the result"):
           for
@@ -54,22 +58,40 @@ object TransactorSpecs extends ZIOSpecDefault:
                 b <- sql"select * from $testTable where name = $bob".queryOne[TestTable]
               yield a.toSeq ++ b.toSeq
           yield assertTrue(a.size == 2)
-        test("rollback on effect failure"):
-          val ex = new SQLException("nope")
+
+        test("commit on success"):
           for
             xa <- ZIO.service[Transactor]
-            a <- xa
+            count <- xa
+              .transact:
+                for a <- sql"insert into $testTable values ($frank, 50, 'frank@danos_deli.com')".insert
+                yield (a)
+            newNames <- xa.run:
+              sql"select * from $testTable".query[TestTable].map(_.map(_.name))
+          yield assertTrue(count == 1) &&
+            assertTrue(newNames.contains(frank)) &&
+            assertTrue(newNames.size == 5)
+
+        test("rollback on effect failure"):
+          val names = sql"select * from $testTable".query[TestTable].map(_.map(_.name))
+          for
+            xa <- ZIO.service[Transactor]
+            before <- xa.run:
+              names
+            error <- xa
               .transact:
                 for
                   _ <- sql"delete from $testTable where name = $bob".delete
-                  _ <- sql"delete from $testTable where name = $alice".delete.flatMap(_ => ZIO.fail(ex))
+                  _ <- sql"delete from $testTable where name = $alice".delete
+                  _ <- sql"deli meat from $testTable where name = $charlie".delete // pastrami please - this will fail
                 yield ()
               .flip
-            b <- xa
+            after <- xa
               .run:
-                sql"select * from $testTable".query[TestTable].map(_.map(_.name))
-          yield assertTrue(a == ex) && assertTrue(b.contains(bob)) && assertTrue(b.contains(alice))
+                names
+          yield assertTrue(error.isInstanceOf[java.sql.SQLException]) && // the pastrami is a lie
+            assertTrue(after == before)
           end for
       .provideShared(readCommitted)
-    .provideShared(datasource)
+    .provideShared(datasource) @@ TestAspect.sequential
 end TransactorSpecs

@@ -8,9 +8,15 @@ import java.sql.Connection
   *
   * @param connectionProvider
   * @param config
-  *   the configuration function (mutation) to apply to the connection before it is used
+  * @param semaphore
+  *   allows us to limit the number of connections that can be used concurrently. If None, then no limit the
+  *   configuration function (mutation) to apply to the connection before it is used
   */
-final class Transactor(connectionProvider: ConnectionProvider, config: Connection => Unit):
+final class Transactor(
+    connectionProvider: ConnectionProvider,
+    config: Connection => Unit,
+    semaphore: Option[Semaphore],
+):
   /** Run a ZIO effect that requires a connection provider and a scope.
     *
     * This method will provide the connection provider and the scope to the ZIO effect.
@@ -22,7 +28,13 @@ final class Transactor(connectionProvider: ConnectionProvider, config: Connectio
     * @return
     */
   def run[A](zio: ZIO[ConnectionProvider & Scope, Throwable, A])(using Trace): IO[Throwable, A] =
-    ZIO.scoped(zio).provideLayer(ZLayer.succeed(connectionProvider))
+    ZIO
+      .scoped:
+        ZIO
+          .blocking:
+            semaphore.fold(zio):
+              _.withPermit(zio)
+          .provideSomeLayer[Scope](ZLayer.succeed(connectionProvider))
 
   /** Run a ZIO effect that requires a connection provider and a scope. The connection will be configured to run
     * statements in a transaction.
@@ -32,9 +44,10 @@ final class Transactor(connectionProvider: ConnectionProvider, config: Connectio
     */
   def transact[A](zio: ZIO[ConnectionProvider & Scope, Throwable, A])(using Trace): IO[Throwable, A] =
     val transaction = for
-      connection <- connectionProvider.getConnection
-      _ = config(connection)
-      _ = connection.setAutoCommit(false)
+      connection <- connectionProvider.getConnection.map: con =>
+        config(con)
+        con.setAutoCommit(false)
+        con
       result <- zio
         .provideSomeLayer[Scope](ZLayer.succeed(ConnectionProvider.FromConnection(connection))) <* ZIO
         .attempt(connection.commit())
@@ -42,21 +55,39 @@ final class Transactor(connectionProvider: ConnectionProvider, config: Connectio
           connection.rollback()
           ZIO.fail(e)
     yield result
-    ZIO.scoped(transaction)
+    ZIO.scoped:
+      ZIO
+        .blocking:
+          semaphore.fold(transaction):
+            _.withPermit(transaction)
   end transact
 
 end Transactor
 
 object Transactor:
   val defaultConfig = ZLayer.succeed((_: Connection) => ())
-  val layer         = ZLayer.derive[Transactor]
-  val default       = defaultConfig >>> layer
+  val layer =
+    ZLayer.derive[Transactor]
+  val noSemaphore: ULayer[Option[Semaphore]] = ZLayer.succeed(None)
+  val default                                = defaultConfig ++ noSemaphore >>> layer
+  def configLayer(config: Connection => Unit) =
+    ZLayer.succeed(config)
+  def semaphoreLayer(permitCount: Long) =
+    ZLayer:
+      Semaphore.make(permitCount).map(Some(_))
 
-  /** Allows you to configure (mutate) the connection before it is used in a transaction etc
+  /** Construct a transactor layer.
     *
     * @param config
+    *   configuration function (mutation) to apply to the connection before it is used - default is no-op
+    * @param maxConcurrency
+    *   \- the maximum number of connections that can be used concurrently. default is no limit (-1L)
     * @return
     */
-  def withConfig(config: Connection => Unit): ZLayer[ConnectionProvider, Nothing, Transactor] =
-    ZLayer.succeed(config) >>> layer
+  def layer(
+      config: Connection => Unit = _ => (),
+      maxConcurrency: Long = -1L,
+  ): ZLayer[ConnectionProvider, Nothing, Transactor] = Transactor.configLayer(config) ++
+    (if maxConcurrency < 1L then Transactor.noSemaphore
+     else Transactor.semaphoreLayer(maxConcurrency)) >>> Transactor.layer
 end Transactor
