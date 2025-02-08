@@ -33,4 +33,17 @@ object TableSpecs extends ZIOSpecDefault:
       val tt     = testTable.withAlias("tt")
       val labels = tt.columns.map(_.sql)
       assertTrue(labels.forall(_.startsWith("tt.")))
+    test("de-aliasing"):
+      val tt     = testTable.withAlias("tt")
+      val labels = tt.deAliased.columns.map(_.sql)
+      assertTrue(labels.forall(!_.contains(".")))
+    test("columns scala field names and labels"):
+      assertTrue(testTable.columns.map(_.name) == List("name", "age", "e")) &&
+        assertTrue(testTable.columns.map(_.label) == List("name", "age", "email"))
+    test("provide getByKey"):
+      val sql = testTable.getByKey("Frank").sql
+      assertTrue(sql == "select * from test_table where name = ?")
+      val sql2 = testTable.withAlias("tt").getByKey("Frank").sql
+      assertTrue(sql2 == "select * from test_table as tt where tt.name = ?")
+
 end TableSpecs
