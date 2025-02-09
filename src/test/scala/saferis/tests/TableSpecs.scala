@@ -11,6 +11,10 @@ object TableSpecs extends ZIOSpecDefault:
       @label("email") e: Option[String],
   ) derives Table
 
+  val x = TestTable("Frank", Some(42), None)
+
+  println(x.values)
+
   val testTable = Table[TestTable]
   val spec = suiteAll("Table"):
     test("table name"):

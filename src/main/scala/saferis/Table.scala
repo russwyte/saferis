@@ -2,6 +2,8 @@ package saferis
 
 import scala.annotation.StaticAnnotation
 
+export saferis.Table.values
+
 final case class tableName(name: String) extends StaticAnnotation
 
 sealed trait Table[A <: Product]:
@@ -17,5 +19,9 @@ object Table:
 
   inline def derived[A <: Product]: Table[A] =
     Derived[A](Macros.nameOf[A], Macros.columnsOf[A])
+  extension [A <: Product: Table as table](a: A)
+    inline def values =
+      println(s"valuesOf: $a")
+      Macros.valuesOf(a)
 
 end Table

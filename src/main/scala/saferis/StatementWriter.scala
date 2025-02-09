@@ -38,6 +38,11 @@ trait StatementWriter[A]:
 end StatementWriter
 
 object StatementWriter:
+  given optionWriter[A: StatementWriter as writer]: StatementWriter[Option[A]] with
+    def write(a: Option[A], stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
+      // todo: verify that this is correct
+      a.fold(ZIO.attempt(stmt.setNull(idx, java.sql.Types.JAVA_OBJECT))): a =>
+        writer.write(a, stmt, idx)
   given StatementWriter[String] with
     def write(a: String, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
       ZIO.attempt:

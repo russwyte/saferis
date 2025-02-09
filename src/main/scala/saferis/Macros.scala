@@ -192,4 +192,45 @@ object Macros:
     import quotes.reflect.*
     fieldNames.foldLeft(TypeRepr.of[Instance])((t, n) => Refinement(t, n, TypeRepr.of[Column[?]]))
 
+  private def summonStatementWriter[T: Type](using Quotes): Expr[StatementWriter[T]] =
+    import quotes.reflect.*
+    Expr
+      .summon[StatementWriter[T]]
+      .orElse(
+        TypeRepr.of[T].widen.asType match
+          case '[tpe] =>
+            Expr
+              .summon[StatementWriter[tpe]]
+              .map(codec => '{ $codec.asInstanceOf[StatementWriter[T]] })
+      )
+      .getOrElse:
+        report.errorAndAbort(s"Could not find a StatementWriter instance for ${Type.show[T]}")
+  end summonStatementWriter
+
+  private[saferis] inline def valuesOf[A <: Product](instance: A): List[(String, Placeholder)] = ${
+    valuesOfImpl('instance)
+  }
+
+  private def valuesOfImpl[A <: Product: Type](instance: Expr[A])(using
+      Quotes
+  ): Expr[List[(String, Placeholder)]] =
+    import quotes.reflect.*
+    val tpe    = TypeRepr.of[A]
+    val fields = tpe.typeSymbol.caseFields
+    val fieldValues = fields.map { field =>
+      val fieldName = field.name
+      val fieldType = tpe.memberType(field)
+      val fieldValue =
+        fieldType.asType match
+          case '[ft] =>
+            val f = Select(instance.asTerm, field).asExprOf[ft]
+            val w = summonStatementWriter[ft]
+            '{ Placeholder($f)(using $w) }
+
+      '{ (${ Expr(fieldName) }, $fieldValue) }
+    }
+
+    Expr.ofList(fieldValues)
+  end valuesOfImpl
+
 end Macros
