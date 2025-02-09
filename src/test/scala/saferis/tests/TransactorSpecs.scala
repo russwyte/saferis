@@ -22,7 +22,7 @@ object TransactorSpecs extends ZIOSpecDefault:
 
   @tableName("test_table")
   final case class TestTable(
-      @generated name: String,
+      @key name: String,
       age: Option[Int],
       @label("email") e: Option[String],
   ) derives Table
@@ -63,13 +63,12 @@ object TransactorSpecs extends ZIOSpecDefault:
       test("commit on success"):
         for
           xa <- ZIO.service[Transactor]
-          count <- xa
+          a <- xa
             .transact:
-              for a <- sql"insert into $testTable values ($frank, 50, 'frank@danos_deli.com')".insert
-              yield (a)
+              insertReturning(TestTable(frank, Some(42), None))
           newNames <- xa.run:
             sql"select * from $testTable".query[TestTable].map(_.map(_.name))
-        yield assertTrue(count == 1) &&
+        yield assertTrue(a.name == frank) &&
           assertTrue(newNames.contains(frank)) &&
           assertTrue(newNames.size == 5)
 

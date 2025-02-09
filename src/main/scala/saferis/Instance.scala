@@ -16,8 +16,8 @@ final case class Instance[A <: Product: Table](
     private[saferis] val alias: Option[String],
 ) extends Selectable
     with Placeholder:
-  private[saferis] val fieldNamesToLabels: Map[String, Column[?]] = columns.map(c => c.name -> c).toMap
-  def selectDynamic(name: String)                                 = fieldNamesToLabels(name)
+  private[saferis] val fieldNamesToColumns: Map[String, Column[?]] = columns.map(c => c.name -> c).toMap
+  def selectDynamic(name: String)                                  = fieldNamesToColumns(name)
   def applyDynamic[A: StatementWriter](name: String)(args: A*) =
     (name, args) match
       case (getByKey, as) =>
@@ -31,6 +31,7 @@ final case class Instance[A <: Product: Table](
                 case (acc, (c, a)) =>
                   acc :+ sql" and $c = $a"
         TypedFragment(sql"select * from $this $whereClause")
+
   override def sql: String                            = alias.fold(tableName)(a => s"$tableName as $a")
   override private[saferis] def writes: Seq[Write[?]] = Seq.empty
 

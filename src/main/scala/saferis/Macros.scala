@@ -207,11 +207,11 @@ object Macros:
         report.errorAndAbort(s"Could not find a StatementWriter instance for ${Type.show[T]}")
   end summonStatementWriter
 
-  private[saferis] inline def valuesOf[A <: Product](instance: A): List[(String, Placeholder)] = ${
-    valuesOfImpl('instance)
+  private[saferis] inline def columnPlaceholders[A <: Product](instance: A): List[(String, Placeholder)] = ${
+    columnPlaceholdersImpl('instance)
   }
 
-  private def valuesOfImpl[A <: Product: Type](instance: Expr[A])(using
+  private def columnPlaceholdersImpl[A <: Product: Type](instance: Expr[A])(using
       Quotes
   ): Expr[List[(String, Placeholder)]] =
     import quotes.reflect.*
@@ -231,6 +231,6 @@ object Macros:
     }
 
     Expr.ofList(fieldValues)
-  end valuesOfImpl
+  end columnPlaceholdersImpl
 
 end Macros

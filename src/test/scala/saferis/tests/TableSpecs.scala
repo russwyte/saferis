@@ -13,8 +13,6 @@ object TableSpecs extends ZIOSpecDefault:
 
   val x = TestTable("Frank", Some(42), None)
 
-  println(x.values)
-
   val testTable = Table[TestTable]
   val spec = suiteAll("Table"):
     test("table name"):

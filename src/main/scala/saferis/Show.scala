@@ -15,6 +15,7 @@ private def showImpl[T: Type](x: Expr[T])(using Quotes): Expr[T] =
   val tp   = Type.show
   val code = term.show(using Printer.TreeAnsiCode)
   val tree = term.show(using Printer.TreeStructure)
-  println(s"Type: $tp\n\nRepr: $code\n\nTree: $tree")
+  val s    = s"Type: $tp\n\nRepr: $code\n\nTree: $tree"
+  report.info(s, Position.ofMacroExpansion)
   x
 end showImpl

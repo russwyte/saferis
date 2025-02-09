@@ -35,13 +35,14 @@ trait StatementWriter[A]:
     new StatementWriter[B]:
       def write(b: B, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
         f(b).flatMap(a => self.write(a, stmt, idx))
+  def sqlType: Int = java.sql.Types.JAVA_OBJECT
 end StatementWriter
 
 object StatementWriter:
   given optionWriter[A: StatementWriter as writer]: StatementWriter[Option[A]] with
     def write(a: Option[A], stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
       // todo: verify that this is correct
-      a.fold(ZIO.attempt(stmt.setNull(idx, java.sql.Types.JAVA_OBJECT))): a =>
+      a.fold(ZIO.attempt(stmt.setNull(idx, java.sql.Types.NULL))): a =>
         writer.write(a, stmt, idx)
   given StatementWriter[String] with
     def write(a: String, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =

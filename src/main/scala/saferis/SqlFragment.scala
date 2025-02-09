@@ -35,6 +35,7 @@ final case class SqlFragment(
           }
         loop(Vector.newBuilder[E])
     yield results
+    end for
   end query
 
   inline def queryOne[E <: Product: Table](using Trace): ScopedQuery[Option[E]] =

@@ -6,6 +6,7 @@ ThisBuild / scalaVersion := scala3Version
 ThisBuild / scalacOptions ++= Seq(
   "-deprecation",
   "-Wunused:all",
+  "-feature",
 )
 ThisBuild / scalafixDependencies += "com.github.vovapolu" %% "scaluzzi" % "0.1.23"
 ThisBuild / libraryDependencies ++= Seq(
