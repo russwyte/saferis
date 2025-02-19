@@ -35,7 +35,7 @@ lazy val root = project
     publishTo              := sonatypePublishToBundle.value,
     versionScheme          := Some("early-semver"),
     libraryDependencies ++= Seq(
-      "dev.zio"           %% "zio"                       % zioVersion,
+      "dev.zio"           %% "zio"                       % zioVersion % "provided",
       "dev.zio"           %% "zio-logging-slf4j2-bridge" % "2.4.0"    % Test,
       "dev.zio"           %% "zio-test"                  % zioVersion % Test,
       "dev.zio"           %% "zio-test-sbt"              % zioVersion % Test,
