@@ -10,7 +10,7 @@ import java.sql.PreparedStatement
   * @param a
   * @param writer
   */
-final class Write[A: StatementWriter as writer](a: A):
+final class Write[A: Writable as writer](a: A):
   /** convenience method to get the placeholder from the writer so that the writer does not need to be summoned
     *
     * @return

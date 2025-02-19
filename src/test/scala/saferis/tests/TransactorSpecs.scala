@@ -20,7 +20,7 @@ object TransactorSpecs extends ZIOSpecDefault:
   val alice   = "Alice"
   val charlie = "Charlie"
 
-  @tableName("test_table")
+  @tableName("test_table_no_key")
   final case class TestTable(
       @key name: String,
       age: Option[Int],

@@ -4,7 +4,7 @@ import zio.*
 import zio.test.*
 
 object TableSpecs extends ZIOSpecDefault:
-  @tableName("test_table")
+  @tableName("test_table_no_key")
   final case class TestTable(
       @generated name: String,
       age: Option[Int],
@@ -16,7 +16,7 @@ object TableSpecs extends ZIOSpecDefault:
   val testTable = Table[TestTable]
   val spec = suiteAll("Table"):
     test("table name"):
-      assertTrue(testTable.sql == "test_table")
+      assertTrue(testTable.sql == "test_table_no_key")
 
     test("column labels"):
       assertTrue(testTable.name.sql == "name") &&
@@ -34,7 +34,7 @@ object TableSpecs extends ZIOSpecDefault:
         assertTrue(!testTable.e.isKey)
 
     test("alias for table"):
-      assertTrue(testTable.withAlias("tt").sql == "test_table as tt")
+      assertTrue(testTable.withAlias("tt").sql == "test_table_no_key as tt")
 
     test("alias for columns"):
       val tt     = testTable.withAlias("tt")
@@ -52,8 +52,8 @@ object TableSpecs extends ZIOSpecDefault:
 
     test("provide getByKey"):
       val sql = testTable.getByKey("Frank").sql
-      assertTrue(sql == "select * from test_table where name = ?")
+      assertTrue(sql == "select * from test_table_no_key where name = ?")
       val sql2 = testTable.withAlias("tt").getByKey("Frank").sql
-      assertTrue(sql2 == "select * from test_table as tt where tt.name = ?")
+      assertTrue(sql2 == "select * from test_table_no_key as tt where tt.name = ?")
 
 end TableSpecs

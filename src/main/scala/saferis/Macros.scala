@@ -192,16 +192,16 @@ object Macros:
     import quotes.reflect.*
     fieldNames.foldLeft(TypeRepr.of[Instance])((t, n) => Refinement(t, n, TypeRepr.of[Column[?]]))
 
-  private def summonStatementWriter[T: Type](using Quotes): Expr[StatementWriter[T]] =
+  private def summonStatementWriter[T: Type](using Quotes): Expr[Writable[T]] =
     import quotes.reflect.*
     Expr
-      .summon[StatementWriter[T]]
+      .summon[Writable[T]]
       .orElse(
         TypeRepr.of[T].widen.asType match
           case '[tpe] =>
             Expr
-              .summon[StatementWriter[tpe]]
-              .map(codec => '{ $codec.asInstanceOf[StatementWriter[T]] })
+              .summon[Writable[tpe]]
+              .map(codec => '{ $codec.asInstanceOf[Writable[T]] })
       )
       .getOrElse:
         report.errorAndAbort(s"Could not find a StatementWriter instance for ${Type.show[T]}")

@@ -18,9 +18,13 @@ final case class SqlFragment(
     yield (Macros.make[E](cs))
   end make
 
-  private def doWrites(statement: PreparedStatement)(using Trace) = ZIO.foreach(writes.zipWithIndex): (write, idx) =>
-    write.write(statement, idx + 1)
+  private def doWrites(statement: PreparedStatement)(using Trace) = ZIO.foreachDiscard(writes.zipWithIndex):
+    (write, idx) => write.write(statement, idx + 1)
 
+  /** Executes a query and returns an effect of a sequence of [[Table]] instances.
+    *
+    * @return
+    */
   inline def query[E <: Product: Table](using Trace): ScopedQuery[Seq[E]] =
     for
       connection <- ZIO.serviceWithZIO[ConnectionProvider](_.getConnection)
@@ -38,6 +42,10 @@ final case class SqlFragment(
     end for
   end query
 
+  /** Executes a query and returns an effect of an option of [[Table]]. If the query returns no rows, None is returned.
+    *
+    * @return
+    */
   inline def queryOne[E <: Product: Table](using Trace): ScopedQuery[Option[E]] =
     for
       connection <- ZIO.serviceWithZIO[ConnectionProvider](_.getConnection)
@@ -85,10 +93,33 @@ final case class SqlFragment(
       result <- ZIO.attempt(statement.executeUpdate())
     yield result
 
+  /** Strips leading whitespace from each line in the SQL string, and removes the margin character. See
+    * [[String.stripMargin]]
+    *
+    * @param marginChar
+    * @return
+    */
   def stripMargin(marginChar: Char) = copy(sql = sql.stripMargin(marginChar))
-  def stripMargin                   = copy(sql = sql.stripMargin)
 
+  /** Strips leading whitespace from each line in the SQL string, and removes the margin character. Using the default
+    * margin character '|'. See [[String.stripMargin]]
+    *
+    * @return
+    */
+  def stripMargin = copy(sql = sql.stripMargin)
+
+  /** Appends another [[SqlFragment]] to this one.
+    *
+    * @param other
+    * @return
+    */
   def append(other: SqlFragment) = copy(sql = sql + other.sql, writes = writes ++ other.writes)
-  def :+(other: SqlFragment)     = append(other)
+
+  /** alias for [[append]]
+    *
+    * @param other
+    * @return
+    */
+  def :+(other: SqlFragment) = append(other)
 
 end SqlFragment

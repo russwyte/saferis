@@ -10,13 +10,13 @@ trait Placeholder:
   def sql: String
 
 object Placeholder:
-  def apply[A: StatementWriter as sw](a: A): Placeholder = Derived(Seq(sw(a)), sw.placeholder(a))
-  def apply[A](p: Placeholder)                           = p
+  def apply[A: Writable as sw](a: A): Placeholder = Derived(Seq(sw(a)), sw.placeholder(a))
+  def apply[A](p: Placeholder)                    = p
   def allWrites(ps: Seq[Placeholder]): Seq[Write[?]] = ps.flatMap: p =>
     p.writes
   final private case class Derived(override private[saferis] val writes: Seq[Write[?]], sql: String) extends Placeholder
 
-  given convertToPlaceholder[A: StatementWriter as sw: Tag]: Conversion[A, Placeholder] with
+  given convertToPlaceholder[A: Writable as sw: Tag]: Conversion[A, Placeholder] with
     def apply(a: A): Placeholder =
       Derived(Vector(sw(a)), sw.placeholder(a))
 
