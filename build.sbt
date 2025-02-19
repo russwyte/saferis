@@ -33,6 +33,7 @@ lazy val root = project
     pomIncludeRepository   := { _ => false },
     sonatypeCredentialHost := sonatypeCentralHost,
     publishTo              := sonatypePublishToBundle.value,
+    versionScheme          := Some("early-semver"),
     libraryDependencies ++= Seq(
       "dev.zio"           %% "zio"                       % zioVersion,
       "dev.zio"           %% "zio-logging-slf4j2-bridge" % "2.4.0"    % Test,
