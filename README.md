@@ -17,13 +17,13 @@ Here are some of the goals/features that are important to me:
 - safe SQL interpolator that protects against SQL injection by building up a prepared statement.
   - interpolation results is an SqlFragment
   - supports any Writeable type class within the fragment - including other sql fragments
-- decoupled Reader/Writer type-classes allows you implement only one or the other if you like.
-- label based reading/writing
+- decoupled decoder/encoder type-classes allows you implement only one or the other if you like.
+- label based decoding
   - more safe than index based (can't accidentally grab a column of a compatible type and use it in the wrong class field)
   - less error prone and more flexible - the order of the columns should not need to match the order of the product fields
-- Reader type class with read as an effect
-- Writer type class with write as an effect
-- effectual Reader/Writer types allow us to ZIO patterns for handling failures etc (like falling back to another reader/writer)
+- decoder type class with decode as an effect
+- encoder type class with encode as an effect
+- effectual codec types allow us to ZIO patterns for handling failures etc (like falling back to another read/write mechanism)
 - scoped:
   - connections
   - queries

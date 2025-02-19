@@ -25,22 +25,6 @@ object Interpolator:
 
   end sqlImpl
 
-  private def summonStatementWriter[T: Type](using Quotes): Expr[Writable[T]] =
-    import quotes.reflect.*
-
-    Expr
-      .summon[Writable[T]]
-      .orElse(
-        TypeRepr.of[T].widen.asType match
-          case '[tpe] =>
-            Expr
-              .summon[Writable[tpe]]
-              .map(codec => '{ $codec.asInstanceOf[Writable[T]] })
-      )
-      .getOrElse:
-        report.errorAndAbort(s"Could not find a StatementWriter instance for ${Type.show[T]}")
-  end summonStatementWriter
-
   type HoldersBuilder = m.Builder[Placeholder, Vector[Placeholder]]
 
   private def getPlaceHoldersExpr(all: Seq[Expr[Any]], builder: Expr[HoldersBuilder])(using
@@ -61,7 +45,7 @@ object Interpolator:
 
   private def summonPlaceholder[T: Type](arg: Expr[T])(using Quotes): Expr[Placeholder] =
     '{
-      val sw = ${ summonStatementWriter[T] }
-      Placeholder(${ arg })(using sw)
+      val e = ${ Macros.summonEncoder[T] }
+      Placeholder(${ arg })(using e)
     }
 end Interpolator

@@ -34,7 +34,7 @@ class key extends StaticAnnotation
   *   the column name/label in the result set
   * @param reader
   */
-final case class Column[R: Reader as reader](
+final case class Column[R: Decoder as readable](
     name: String,
     label: String,
     isKey: Boolean,
@@ -46,6 +46,6 @@ final case class Column[R: Reader as reader](
   val sql    = tableAlias.fold(label)(a => s"$a.$label")
 
   private[saferis] def read(rs: ResultSet)(using Trace): Task[(String, R)] =
-    reader.read(rs, label).map(v => name -> v)
+    readable.decode(rs, label).map(v => name -> v)
   private[saferis] def withTableAlias(alias: Option[String]) = copy(tableAlias = alias)
 end Column

@@ -30,7 +30,7 @@ object Macros:
         case valDef: ValDef =>
           valDef.tpt.tpe.asType match
             case '[a] =>
-              val reader = summonReader[a]
+              val reader = summonDecoder[a]
               '{
                 val label       = ${ getLabel[A](fieldName) }
                 val isKey       = ${ elemHasAnnotation[A, saferis.key](fieldName) }
@@ -127,20 +127,27 @@ object Macros:
       .getOrElse(Expr(elemName))
   end getLabel
 
-  private def summonReader[T: Type](using Quotes): Expr[Reader[T]] =
+  private def summonDecoder[T: Type](using Quotes): Expr[Decoder[T]] =
     import quotes.reflect.*
     Expr
-      .summon[Reader[T]]
+      .summon[Decoder[T]]
       .orElse(
         TypeRepr.of[T].widen.asType match
           case '[tpe] =>
             Expr
-              .summon[Reader[tpe]]
-              .map(codec => '{ $codec.asInstanceOf[Reader[T]] })
+              .summon[Decoder[tpe]]
+              .map(d => '{ $d.asInstanceOf[Decoder[T]] })
+      )
+      .orElse(
+        TypeRepr.of[T].widen.asType match
+          case '[tpe] =>
+            Expr
+              .summon[Codec[tpe]]
+              .map(codec => '{ $codec.asInstanceOf[Decoder[T]] })
       )
       .getOrElse:
-        report.errorAndAbort(s"Could not find a Reader instance for ${Type.show[T]}")
-  end summonReader
+        report.errorAndAbort(s"Could not find a Decoder for ${Type.show[T]}")
+  end summonDecoder
 
   private def summonTable[T <: Product: Type](using Quotes): Expr[Table[T]] =
     import quotes.reflect.*
@@ -192,20 +199,27 @@ object Macros:
     import quotes.reflect.*
     fieldNames.foldLeft(TypeRepr.of[Instance])((t, n) => Refinement(t, n, TypeRepr.of[Column[?]]))
 
-  private def summonStatementWriter[T: Type](using Quotes): Expr[Writable[T]] =
+  private[saferis] def summonEncoder[T: Type](using Quotes): Expr[Encoder[T]] =
     import quotes.reflect.*
     Expr
-      .summon[Writable[T]]
+      .summon[Encoder[T]]
       .orElse(
         TypeRepr.of[T].widen.asType match
           case '[tpe] =>
             Expr
-              .summon[Writable[tpe]]
-              .map(codec => '{ $codec.asInstanceOf[Writable[T]] })
+              .summon[Encoder[tpe]]
+              .map(e => '{ $e.asInstanceOf[Encoder[T]] })
+      )
+      .orElse(
+        TypeRepr.of[T].widen.asType match
+          case '[tpe] =>
+            Expr
+              .summon[Codec[tpe]]
+              .map(codec => '{ $codec.asInstanceOf[Encoder[T]] })
       )
       .getOrElse:
-        report.errorAndAbort(s"Could not find a StatementWriter instance for ${Type.show[T]}")
-  end summonStatementWriter
+        report.errorAndAbort(s"Could not find Encoder for ${Type.show[T]}")
+  end summonEncoder
 
   private[saferis] inline def columnPlaceholders[A <: Product](instance: A): List[(String, Placeholder)] = ${
     columnPlaceholdersImpl('instance)
@@ -224,8 +238,8 @@ object Macros:
         fieldType.asType match
           case '[ft] =>
             val f = Select(instance.asTerm, field).asExprOf[ft]
-            val w = summonStatementWriter[ft]
-            '{ Placeholder($f)(using $w) }
+            val e = summonEncoder[ft]
+            '{ Placeholder($f)(using $e) }
 
       '{ (${ Expr(fieldName) }, $fieldValue) }
     }

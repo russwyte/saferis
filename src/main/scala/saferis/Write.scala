@@ -10,7 +10,7 @@ import java.sql.PreparedStatement
   * @param a
   * @param writer
   */
-final class Write[A: Writable as writer](a: A):
+final class Write[A: Encoder as writer](a: A):
   /** convenience method to get the placeholder from the writer so that the writer does not need to be summoned
     *
     * @return
@@ -25,6 +25,6 @@ final class Write[A: Writable as writer](a: A):
     * @return
     */
   def write(stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
-    writer.write(a, stmt, idx)
+    writer.encode(a, stmt, idx)
   override def toString(): String = s"Write($a:${a.getClass().getName()})"
 end Write

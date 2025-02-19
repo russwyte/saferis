@@ -18,7 +18,7 @@ final case class Instance[A <: Product: Table](
     with Placeholder:
   private[saferis] val fieldNamesToColumns: Map[String, Column[?]] = columns.map(c => c.name -> c).toMap
   def selectDynamic(name: String)                                  = fieldNamesToColumns(name)
-  def applyDynamic[A: Writable](name: String)(args: A*) =
+  def applyDynamic[A: Encoder](name: String)(args: A*) =
     (name, args) match
       case (getByKey, as) =>
         val cs: Seq[Column[?]] =
