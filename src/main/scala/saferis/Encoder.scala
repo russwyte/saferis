@@ -31,7 +31,13 @@ trait Encoder[A]:
     * @return
     */
   def apply(a: A): Write[A] = Write(a)(using this)
-  def contramapOrFail[B](f: B => Task[A]): Encoder[B] =
+
+  /** transform am Encoder[A] to Encoder[B] by mapping the value of A to Task[B]
+    *
+    * @param f
+    * @return
+    */
+  def transform[B](f: B => Task[A]): Encoder[B] =
     new Encoder[B]:
       def encode(b: B, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
         f(b).flatMap(a => self.encode(a, stmt, idx))
@@ -75,4 +81,24 @@ object Encoder:
     def encode(a: java.sql.Date, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
       ZIO.attempt:
         stmt.setDate(idx, a)
+  given bigDecimal: Encoder[BigDecimal] with
+    def encode(a: BigDecimal, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
+      ZIO.attempt:
+        stmt.setBigDecimal(idx, a.bigDecimal)
+  given bigInt: Encoder[BigInt] with
+    def encode(a: BigInt, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
+      ZIO.attempt:
+        stmt.setBigDecimal(idx, BigDecimal(a).bigDecimal)
+  given time: Encoder[java.sql.Time] with
+    def encode(a: java.sql.Time, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
+      ZIO.attempt:
+        stmt.setTime(idx, a)
+  given timestamp: Encoder[java.sql.Timestamp] with
+    def encode(a: java.sql.Timestamp, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
+      ZIO.attempt:
+        stmt.setTimestamp(idx, a)
+  given url: Encoder[java.net.URL] with
+    def encode(a: java.net.URL, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
+      ZIO.attempt:
+        stmt.setURL(idx, a)
 end Encoder

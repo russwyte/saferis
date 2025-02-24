@@ -3,14 +3,16 @@ import zio.*
 
 trait Codec[A]:
   self =>
-  def encode(a: A, stmt: java.sql.PreparedStatement, idx: Int)(using Trace): zio.Task[Unit]
-  def decode(rs: java.sql.ResultSet, name: String)(using Trace): zio.Task[A]
+  val encoder: Encoder[A]
+  val decoder: Decoder[A]
+  def encode(a: A, stmt: java.sql.PreparedStatement, idx: Int)(using Trace): zio.Task[Unit] =
+    encoder.encode(a, stmt, idx)
+  def decode(rs: java.sql.ResultSet, name: String)(using Trace): zio.Task[A] =
+    decoder.decode(rs, name)
   def transform[B](map: A => Task[B])(contramap: B => Task[A]): Codec[B] =
     new Codec[B]:
-      def encode(b: B, stmt: java.sql.PreparedStatement, idx: Int)(using Trace): zio.Task[Unit] =
-        contramap(b).flatMap(a => self.encode(a, stmt, idx))
-      def decode(rs: java.sql.ResultSet, name: String)(using Trace): zio.Task[B] =
-        self.decode(rs, name).flatMap(map)
+      val encoder: Encoder[B] = self.encoder.transform(contramap)
+      val decoder: Decoder[B] = self.decoder.transform(map)
 end Codec
 object Codec:
   def apply[A: Encoder as encoder: Decoder as decoder]: Codec[A] = codec[A]
@@ -22,20 +24,20 @@ object Codec:
   val float                                                      = Codec[Float]
   val double                                                     = Codec[Double]
   val date                                                       = Codec[java.sql.Date]
-  given codec[A: Encoder as encoder: Decoder as decoder]: Codec[A] with
-    def encode(a: A, stmt: java.sql.PreparedStatement, idx: Int)(using Trace): zio.Task[Unit] =
-      encoder.encode(a, stmt, idx)
-    def decode(rs: java.sql.ResultSet, name: String)(using Trace): zio.Task[A] =
-      decoder.decode(rs, name)
+  val bigDecimal                                                 = Codec[BigDecimal]
+  val bigInt                                                     = Codec[BigInt]
+  val time                                                       = Codec[java.sql.Time]
+  val timestamp                                                  = Codec[java.sql.Timestamp]
+  val url                                                        = Codec[java.net.URL]
+
+  given encoder[A: Codec as codec]: Encoder[A] = codec.encoder
+  given decoder[A: Codec as codec]: Decoder[A] = codec.decoder
+
+  given codec[A: Encoder as enc: Decoder as dec]: Codec[A] with
+    val encoder: Encoder[A] = enc
+    val decoder: Decoder[A] = dec
+
   given option[A: Codec as codec]: Codec[Option[A]] with
-    def encode(a: Option[A], stmt: java.sql.PreparedStatement, idx: Int)(using Trace): zio.Task[Unit] =
-      a.fold(zio.ZIO.attempt(stmt.setNull(idx, java.sql.Types.NULL))): a =>
-        codec.encode(a, stmt, idx)
-    def decode(rs: java.sql.ResultSet, name: String)(using Trace): zio.Task[Option[A]] =
-      ZIO
-        .attempt(rs.getObject(name))
-        .flatMap: a =>
-          if a == null then ZIO.succeed(None)
-          else codec.decode(rs, name).map(Some(_))
-  end option
+    val encoder: Encoder[Option[A]] = Encoder.option[A]
+    val decoder: Decoder[Option[A]] = Decoder.option[A]
 end Codec
