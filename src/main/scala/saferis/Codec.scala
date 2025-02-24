@@ -1,8 +1,10 @@
 package saferis
 import zio.*
 
-trait Codec[A] extends Encoder[A] with Decoder[A]:
+trait Codec[A]:
   self =>
+  def encode(a: A, stmt: java.sql.PreparedStatement, idx: Int)(using Trace): zio.Task[Unit]
+  def decode(rs: java.sql.ResultSet, name: String)(using Trace): zio.Task[A]
   def transform[B](map: A => Task[B])(contramap: B => Task[A]): Codec[B] =
     new Codec[B]:
       def encode(b: B, stmt: java.sql.PreparedStatement, idx: Int)(using Trace): zio.Task[Unit] =

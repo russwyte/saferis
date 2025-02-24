@@ -36,11 +36,11 @@ lazy val root = project
     versionScheme          := Some("early-semver"),
     libraryDependencies ++= Seq(
       "dev.zio"           %% "zio"                       % zioVersion % "provided",
-      "dev.zio"           %% "zio-logging-slf4j2-bridge" % "2.4.0"    % Test,
+      "dev.zio"           %% "zio-logging-slf4j2-bridge" % "2.5.0"    % Test,
       "dev.zio"           %% "zio-test"                  % zioVersion % Test,
       "dev.zio"           %% "zio-test-sbt"              % zioVersion % Test,
       "dev.zio"           %% "zio-test-magnolia"         % zioVersion % Test,
-      "org.testcontainers" % "postgresql"                % "1.20.4"   % Test,
+      "org.testcontainers" % "postgresql"                % "1.20.5"   % Test,
       "org.postgresql"     % "postgresql"                % "42.7.5"   % Test,
     ),
     scalacOptions ++= Seq(
