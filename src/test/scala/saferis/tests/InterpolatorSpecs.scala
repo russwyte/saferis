@@ -9,7 +9,7 @@ object InterpolatorSpecs extends ZIOSpecDefault:
     suiteAll("interpolator"):
       test("simple interpolation"):
         val name = "Bob"
-        val sql  = sql"select * from test_table_no_key where name = $name"
+        val sql  = sqlEcho"select * from test_table_no_key where name = $name"
         assertTrue(sql.sql == "select * from test_table_no_key where name = ?")
       test("multiple interpolations"):
         val name = "Bob"
@@ -32,7 +32,7 @@ object InterpolatorSpecs extends ZIOSpecDefault:
         val age  = 42
 
         val frag =
-          sql"""|select *
+          sqlEcho"""|select *
                 |from test_table_no_key
                 |where name = $name and age = $age""".stripMargin
         assertTrue(
@@ -40,6 +40,11 @@ object InterpolatorSpecs extends ZIOSpecDefault:
             """|select *
                |from test_table_no_key
                |where name = ? and age = ?""".stripMargin
+        )
+      test("with constant argument"):
+        val sql = sql"select * from test_table_no_key where name = ${"foo"} and age = ${12} and id = 1"
+        assertTrue(sql.sql == "select * from test_table_no_key where name = ? and age = ? and id = 1") && assertTrue(
+          sql.writes.size == 2
         )
 
 end InterpolatorSpecs
