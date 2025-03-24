@@ -1,7 +1,7 @@
 package saferis
 import zio.*
 
-trait Codec[A]:
+trait Codec[A] extends Encoder[A], Decoder[A]:
   self =>
   val encoder: Encoder[A]
   val decoder: Decoder[A]
@@ -30,8 +30,8 @@ object Codec:
   val timestamp                                                  = Codec[java.sql.Timestamp]
   val url                                                        = Codec[java.net.URL]
 
-  given encoder[A: Codec as codec]: Encoder[A] = codec.encoder
-  given decoder[A: Codec as codec]: Decoder[A] = codec.decoder
+  // given encoder[A: Codec as codec]: Encoder[A] = codec.encoder
+  // given decoder[A: Codec as codec]: Decoder[A] = codec.decoder
 
   given codec[A: Encoder as enc: Decoder as dec]: Codec[A] with
     val encoder: Encoder[A] = enc

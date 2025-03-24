@@ -13,6 +13,9 @@ object TableQuerySpecs extends ZIOSpecDefault:
         xa <- ZIO.service[Transactor]
         a <- xa.run:
           insertReturning(Generated(-1, "Ben", None, None)) // id is generated
-      yield assertTrue(a.id == 5)
+        b <- xa.run:
+          sql"select * from test_table_primary_key_generated"
+            .query[Generated]
+      yield assertTrue(a.id == 5) && assertTrue(b.size == 5)
   val spec = suite("Tables")(queries).provideShared(xaLayer)
 end TableQuerySpecs
