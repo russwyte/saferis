@@ -17,5 +17,6 @@ final class Write[A: Encoder as encoder](a: A):
     * @param idx
     * @return
     */
-  def write(stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] = encoder.encode(a, stmt, idx)
+  def write(stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
+    encoder.encode(a, stmt, idx)
 end Write

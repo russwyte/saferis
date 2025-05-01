@@ -15,10 +15,11 @@ object TransactorSpecs extends ZIOSpecDefault:
   )
   val datasource = DataSourceProvider.default >>> Transactor.default
 
-  val frank   = "Frank"
-  val bob     = "Bob"
-  val alice   = "Alice"
-  val charlie = "Charlie"
+  val frank                = "Frank"
+  val bob                  = "Bob"
+  val alice                = "Alice"
+  val charlie              = "Charlie"
+  val none: Option[String] = None
 
   @tableName("test_table_no_key")
   final case class TestTable(
@@ -57,6 +58,7 @@ object TransactorSpecs extends ZIOSpecDefault:
             for
               a <- sql"select * from $testTable where name = $alice".queryOne[TestTable]
               b <- sql"select * from $testTable where name = $bob".queryOne[TestTable]
+              c <- sql"select * from $testTable where name = $none".queryOne[TestTable]
             yield a.toSeq ++ b.toSeq
         yield assertTrue(a.size == 2)
 

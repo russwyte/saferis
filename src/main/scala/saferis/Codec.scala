@@ -13,6 +13,7 @@ trait Codec[A] extends Encoder[A], Decoder[A]:
     new Codec[B]:
       val encoder: Encoder[B] = self.encoder.transform(contramap)
       val decoder: Decoder[B] = self.decoder.transform(map)
+      val nullSqlType: Int    = self.nullSqlType
 end Codec
 object Codec:
   def apply[A: Encoder as encoder: Decoder as decoder]: Codec[A] = codec[A]
@@ -36,8 +37,10 @@ object Codec:
   given codec[A: Encoder as enc: Decoder as dec]: Codec[A] with
     val encoder: Encoder[A] = enc
     val decoder: Decoder[A] = dec
+    val nullSqlType: Int    = enc.nullSqlType
 
   given option[A: Codec as codec]: Codec[Option[A]] with
     val encoder: Encoder[Option[A]] = Encoder.option[A]
     val decoder: Decoder[Option[A]] = Decoder.option[A]
+    val nullSqlType: Int            = codec.nullSqlType
 end Codec

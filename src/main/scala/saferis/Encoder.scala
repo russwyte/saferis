@@ -41,64 +41,80 @@ trait Encoder[A]:
     new Encoder[B]:
       def encode(b: B, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
         f(b).flatMap(a => self.encode(a, stmt, idx))
+      val nullSqlType: Int = self.nullSqlType
+
+  def nullSqlType: Int
 end Encoder
 
 object Encoder:
   given option[A: Encoder as encoder]: Encoder[Option[A]] with
     def encode(a: Option[A], stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
-      // todo: verify that this is correct
-      a.fold(ZIO.attempt(stmt.setNull(idx, java.sql.Types.NULL))): a =>
+      a.fold(ZIO.attempt(stmt.setObject(idx, null, nullSqlType))): a =>
         encoder.encode(a, stmt, idx)
+    def nullSqlType: Int = encoder.nullSqlType
   given string: Encoder[String] with
     def encode(a: String, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
       ZIO.attempt:
         stmt.setString(idx, a)
+    val nullSqlType: Int = java.sql.Types.VARCHAR
   given short: Encoder[Short] with
     def encode(a: Short, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
       ZIO.attempt:
         stmt.setShort(idx, a)
+    val nullSqlType: Int = java.sql.Types.SMALLINT
   given int: Encoder[Int] with
     def encode(a: Int, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
       ZIO.attempt:
         stmt.setInt(idx, a)
+    val nullSqlType: Int = java.sql.Types.INTEGER
   given long: Encoder[Long] with
     def encode(a: Long, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
       ZIO.attempt:
         stmt.setLong(idx, a)
+    val nullSqlType: Int = java.sql.Types.BIGINT
   given boolean: Encoder[Boolean] with
     def encode(a: Boolean, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
       ZIO.attempt:
         stmt.setBoolean(idx, a)
+    val nullSqlType: Int = java.sql.Types.BOOLEAN
   given float: Encoder[Float] with
     def encode(a: Float, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
       ZIO.attempt:
         stmt.setFloat(idx, a)
+    val nullSqlType: Int = java.sql.Types.FLOAT
   given double: Encoder[Double] with
     def encode(a: Double, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
       ZIO.attempt:
         stmt.setDouble(idx, a)
+    val nullSqlType: Int = java.sql.Types.DOUBLE
   given date: Encoder[java.sql.Date] with
     def encode(a: java.sql.Date, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
       ZIO.attempt:
         stmt.setDate(idx, a)
+    val nullSqlType: Int = java.sql.Types.DATE
   given bigDecimal: Encoder[BigDecimal] with
     def encode(a: BigDecimal, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
       ZIO.attempt:
         stmt.setBigDecimal(idx, a.bigDecimal)
+    val nullSqlType: Int = java.sql.Types.DECIMAL
   given bigInt: Encoder[BigInt] with
     def encode(a: BigInt, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
       ZIO.attempt:
         stmt.setBigDecimal(idx, BigDecimal(a).bigDecimal)
+    val nullSqlType: Int = java.sql.Types.DECIMAL
   given time: Encoder[java.sql.Time] with
     def encode(a: java.sql.Time, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
       ZIO.attempt:
         stmt.setTime(idx, a)
+    val nullSqlType: Int = java.sql.Types.TIME
   given timestamp: Encoder[java.sql.Timestamp] with
     def encode(a: java.sql.Timestamp, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
       ZIO.attempt:
         stmt.setTimestamp(idx, a)
+    val nullSqlType: Int = java.sql.Types.TIMESTAMP
   given url: Encoder[java.net.URL] with
     def encode(a: java.net.URL, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
       ZIO.attempt:
         stmt.setURL(idx, a)
+    val nullSqlType: Int = java.sql.Types.DATALINK
 end Encoder
