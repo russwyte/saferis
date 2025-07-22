@@ -56,10 +56,10 @@ object Macros:
     val refined             = refinementForLabels(caseClassFieldNames)
     val keys                = elemsWithAnnotation[A, key]
     val x = MethodType(MethodTypeKind.Plain)(keys.map((name, _) => name))(
-      x =>
+      _ =>
         keys.map: (_, tpe) =>
           tpe,
-      x => TypeRepr.of[Instance[A]#TypedFragment],
+      _ => TypeRepr.of[Instance[A]#TypedFragment],
     )
 
     val ref3 = Refinement(refined, Instance.getByKey, x)

@@ -59,7 +59,7 @@ object TransactorSpecs extends ZIOSpecDefault:
               a <- sql"select * from $testTable where name = $alice".queryOne[TestTable]
               b <- sql"select * from $testTable where name = $bob".queryOne[TestTable]
               c <- sql"select * from $testTable where name = $none".queryOne[TestTable]
-            yield a.toSeq ++ b.toSeq
+            yield a.toSeq ++ b.toSeq ++ c.toSeq
         yield assertTrue(a.size == 2)
 
       test("commit on success"):
