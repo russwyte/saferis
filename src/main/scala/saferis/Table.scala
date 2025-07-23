@@ -192,6 +192,22 @@ inline def addColumn[A <: Product: Table as table](columnName: String, columnTyp
   val sql       = SqlFragment(s"alter table $tableName add column $columnName $columnType", Seq.empty)
   sql.dml
 
+inline def addColumn[A <: Product: Table as table, T: Encoder as encoder](columnName: String)(using
+    Trace
+): ZIO[ConnectionProvider & Scope, Throwable, Int] =
+  val tableName  = table.name
+  val columnType = encoder.postgresType
+  val sql        = SqlFragment(s"alter table $tableName add column $columnName $columnType", Seq.empty)
+  sql.dml
+
+inline def addColumn[A <: Product: Table as table, T: Codec as codec](columnName: String)(using
+    Trace
+): ZIO[ConnectionProvider & Scope, Throwable, Int] =
+  val tableName  = table.name
+  val columnType = codec.postgresType
+  val sql        = SqlFragment(s"alter table $tableName add column $columnName $columnType", Seq.empty)
+  sql.dml
+
 inline def dropColumn[A <: Product: Table as table](columnName: String)(using
     Trace
 ): ZIO[ConnectionProvider & Scope, Throwable, Int] =
