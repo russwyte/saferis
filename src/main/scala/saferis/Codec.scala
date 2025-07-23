@@ -11,9 +11,10 @@ trait Codec[A] extends Encoder[A], Decoder[A]:
     decoder.decode(rs, name)
   def transform[B](map: A => Task[B])(contramap: B => Task[A]): Codec[B] =
     new Codec[B]:
-      val encoder: Encoder[B] = self.encoder.transform(contramap)
-      val decoder: Decoder[B] = self.decoder.transform(map)
-      val nullSqlType: Int    = self.nullSqlType
+      val encoder: Encoder[B]           = self.encoder.transform(contramap)
+      val decoder: Decoder[B]           = self.decoder.transform(map)
+      val nullSqlType: Int              = self.nullSqlType
+      override def postgresType: String = self.postgresType
 end Codec
 object Codec:
   def apply[A: Encoder as encoder: Decoder as decoder]: Codec[A] = codec[A]
@@ -35,12 +36,14 @@ object Codec:
   // given decoder[A: Codec as codec]: Decoder[A] = codec.decoder
 
   given codec[A: Encoder as enc: Decoder as dec]: Codec[A] with
-    val encoder: Encoder[A] = enc
-    val decoder: Decoder[A] = dec
-    val nullSqlType: Int    = enc.nullSqlType
+    val encoder: Encoder[A]           = enc
+    val decoder: Decoder[A]           = dec
+    val nullSqlType: Int              = enc.nullSqlType
+    override def postgresType: String = enc.postgresType
 
   given option[A: Codec as codec]: Codec[Option[A]] with
-    val encoder: Encoder[Option[A]] = Encoder.option[A]
-    val decoder: Decoder[Option[A]] = Decoder.option[A]
-    val nullSqlType: Int            = codec.nullSqlType
+    val encoder: Encoder[Option[A]]   = Encoder.option[A]
+    val decoder: Decoder[Option[A]]   = Decoder.option[A]
+    val nullSqlType: Int              = codec.nullSqlType
+    override def postgresType: String = codec.postgresType
 end Codec

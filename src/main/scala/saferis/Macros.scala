@@ -31,12 +31,18 @@ object Macros:
           valDef.tpt.tpe.asType match
             case '[a] =>
               val reader = summonDecoder[a]
+              val writer = summonEncoder[a]
               '{
-                val label       = ${ getLabel[A](fieldName) }
-                val isKey       = ${ elemHasAnnotation[A, saferis.key](fieldName) }
-                val isGenerated = ${ elemHasAnnotation[A, saferis.generated](fieldName) }
+                val label         = ${ getLabel[A](fieldName) }
+                val isKey         = ${ elemHasAnnotation[A, saferis.key](fieldName) }
+                val isGenerated   = ${ elemHasAnnotation[A, saferis.generated](fieldName) }
+                val isIndexed     = ${ elemHasAnnotation[A, saferis.indexed](fieldName) }
+                val isUniqueIndex = ${ elemHasAnnotation[A, saferis.uniqueIndex](fieldName) }
 
-                Column[a](${ Expr(fieldName) }, label, isKey, isGenerated, None)(using $reader)
+                Column[a](${ Expr(fieldName) }, label, isKey, isGenerated, isIndexed, isUniqueIndex, None)(using
+                  $reader,
+                  $writer,
+                )
               }
       end match
     }

@@ -41,9 +41,23 @@ trait Encoder[A]:
     new Encoder[B]:
       def encode(b: B, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
         f(b).flatMap(a => self.encode(a, stmt, idx))
-      val nullSqlType: Int = self.nullSqlType
+      val nullSqlType: Int              = self.nullSqlType
+      override def postgresType: String = self.postgresType
 
   def nullSqlType: Int
+
+  /** Returns the PostgreSQL type string for this encoder
+    *
+    * Default implementation uses the JDBC standard type name, which works for most cases. Override this method when
+    * PostgreSQL has specific preferences.
+    *
+    * @return
+    *   PostgreSQL type string
+    */
+  def postgresType: String =
+    java.sql.JDBCType.valueOf(nullSqlType).getName.toLowerCase match
+      case "varchar" => "varchar(255)" // Add default length for varchar
+      case other     => other
 end Encoder
 
 object Encoder:
@@ -51,7 +65,8 @@ object Encoder:
     def encode(a: Option[A], stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
       a.fold(ZIO.attempt(stmt.setObject(idx, null, nullSqlType))): a =>
         encoder.encode(a, stmt, idx)
-    def nullSqlType: Int = encoder.nullSqlType
+    def nullSqlType: Int              = encoder.nullSqlType
+    override def postgresType: String = encoder.postgresType
   given string: Encoder[String] with
     def encode(a: String, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
       ZIO.attempt:
@@ -81,12 +96,14 @@ object Encoder:
     def encode(a: Float, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
       ZIO.attempt:
         stmt.setFloat(idx, a)
-    val nullSqlType: Int = java.sql.Types.FLOAT
+    val nullSqlType: Int              = java.sql.Types.FLOAT
+    override def postgresType: String = "real"
   given double: Encoder[Double] with
     def encode(a: Double, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
       ZIO.attempt:
         stmt.setDouble(idx, a)
-    val nullSqlType: Int = java.sql.Types.DOUBLE
+    val nullSqlType: Int              = java.sql.Types.DOUBLE
+    override def postgresType: String = "double precision"
   given date: Encoder[java.sql.Date] with
     def encode(a: java.sql.Date, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
       ZIO.attempt:
@@ -116,5 +133,6 @@ object Encoder:
     def encode(a: java.net.URL, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
       ZIO.attempt:
         stmt.setURL(idx, a)
-    val nullSqlType: Int = java.sql.Types.DATALINK
+    val nullSqlType: Int              = java.sql.Types.DATALINK
+    override def postgresType: String = "text"
 end Encoder

@@ -26,6 +26,14 @@ class generated extends key
   */
 class key extends StaticAnnotation
 
+/** denotes fields of a case class that should be indexed
+  */
+class indexed extends StaticAnnotation
+
+/** denotes fields of a case class that should have a unique index
+  */
+class uniqueIndex extends StaticAnnotation
+
 /** Represents a column/field in result set
   *
   * @param name
@@ -34,11 +42,13 @@ class key extends StaticAnnotation
   *   the column name/label in the result set
   * @param reader
   */
-final case class Column[R: Decoder as readable](
+final case class Column[R: Decoder as readable: Encoder as writable](
     name: String,
     label: String,
     isKey: Boolean,
     isGenerated: Boolean,
+    isIndexed: Boolean,
+    isUniqueIndex: Boolean,
     tableAlias: Option[String],
 ) extends Placeholder:
   type ColumnType = R
@@ -48,4 +58,8 @@ final case class Column[R: Decoder as readable](
   private[saferis] def read(rs: ResultSet)(using Trace): Task[(String, R)] =
     readable.decode(rs, label).map(v => name -> v)
   private[saferis] def withTableAlias(alias: Option[String]) = copy(tableAlias = alias)
+
+  // Provide SQL type information based on the encoder
+  private[saferis] def sqlType: Int         = writable.nullSqlType
+  private[saferis] def postgresType: String = writable.postgresType
 end Column
