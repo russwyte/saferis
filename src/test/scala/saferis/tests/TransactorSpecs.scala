@@ -1,6 +1,7 @@
 package foo.tests
 
 import saferis.*
+import saferis.DataManipulationLayer.*
 import saferis.tests.DataSourceProvider
 import zio.*
 import zio.test.*
