@@ -2,6 +2,7 @@ package saferis.tests
 
 import saferis.*
 import saferis.dml.*
+import saferis.postgres.{given, *}
 import zio.*
 import zio.test.*
 import PostgresTestContainer.DataSourceProvider

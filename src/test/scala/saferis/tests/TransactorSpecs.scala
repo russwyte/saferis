@@ -3,6 +3,7 @@ package saferis.tests
 import saferis.*
 import saferis.dml.*
 import saferis.ddl.*
+import saferis.postgres.{given, *}
 import zio.*
 import zio.test.*
 
