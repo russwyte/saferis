@@ -8,6 +8,7 @@ import zio.test.*
 
 import java.sql.Connection
 import java.sql.SQLException
+import PostgresTestContainer.DataSourceProvider
 
 object TransactorSpecs extends ZIOSpecDefault:
   val serializable = DataSourceProvider.default >>> Transactor.layer(
