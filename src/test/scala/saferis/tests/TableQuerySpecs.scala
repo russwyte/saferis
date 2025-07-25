@@ -1,6 +1,6 @@
 package saferis.tests
 import saferis.*
-import saferis.DataManipulationLayer.*
+import saferis.dml.*
 import zio.*
 import zio.test.*
 

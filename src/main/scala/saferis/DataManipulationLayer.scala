@@ -4,6 +4,8 @@ import zio.Scope
 import zio.ZIO
 import zio.Trace
 
+val dml = DataManipulationLayer
+
 object DataManipulationLayer:
 
   inline def insert[A <: Product: Table as table](a: A)(using Trace): ZIO[ConnectionProvider & Scope, Throwable, Int] =

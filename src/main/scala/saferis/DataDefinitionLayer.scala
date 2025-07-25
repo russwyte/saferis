@@ -4,6 +4,8 @@ import zio.Scope
 import zio.ZIO
 import zio.Trace
 
+val ddl = DataDefinitionLayer // short alias
+
 object DataDefinitionLayer:
 
   inline def createTable[A <: Product: Table as table](
