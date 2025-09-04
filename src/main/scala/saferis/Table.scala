@@ -10,6 +10,7 @@ sealed trait Table[A <: Product]:
   private[saferis] def columnMap                 = columns.map(c => c.name -> c).toMap
   def indexedColumns: Seq[Column[?]]             = columns.filter(_.isIndexed)
   def uniqueIndexColumns: Seq[Column[?]]         = columns.filter(_.isUniqueIndex)
+  def uniqueColumns: Seq[Column[?]]              = columns.filter(_.isUnique)
   transparent inline def instance                = Macros.instanceOf[A](alias = None)
   transparent inline def instance(alias: String) = Macros.instanceOf[A](alias = Some(alias))
   private[saferis] def insertColumnsSql: SqlFragment =

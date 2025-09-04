@@ -467,6 +467,44 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
         assertTrue(duplicateAttempt.isLeft) // Should fail due to compound primary key constraint
       end for
 
+    test("create table with unique constraint columns"):
+      @tableName("test_ddl_unique_constraints")
+      case class UniqueConstraintTable(
+          @key id: Int,
+          @indexed name: String,
+          @uniqueIndex email: String,
+          @unique username: String,
+          description: String,
+      ) derives Table
+
+      for
+        xa <- ZIO.service[Transactor]
+        _ <- xa.run:
+          dropTable[UniqueConstraintTable](ifExists = true)
+        result <- xa.run:
+          createTable[UniqueConstraintTable]()
+        // Insert test data
+        _ <- xa.run:
+          insert(UniqueConstraintTable(1, "John", "john@example.com", "john_unique", "Test user"))
+        // Try to insert duplicate unique constraint (should fail)
+        duplicateUsernameAttempt <- xa
+          .run:
+            insert(UniqueConstraintTable(2, "Jane", "jane@example.com", "john_unique", "Another user"))
+          .either
+        // Try to insert duplicate unique index (should fail)
+        duplicateEmailAttempt <- xa
+          .run:
+            insert(UniqueConstraintTable(3, "Bob", "john@example.com", "bob_unique", "Bob user"))
+          .either
+        // Insert with different unique values (should succeed)
+        _ <- xa.run:
+          insert(UniqueConstraintTable(4, "Alice", "alice@example.com", "alice_unique", "Alice user"))
+      yield assertTrue(result >= 0) &&
+        assertTrue(duplicateUsernameAttempt.isLeft) && // Should fail due to unique constraint
+        assertTrue(duplicateEmailAttempt.isLeft) &&    // Should fail due to unique index
+        assertTrue(true) // Last insert should succeed
+      end for
+
     test("verify encoder method infers correct PostgreSQL types"):
       @tableName("test_ddl_encoder_types")
       case class EncoderTestTable(@key id: Int, name: String) derives Table

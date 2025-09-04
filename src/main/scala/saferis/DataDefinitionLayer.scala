@@ -19,7 +19,7 @@ object DataDefinitionLayer:
     val columnDefs = table.columns.map { col =>
       val baseType = sqlTypeFromColumn(col)
       val constraints = dialect.autoIncrementClause(col.isGenerated, col.isKey, hasCompoundKey) +
-        (if col.isUniqueIndex then " unique" else "")
+        (if col.isUnique then " unique" else "")
       s"${col.label} $baseType$constraints"
     }
 

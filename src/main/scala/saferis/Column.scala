@@ -34,6 +34,10 @@ class indexed extends StaticAnnotation
   */
 class uniqueIndex extends StaticAnnotation
 
+/** denotes fields of a case class that should have a unique constraint at the column level
+  */
+class unique extends StaticAnnotation
+
 /** Represents a column/field in result set
   *
   * @param name
@@ -49,6 +53,7 @@ final case class Column[R: Decoder as readable: Encoder as writable](
     isGenerated: Boolean,
     isIndexed: Boolean,
     isUniqueIndex: Boolean,
+    isUnique: Boolean,
     tableAlias: Option[String],
 ) extends Placeholder:
   type ColumnType = R

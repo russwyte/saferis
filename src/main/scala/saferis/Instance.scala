@@ -20,6 +20,7 @@ final case class Instance[A <: Product: Table](
   private[saferis] val fieldNamesToColumns: Map[String, Column[?]] = columns.map(c => c.name -> c).toMap
   def indexedColumns: Seq[Column[?]]                               = columns.filter(_.isIndexed)
   def uniqueIndexColumns: Seq[Column[?]]                           = columns.filter(_.isUniqueIndex)
+  def uniqueColumns: Seq[Column[?]]                                = columns.filter(_.isUnique)
   def selectDynamic(name: String)                                  = fieldNamesToColumns(name)
   def applyDynamic[A: Encoder](@unused name: String)(args: A*) =
     val cs: Seq[Column[?]] =
