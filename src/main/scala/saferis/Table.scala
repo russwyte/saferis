@@ -1,9 +1,6 @@
 package saferis
 
 import scala.annotation.StaticAnnotation
-import zio.Scope
-import zio.ZIO
-import zio.Trace
 
 final case class tableName(name: String) extends StaticAnnotation
 
@@ -11,6 +8,9 @@ sealed trait Table[A <: Product]:
   private[saferis] def name: String
   def columns: Seq[Column[?]]
   private[saferis] def columnMap                 = columns.map(c => c.name -> c).toMap
+  def indexedColumns: Seq[Column[?]]             = columns.filter(_.isIndexed)
+  def uniqueIndexColumns: Seq[Column[?]]         = columns.filter(_.isUniqueIndex)
+  def uniqueColumns: Seq[Column[?]]              = columns.filter(_.isUnique)
   transparent inline def instance                = Macros.instanceOf[A](alias = None)
   transparent inline def instance(alias: String) = Macros.instanceOf[A](alias = Some(alias))
   private[saferis] def insertColumnsSql: SqlFragment =
@@ -28,6 +28,31 @@ sealed trait Table[A <: Product]:
     val placeholders = insertPlaceholders(a)
     SqlFragment(placeholders.map(_.sql).mkString("(", ", ", ")"), placeholders.flatMap(_.writes))
 
+  private[saferis] inline def updateSetClause(a: A): SqlFragment =
+    val placeholders = Macros
+      .columnPlaceholders(a)
+      .filterNot: (name, _) =>
+        val col = columnMap(name)
+        col.isGenerated || col.isKey
+    val setClauses = placeholders.map: (name, placeholder) =>
+      val column = columnMap(name)
+      SqlFragment(s"${column.sql} = ${placeholder.sql}", placeholder.writes)
+    SqlFragment(setClauses.map(_.sql).mkString(", "), setClauses.flatMap(_.writes))
+  end updateSetClause
+
+  private[saferis] inline def updateWhereClause(a: A): SqlFragment =
+    val keyPlaceholders = Macros
+      .columnPlaceholders(a)
+      .filter: (name, _) =>
+        columnMap(name).isKey
+    val whereClauses = keyPlaceholders.map: (name, placeholder) =>
+      val column = columnMap(name)
+      SqlFragment(s"${column.sql} = ${placeholder.sql}", placeholder.writes)
+    if whereClauses.nonEmpty then
+      SqlFragment(s" where ${whereClauses.map(_.sql).mkString(" and ")}", whereClauses.flatMap(_.writes))
+    else SqlFragment("", Seq.empty)
+  end updateWhereClause
+
 end Table
 
 object Table:
@@ -40,19 +65,3 @@ object Table:
     Derived[A](Macros.nameOf[A], Macros.columnsOf[A])
 
 end Table
-
-inline def insert[A <: Product: Table as table](a: A)(using Trace): ZIO[ConnectionProvider & Scope, Throwable, Int] =
-  (sql"insert into ${table.instance} values " :+ table.insertPlaceholdersSql(a)).insert
-end insert
-
-inline def insertReturning[A <: Product: Table as table](a: A)(using
-    Trace
-): ZIO[ConnectionProvider & Scope, Throwable, A] =
-  val sql = sql"insert into ${table.instance}${table.insertColumnsSql} values " :+ table.insertPlaceholdersSql(
-    a
-  ) :+ sql" returning ${table.returningColumnsSql}"
-  for
-    o <- sql.queryOne[A]
-    a <- ZIO.fromOption(o).orElseFail(new java.sql.SQLException("insert returning failed"))
-  yield a
-end insertReturning

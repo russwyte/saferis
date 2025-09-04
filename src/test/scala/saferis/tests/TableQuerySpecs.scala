@@ -1,7 +1,9 @@
 package saferis.tests
 import saferis.*
+import saferis.dml.*
 import zio.*
 import zio.test.*
+import PostgresTestContainer.DataSourceProvider
 
 object TableQuerySpecs extends ZIOSpecDefault:
   val xaLayer = DataSourceProvider.default >>> Transactor.default

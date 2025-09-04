@@ -31,12 +31,20 @@ object Macros:
           valDef.tpt.tpe.asType match
             case '[a] =>
               val reader = summonDecoder[a]
+              val writer = summonEncoder[a]
               '{
-                val label       = ${ getLabel[A](fieldName) }
-                val isKey       = ${ elemHasAnnotation[A, saferis.key](fieldName) }
-                val isGenerated = ${ elemHasAnnotation[A, saferis.generated](fieldName) }
+                val label         = ${ getLabel[A](fieldName) }
+                val isKey         = ${ elemHasAnnotation[A, saferis.key](fieldName) }
+                val isGenerated   = ${ elemHasAnnotation[A, saferis.generated](fieldName) }
+                val isIndexed     = ${ elemHasAnnotation[A, saferis.indexed](fieldName) }
+                val isUniqueIndex = ${ elemHasAnnotation[A, saferis.uniqueIndex](fieldName) }
+                val isUnique      = ${ elemHasAnnotation[A, saferis.unique](fieldName) }
 
-                Column[a](${ Expr(fieldName) }, label, isKey, isGenerated, None)(using $reader)
+                Column[a](${ Expr(fieldName) }, label, isKey, isGenerated, isIndexed, isUniqueIndex, isUnique, None)(
+                  using
+                  $reader,
+                  $writer,
+                )
               }
       end match
     }
@@ -56,10 +64,10 @@ object Macros:
     val refined             = refinementForLabels(caseClassFieldNames)
     val keys                = elemsWithAnnotation[A, key]
     val x = MethodType(MethodTypeKind.Plain)(keys.map((name, _) => name))(
-      x =>
+      _ =>
         keys.map: (_, tpe) =>
           tpe,
-      x => TypeRepr.of[Instance[A]#TypedFragment],
+      _ => TypeRepr.of[Instance[A]#TypedFragment],
     )
 
     val ref3 = Refinement(refined, Instance.getByKey, x)

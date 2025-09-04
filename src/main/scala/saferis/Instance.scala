@@ -1,6 +1,7 @@
 package saferis
-import saferis.Instance.*
+//import saferis.Instance.*
 import zio.Trace
+import scala.annotation.unused
 
 /** Provides DDL information about a table.
   *
@@ -17,20 +18,22 @@ final case class Instance[A <: Product: Table](
 ) extends Selectable
     with Placeholder:
   private[saferis] val fieldNamesToColumns: Map[String, Column[?]] = columns.map(c => c.name -> c).toMap
+  def indexedColumns: Seq[Column[?]]                               = columns.filter(_.isIndexed)
+  def uniqueIndexColumns: Seq[Column[?]]                           = columns.filter(_.isUniqueIndex)
+  def uniqueColumns: Seq[Column[?]]                                = columns.filter(_.isUnique)
   def selectDynamic(name: String)                                  = fieldNamesToColumns(name)
-  def applyDynamic[A: Encoder](name: String)(args: A*) =
-    (name, args) match
-      case (getByKey, as) =>
-        val cs: Seq[Column[?]] =
-          columns.filter(_.isKey)
-        val whereArgs = cs.zip(as).toList
-        val whereClause = whereArgs.headOption.fold(Placeholder.Empty):
-          case (c, a) =>
-            whereArgs.tail
-              .foldLeft(sql"where $c = $a"):
-                case (acc, (c, a)) =>
-                  acc :+ sql" and $c = $a"
-        TypedFragment(sql"select * from $this $whereClause")
+  def applyDynamic[A: Encoder](@unused name: String)(args: A*) =
+    val cs: Seq[Column[?]] =
+      columns.filter(_.isKey)
+    val whereArgs = cs.zip(args).toList
+    val whereClause = whereArgs.headOption.fold(Placeholder.Empty):
+      case (c, a) =>
+        whereArgs.tail
+          .foldLeft(sql"where $c = $a"):
+            case (acc, (c, a)) =>
+              acc :+ sql" and $c = $a"
+    TypedFragment(sql"select * from $this $whereClause")
+  end applyDynamic
 
   override def sql: String                            = alias.fold(tableName)(a => s"$tableName as $a")
   override private[saferis] def writes: Seq[Write[?]] = Seq.empty
