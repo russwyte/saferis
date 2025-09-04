@@ -1,7 +1,7 @@
 import xerial.sbt.Sonatype.sonatypeCentralHost
 
-val scala3Version = "3.7.1"
-val zioVersion    = "2.1.20"
+val scala3Version = "3.7.2"
+val zioVersion    = "2.1.21"
 usePgpKeyHex("2F64727A87F1BCF42FD307DD8582C4F16659A7D6")
 
 lazy val root = project
