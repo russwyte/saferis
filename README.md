@@ -1,32 +1,106 @@
 # saferis
 
-The name is derived from 'safe' and 'eris' (Greek for 'strife' or 'discord') 
+*The name is derived from 'safe' and 'eris' (Greek for 'strife' or 'discord')*
 
-Saferis mitigates the discord of unsafe SQL. It is a resource safe SQL client library.
+**Saferis mitigates the discord of unsafe SQL.** A type-safe, resource-safe SQL client library for Scala 3 and ZIO.
 
-A type safe SQL client and interpolator for Scala 3 and ZIO
+## Key Features
 
-This library was loosely inspired by Magnum (which is fantastic) - but opinionated toward ZIO and geared toward my own needs.
+✅ **SQL Injection Protection** - Safe SQL interpolator with compile-time validation  
+✅ **Multi-Database Support** - Works with PostgreSQL, MySQL, SQLite, and any JDBC database  
+✅ **Type-Safe Capabilities** - Operations only available when your database supports them  
+✅ **Resource Safety** - Guaranteed connection and transaction management with ZIO  
+✅ **Label-Based Decoding** - Column-to-field mapping by name, not position  
+✅ **Compile-Time Validation** - Table schemas, column names, and SQL verified at compile time  
 
-This project started out from my own desire to better understand metaprogramming and type classes in Scala 3.
+## Quick Example
 
-Here are some of the goals/features that are important to me:
+```scala
+import saferis.*
+import saferis.postgres.{given} // PostgreSQL dialect
 
-- The current aim is to remain database agnostic - if it supports JDBC - we want it to work.
-  - I may add db specific modules at some point
-- safe SQL interpolator that protects against SQL injection by building up a prepared statement.
-  - interpolation results is an SqlFragment
-  - supports any Writeable type class within the fragment - including other sql fragments
-- decoupled decoder/encoder type-classes allows you implement only one or the other if you like.
-- label based decoding
-  - more safe than index based (can't accidentally grab a column of a compatible type and use it in the wrong class field)
-  - less error prone and more flexible - the order of the columns should not need to match the order of the product fields
-- decoder type class with decode as an effect
-- encoder type class with encode as an effect
-- effectual codec types allow us to ZIO patterns for handling failures etc (like falling back to another read/write mechanism)
-- scoped:
-  - connections
-  - queries
-  - transactions
-- guaranteed resource management for transactions and connections
-- prefer layers over contextual parameters for building up services (repositories are services)
+@tableName("users")
+case class User(@generated @key id: Int, name: String, email: String) derives Table
+
+val userTable = Table[User]
+
+// Safe SQL interpolation - no injection possible
+val activeUsers = sql"SELECT * FROM $userTable WHERE ${userTable.name} LIKE ${"John%"}".query[User]
+
+// Type-safe operations only available when database supports them
+val newUser = insertReturning(User(-1, "Alice", "alice@example.com")) // PostgreSQL only
+```
+
+## Database Dialects
+
+Saferis provides compile-time guarantees that operations are only available when your database supports them:
+
+| Feature | PostgreSQL | MySQL | SQLite |
+|---------|------------|-------|--------|
+| RETURNING clause | ✅ | ❌ | ✅ |
+| JSON operations | ✅ | ✅ | ❌ |
+| Array types | ✅ | ❌ | ❌ |
+| UPSERT | ✅ | ❌ | ❌ |
+
+Switch databases by changing one import - your code adapts automatically.
+
+## Installation
+
+Add to your `build.sbt`:
+
+```scala
+libraryDependencies += "io.github.russwyte" %% "saferis" % "latest.release"
+```
+
+## Getting Started
+
+1. **Define your models** with annotations:
+```scala
+@tableName("users")
+case class User(
+  @generated @key id: Int,
+  @indexed name: String, 
+  @uniqueIndex email: String
+) derives Table
+```
+
+2. **Choose your database dialect**:
+```scala
+import saferis.postgres.{given}  // PostgreSQL
+import saferis.mysql.{given}     // MySQL  
+import saferis.sqlite.{given}    // SQLite
+```
+
+3. **Use safe SQL operations**:
+```scala
+val userTable = Table[User]
+
+// DDL operations
+createTable[User]()
+createIndex("name_idx", Seq("name"))
+
+// DML operations with safe interpolation
+val users = sql"SELECT * FROM $userTable WHERE ${userTable.name} = ${"Alice"}".query[User]
+val newUser = insert(User(-1, "Bob", "bob@example.com"))
+
+// Dialect-specific operations (compile-time checked)
+val returning = insertReturning(User(-1, "Charlie", "charlie@example.com")) // PostgreSQL/SQLite only
+```
+
+## Why Saferis?
+
+**Compile-Time Safety**: Table schemas, column names, and database capabilities are validated at compile time. No runtime surprises.
+
+**Resource Safety**: Built on ZIO's resource management. Connections and transactions are automatically cleaned up.
+
+**Database Portable**: Write once, run on multiple databases. Switch from SQLite in development to PostgreSQL in production with one line.
+
+**SQL-First**: Direct SQL control when you need it, with safety guarantees. No magic, no query builders unless you want them.
+
+## Documentation
+
+- **[Database Dialect System Guide](SAFERIS_DIALECT_GUIDE.md)** - Comprehensive guide to Saferis's database dialect system, including PostgreSQL, MySQL, and SQLite support with type-safe capabilities
+
+## License
+
+[Apache 2.0](LICENSE)

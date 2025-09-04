@@ -502,7 +502,7 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
       yield assertTrue(result >= 0) &&
         assertTrue(duplicateUsernameAttempt.isLeft) && // Should fail due to unique constraint
         assertTrue(duplicateEmailAttempt.isLeft) &&    // Should fail due to unique index
-        assertTrue(true) // Last insert should succeed
+        assertTrue(true)                               // Last insert should succeed
       end for
 
     test("verify encoder method infers correct PostgreSQL types"):

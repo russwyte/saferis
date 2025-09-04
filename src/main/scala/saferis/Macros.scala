@@ -40,7 +40,8 @@ object Macros:
                 val isUniqueIndex = ${ elemHasAnnotation[A, saferis.uniqueIndex](fieldName) }
                 val isUnique      = ${ elemHasAnnotation[A, saferis.unique](fieldName) }
 
-                Column[a](${ Expr(fieldName) }, label, isKey, isGenerated, isIndexed, isUniqueIndex, isUnique, None)(using
+                Column[a](${ Expr(fieldName) }, label, isKey, isGenerated, isIndexed, isUniqueIndex, isUnique, None)(
+                  using
                   $reader,
                   $writer,
                 )
