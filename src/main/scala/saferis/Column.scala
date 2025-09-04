@@ -60,6 +60,7 @@ final case class Column[R: Decoder as readable: Encoder as writable](
   private[saferis] def withTableAlias(alias: Option[String]) = copy(tableAlias = alias)
 
   // Provide SQL type information based on the encoder
-  private[saferis] def sqlType: Int                               = writable.jdbcType
-  private[saferis] def columnType(using dialect: Dialect): String = dialect.columnType(writable)
+  private[saferis] def sqlType: Int = writable.jdbcType
+  private[saferis] def columnType(using dialect: Dialect = postgres.PostgresDialect): String =
+    dialect.columnType(writable)
 end Column

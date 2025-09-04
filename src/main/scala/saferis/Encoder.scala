@@ -45,6 +45,8 @@ trait Encoder[A]:
 
   /** The JDBC SQL type for null values of this type */
   def jdbcType: Int
+  def columnType(using dialect: Dialect = postgres.PostgresDialect): String =
+    dialect.columnType(self)
 end Encoder
 
 object Encoder:

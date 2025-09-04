@@ -87,9 +87,3 @@ object PostgresDialect
     s"$value = ANY($columnName)"
 
 end PostgresDialect
-
-/** Extension methods for working with database types */
-extension [A](encoder: saferis.Encoder[A])
-  /** Get the database column type string for this encoder */
-  def columnType(using dialect: Dialect): String =
-    dialect.columnType(encoder.jdbcType)

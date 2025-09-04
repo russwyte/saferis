@@ -1,7 +1,6 @@
 package saferis.tests
 
 import saferis.*
-import saferis.postgres.*
 import zio.test.*
 
 object JdbcTypeDefaultsSpecs extends ZIOSpecDefault:
