@@ -8,8 +8,7 @@ val dml = DataManipulationLayer
 
 object DataManipulationLayer:
 
-  inline def insert[A <: Product: Table as table](a: A)(using Trace): ZIO[ConnectionProvider & Scope, Throwable, Int] =
-    (sql"insert into ${table.instance}${table.insertColumnsSql} values " :+ table.insertPlaceholdersSql(a)).insert
+    (sql"insert into ${table.instance} ${table.insertColumnsSql} values " :+ table.insertPlaceholdersSql(a)).insert
   end insert
 
   inline def insertReturning[A <: Product: Table as table](a: A)(using
