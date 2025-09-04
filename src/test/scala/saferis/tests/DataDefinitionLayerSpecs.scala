@@ -3,7 +3,7 @@ package saferis.tests
 import saferis.*
 import saferis.ddl.*
 import saferis.dml.*
-import saferis.postgres.{given, *}
+import saferis.postgres.given
 import zio.*
 import zio.test.*
 import PostgresTestContainer.DataSourceProvider
@@ -430,8 +430,8 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
             insert(IndexesSqlTable(1, 3, "Jane", "john@example.com"))
           .either
       yield assertTrue(indexSql.nonEmpty) &&
-        assertTrue(indexSql.contains("CREATE INDEX")) &&
-        assertTrue(indexSql.contains("CREATE UNIQUE INDEX")) &&
+        assertTrue(indexSql.contains("create index")) &&
+        assertTrue(indexSql.contains("create unique index")) &&
         assertTrue(indexSql.contains("compound_key")) && // Should have compound key index
         assertTrue(duplicateAttempt.isLeft)              // Should fail due to unique constraint
       end for

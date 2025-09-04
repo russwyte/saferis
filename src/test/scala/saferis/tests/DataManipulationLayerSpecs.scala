@@ -2,7 +2,6 @@ package saferis.tests
 
 import saferis.*
 import saferis.dml.*
-import saferis.postgres.{given, *}
 import zio.*
 import zio.test.*
 import PostgresTestContainer.DataSourceProvider
@@ -297,7 +296,7 @@ object DataManipulationLayerSpecs extends ZIOSpecDefault:
           sql"""create table test_dml_compound_key (
                   userid integer not null,
                   roleid integer not null,
-                  grantedat varchar(255) not null,
+                  grantedAt varchar(255) not null,
                   primary key (userid, roleid)
                 )""".dml
         // Insert test data

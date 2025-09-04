@@ -5,7 +5,6 @@ import saferis.postgres.{given}
 import saferis.mysql.MySQLDialect
 import saferis.sqlite.SQLiteDialect
 import zio.test.*
-import saferis.postgres.PostgresDialect
 
 object DialectSpecs extends ZIOSpecDefault:
 

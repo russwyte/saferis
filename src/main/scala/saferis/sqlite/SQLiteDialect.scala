@@ -39,9 +39,13 @@ object SQLiteDialect extends Dialect with ReturningSupport with CommonTableExpre
     case _                 => "text"
 
   // === Auto-increment Syntax ===
-  override def autoIncrementClause(isKey: Boolean, isGenerated: Boolean, hasDefault: Boolean): String =
-    if isGenerated && isKey then " autoincrement"
-    else ""
+  override def autoIncrementClause(isGenerated: Boolean, isKey: Boolean, hasDefault: Boolean): String =
+    (isGenerated, isKey, hasDefault) match
+      case (true, true, false)  => " primary key autoincrement"
+      case (true, true, true)   => " autoincrement"
+      case (false, true, false) => " primary key"
+      case (true, false, false) => " autoincrement"
+      case _                    => ""
 
   // === Table Operations ===
   override def addColumnSql(tableName: String, columnName: String, columnDefinition: String): String =
@@ -58,11 +62,11 @@ object SQLiteDialect extends Dialect with ReturningSupport with CommonTableExpre
       indexName: String,
       tableName: String,
       columnNames: Seq[String],
-      unique: Boolean = false,
+      ifNotExists: Boolean = true,
   ): String =
-    val uniqueClause = if unique then "unique " else ""
-    val columns      = columnNames.mkString(", ")
-    s"create ${uniqueClause}index $indexName on $tableName ($columns)"
+    val ifNotExistsClause = if ifNotExists then " if not exists" else ""
+    val columns           = columnNames.mkString(", ")
+    s"create index$ifNotExistsClause $indexName on $tableName ($columns)"
 
   override def dropIndexSql(indexName: String, ifExists: Boolean = false): String =
     val ifExistsClause = if ifExists then "if exists " else ""

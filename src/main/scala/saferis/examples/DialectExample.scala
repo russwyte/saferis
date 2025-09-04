@@ -7,7 +7,7 @@ object DialectExample:
 
   // Example showing PostgreSQL dialect usage
   def postgresExample() =
-    import saferis.postgres.{given, *}
+    import saferis.postgres.given
 
     @tableName("users")
     case class User(@generated @key id: Int, name: String, email: Option[String]) derives Table
@@ -52,7 +52,7 @@ object DialectExample:
 
   // Example showing SQLite dialect usage
   def sqliteExample() =
-    import saferis.sqlite.{given, *}
+    import saferis.sqlite.given
     @tableName("posts")
     case class Post(@generated @key id: Int, title: String, content: String) derives Table
 
@@ -109,7 +109,7 @@ object DialectExample:
 
     // PostgreSQL supports RETURNING - we can check with pattern matching or casting
     pgDialect match
-      case returningDialect: ReturningSupport =>
+      case _: ReturningSupport =>
         println("PostgreSQL supports RETURNING operations")
         // Could use returning-specific operations here
       case _ =>
@@ -137,11 +137,6 @@ object DialectExample:
   def specializedDMLExample() =
     import saferis.postgres.{given}
     import saferis.SpecializedDML.*
-
-    @tableName("users")
-    case class User(@generated @key id: Int, name: String, email: String) derives Table
-
-    val newUser = User(0, "John Doe", "john@example.com")
 
     // This would only compile with dialects that support RETURNING
     // val insertedUser = insertReturning(newUser)
