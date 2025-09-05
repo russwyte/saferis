@@ -55,6 +55,22 @@ object TransactorSpecs extends ZIOSpecDefault:
             sql.queryOne[TestTable]
         yield assertTrue(a == Some(TestTable("Alice", Some(30), Some("alice@example.com"))))
 
+      test("a single value query"):
+        val sql = sql"select count(1) from $testTable"
+        for
+          xa <- ZIO.service[Transactor]
+          a <- xa.run:
+            sql.queryValue[Int]
+        yield assertTrue(a == Some(4))
+
+      test("a single tuple query"):
+        val sql = sql"select name, age from $testTable where name = $bob"
+        for
+          xa <- ZIO.service[Transactor]
+          a <- xa.run:
+            sql.queryValue[(String, Option[Int])]
+        yield assertTrue(a == Some((bob, Some(25))))
+
       test("insert operation"):
         @tableName("test_transactor_insert")
         case class InsertTable(@key id: Int, name: String) derives Table
