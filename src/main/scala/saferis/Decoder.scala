@@ -3,6 +3,7 @@ package saferis
 import zio.*
 
 import java.sql.ResultSet
+import java.sql.SQLException
 
 trait Decoder[A]:
   self =>
@@ -75,7 +76,7 @@ object Decoder:
 
   // Tuple decoders - decode using column indices for tuple types
   def failTupleDecode(expected: Int, actual: Int) = ZIO.fail(
-    new Exception(s"Expected exactly $expected columns in result set, got $actual")
+    new SQLException(s"Expected exactly $expected columns in result set, got $actual")
   )
   given tuple2[A: Decoder as decoderA, B: Decoder as decoderB]: Decoder[(A, B)] with
     def decode(rs: ResultSet, name: String)(using Trace): Task[(A, B)] =
