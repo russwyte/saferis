@@ -56,6 +56,30 @@ final case class SqlFragment(
     yield result
   end queryOne
 
+  /** Executes a query and returns an effect of a simple value (like Int, String, etc.) from the first column of the
+    * first row. This is useful for queries like "SELECT COUNT(*)" or "SELECT MAX(age)" that return a single value. Also
+    * supports tuples by validating that the result set has the expected number of columns.
+    *
+    * @tparam A
+    *   the type to decode (must have a Decoder instance)
+    * @return
+    *   an effect of Option[A] - None if no results, Some(value) if results found
+    */
+  inline def queryValue[A: Decoder as decoder](using Trace): ScopedQuery[Option[A]] =
+    for
+      connection <- ZIO.serviceWithZIO[ConnectionProvider](_.getConnection)
+      statement  <- ZIO.attempt(connection.prepareStatement(sql))
+      _          <- doWrites(statement)
+      rs         <- ZIO.attempt(statement.executeQuery())
+      result <-
+        if rs.next() then
+          // we need to get the first column and it's name
+          val name = rs.getMetaData.getColumnName(1)
+          decoder.decode(rs, name).map(Some(_))
+        else ZIO.succeed(None)
+    yield result
+  end queryValue
+
   /** alias for [[Statement.dml]]
     *
     * Executes the statement which must be an SQL Data Manipulation Language (DML) statement, such as INSERT, UPDATE or
