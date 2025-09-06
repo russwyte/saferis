@@ -19,4 +19,5 @@ final class Write[A: Encoder as encoder](a: A):
     */
   def write(stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
     encoder.encode(a, stmt, idx)
+  def literal: String = encoder.literal(a)
 end Write

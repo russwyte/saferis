@@ -146,4 +146,19 @@ final case class SqlFragment(
     */
   def :+(other: SqlFragment) = append(other)
 
+  // shows the SQL with parameters inlined for debugging/testing purposes
+  def show: String =
+    val sb  = new StringBuilder(sql.length + writes.length * 10)
+    var idx = 0
+    var i   = 0
+    while i < sql.length do
+      val c = sql.charAt(i)
+      if c == '?' && idx < writes.length then
+        sb.append(writes(idx).literal)
+        idx += 1
+      else sb.append(c)
+      i += 1
+    sb.toString
+  end show
+
 end SqlFragment

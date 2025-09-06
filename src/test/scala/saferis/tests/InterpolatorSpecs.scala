@@ -40,6 +40,11 @@ object InterpolatorSpecs extends ZIOSpecDefault:
             """|select *
                |from test_table_no_key
                |where name = ? and age = ?""".stripMargin
+        ) && assertTrue(
+          frag.show ==
+            """|select *
+               |from test_table_no_key
+               |where name = 'Bob' and age = 42""".stripMargin
         )
       test("with constant argument"):
         val sql = sql"select * from test_table_no_key where name = ${"foo"} and age = ${12} and id = 1"
