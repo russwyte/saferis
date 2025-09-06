@@ -42,11 +42,35 @@ trait Encoder[A]:
       def encode(b: B, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
         f(b).flatMap(a => self.encode(a, stmt, idx))
       val jdbcType: Int = self.jdbcType
-
-  /** The JDBC SQL type for null values of this type */
   def jdbcType: Int
   def columnType(using dialect: Dialect = postgres.PostgresDialect): String =
     dialect.columnType(self)
+  def literal(a: A): String =
+    def escapedString(a: A): String =
+      a.toString.replaceAll("'", "''")
+    end escapedString
+    import java.sql.Types
+    jdbcType match
+      case Types.VARCHAR | Types.LONGVARCHAR | Types.CHAR | Types.NVARCHAR | Types.LONGNVARCHAR | Types.NCHAR =>
+        s"'${escapedString(a)}'"
+      case Types.INTEGER | Types.BIGINT | Types.SMALLINT | Types.TINYINT | Types.FLOAT | Types.DOUBLE | Types.REAL |
+          Types.NUMERIC | Types.DECIMAL =>
+        a.toString
+      case Types.BOOLEAN | Types.BIT =>
+        a.toString.toLowerCase
+      case Types.DATE =>
+        s"DATE '${a.toString}'"
+      case Types.TIME =>
+        s"TIME '${escapedString(a)}'"
+      case Types.TIMESTAMP =>
+        s"TIMESTAMP '${escapedString(a)}'"
+      case Types.DATALINK =>
+        s"'${escapedString(a)}'"
+      case _ =>
+        s"'${escapedString(a)}'" // fallback for unknown types
+    end match
+  end literal
+
 end Encoder
 
 object Encoder:

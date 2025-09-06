@@ -146,4 +146,25 @@ final case class SqlFragment(
     */
   def :+(other: SqlFragment) = append(other)
 
+  /** Shows the SQL with parameters inlined for debugging/testing purposes if there are more parameters than '?'
+    * placeholders, the extra parameters are ignored. This shouldn't happen in practice. Conversely if there are more
+    * '?' placeholders than parameters, the extra placeholders are left as '?'
+    *
+    * @return
+    */
+  def show: String =
+    val AverageCharsPerLiteral = 10
+    val sb                     = new StringBuilder(sql.length + writes.length * AverageCharsPerLiteral)
+    var idx                    = 0
+    var i                      = 0
+    while i < sql.length do
+      val c = sql.charAt(i)
+      if c == '?' && idx < writes.length then
+        sb.append(writes(idx).literal)
+        idx += 1
+      else sb.append(c)
+      i += 1
+    sb.toString
+  end show
+
 end SqlFragment

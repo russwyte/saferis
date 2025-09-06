@@ -208,6 +208,7 @@ trait Dialect:
     *   Escaped identifier
     */
   def escapeIdentifier(identifier: String): String = s"$identifierQuote$identifier$identifierQuote"
+
 end Dialect
 
 object Dialect:
