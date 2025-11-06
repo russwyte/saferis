@@ -1,4 +1,6 @@
 # saferis
+[![Scala CI](https://github.com/russwyte/saferis/actions/workflows/scala.yml/badge.svg)](https://github.com/russwyte/saferis/actions/workflows/scala.yml)
+[![Maven Repository](https://img.shields.io/maven-central/v/io.github.russwyte/saferis_3?logo=apachemaven)](https://mvnrepository.com/artifact/io.github.russwyte/saferis)
 
 *The name is derived from 'safe' and 'eris' (Greek for 'strife' or 'discord')*
 
