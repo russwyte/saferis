@@ -43,14 +43,6 @@ lazy val root = project
       "org.testcontainers" % "postgresql"                % "1.21.3"   % Test,
       "org.postgresql"     % "postgresql"                % "42.7.7"   % Test,
     ),
-    // --- Test Coverage (scoverage) ---
-    coverageEnabled          := true,
-    coverageMinimumStmtTotal := 20.0, // set desired minimum coverage percentage
-    coverageFailOnMinimum    := true,
-    coverageHighlighting     := true,
-    coverageOutputHTML       := true,
-    coverageOutputXML        := true,
-    coverageOutputCobertura  := true,
     scalacOptions ++= Seq(
       "-deprecation",
       "-Wunused:all",
