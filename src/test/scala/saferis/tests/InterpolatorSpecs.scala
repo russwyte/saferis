@@ -1,7 +1,7 @@
 package saferis.tests
 
 import saferis.*
-import saferis.postgres.{given}
+import saferis.postgres.given
 import saferis.mysql.MySQLDialect
 import saferis.sqlite.SQLiteDialect
 import zio.*
@@ -62,7 +62,9 @@ object InterpolatorSpecs extends ZIOSpecDefault:
         // Test column name with embedded quotes - should be escaped
         assertTrue(Placeholder.identifier("my\"column")(using pgDialect).sql == "\"my\"\"column\"") &&
         // Test SQL injection attempt
-        assertTrue(Placeholder.identifier("\"; DROP TABLE users--")(using pgDialect).sql == "\"\"\"; DROP TABLE users--\"") &&
+        assertTrue(
+          Placeholder.identifier("\"; DROP TABLE users--")(using pgDialect).sql == "\"\"\"; DROP TABLE users--\""
+        ) &&
         // Test in a query context
         assertTrue {
           val tableName = Placeholder.identifier("users")(using pgDialect)

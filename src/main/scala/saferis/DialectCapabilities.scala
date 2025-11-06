@@ -191,7 +191,6 @@ trait WindowFunctionSupport:
     val partitionClause = if partitionBy.nonEmpty then s" partition by ${partitionBy.mkString(", ")}" else ""
     val orderClause     = if orderBy.nonEmpty then s" order by ${orderBy.mkString(", ")}" else ""
     s"row_number() over($partitionClause$orderClause)"
-  end rowNumberSql
 end WindowFunctionSupport
 
 /** Trait for dialects that support common table expressions (CTEs) */
@@ -212,5 +211,4 @@ trait CommonTableExpressionSupport:
   def withClauseSql(cteName: String, cteQuery: String, recursive: Boolean = false): String =
     val recursiveClause = if recursive then "recursive " else ""
     s"with $recursiveClause$cteName as ($cteQuery)"
-  end withClauseSql
 end CommonTableExpressionSupport

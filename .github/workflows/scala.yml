@@ -1,0 +1,39 @@
+# This workflow uses actions that are not certified by GitHub.
+# They are provided by a third-party and are governed by
+# separate terms of service, privacy policy, and support
+# documentation.
+
+name: Scala CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+env:
+    JAVA_OPTS: -Dfile.encoding=UTF-8
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Setup JDK
+      uses: actions/setup-java@v5
+      with:
+        distribution: temurin
+        java-version: 21
+        cache: sbt
+    - uses: sbt/setup-sbt@v1
+
+    - name: Build and test
+      shell: bash
+      run: sbt -v "clean; scalafmtCheckAll; test"
+
+    - name: Upload dependency graph
+      uses: scalacenter/sbt-dependency-submission@v2

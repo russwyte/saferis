@@ -3,7 +3,6 @@ package saferis
 import java.sql.SQLException
 import scala.annotation.StaticAnnotation
 import scala.quoted.*
-import scala.reflect.ClassTag
 
 object Macros:
 
@@ -22,8 +21,8 @@ object Macros:
 
   private def columnsOfImpl[A: Type](using Quotes): Expr[Seq[Column[?]]] =
     import quotes.reflect.*
-    val tpe    = TypeRepr.of[A]
-    val fields = tpe.typeSymbol.caseFields
+    val tpe     = TypeRepr.of[A]
+    val fields  = tpe.typeSymbol.caseFields
     val columns = fields.map { field =>
       val fieldName = field.name
 
@@ -33,7 +32,6 @@ object Macros:
             case '[a] =>
               val reader = summonDecoder[a]
               val writer = summonEncoder[a]
-              val ct     = summonClassTag[a]
               '{
                 val label         = ${ getLabel[A](fieldName) }
                 val isKey         = ${ elemHasAnnotation[A, saferis.key](fieldName) }
@@ -46,7 +44,6 @@ object Macros:
                   using
                   $reader,
                   $writer,
-                  $ct,
                 )
               }
       end match
@@ -66,7 +63,7 @@ object Macros:
     val caseClassFieldNames = caseClassFields.map(_.name)
     val refined             = refinementForLabels(caseClassFieldNames)
     val keys                = elemsWithAnnotation[A, key]
-    val x = MethodType(MethodTypeKind.Plain)(keys.map((name, _) => name))(
+    val x                   = MethodType(MethodTypeKind.Plain)(keys.map((name, _) => name))(
       _ =>
         keys.map: (_, tpe) =>
           tpe,
@@ -74,7 +71,7 @@ object Macros:
     )
 
     val ref3 = Refinement(refined, Instance.getByKey, x)
-    val res = ref3.asType match
+    val res  = ref3.asType match
       case '[t] =>
         '{
           val x = ${ summonTable[A] }
@@ -107,8 +104,8 @@ object Macros:
       Quotes
   ): List[(String, x$1.reflect.TypeRepr)] =
     import quotes.reflect.*
-    val a   = TypeRepr.of[A].typeSymbol
-    val tpe = TypeRepr.of[T]
+    val a     = TypeRepr.of[A].typeSymbol
+    val tpe   = TypeRepr.of[T]
     val elems = TypeRepr
       .of[T]
       .typeSymbol
@@ -195,7 +192,9 @@ object Macros:
                   .map(x => x.asInstanceOf[t])
                   .getOrElse:
                     throw new SQLException(
-                      s"Error constructing instance of ${${ Expr(typeName) }}. Could not find value for parameter ${${ Expr(paramName) }}"
+                      s"Error constructing instance of ${${ Expr(typeName) }}. Could not find value for parameter ${${
+                          Expr(paramName)
+                        }}"
                     )
               }
       end match
@@ -209,28 +208,6 @@ object Macros:
   private def refinementForLabels(fieldNames: Seq[String])(using Quotes) =
     import quotes.reflect.*
     fieldNames.foldLeft(TypeRepr.of[Instance])((t, n) => Refinement(t, n, TypeRepr.of[Column[?]]))
-
-  private[saferis] def summonClassTag[T: Type](using Quotes): Expr[ClassTag[T]] =
-    import quotes.reflect.*
-    Expr
-      .summon[ClassTag[T]]
-      .orElse(
-        TypeRepr.of[T].widen.asType match
-          case '[tpe] =>
-            Expr
-              .summon[ClassTag[tpe]]
-              .map(e => '{ $e.asInstanceOf[ClassTag[T]] })
-      )
-      .orElse(
-        TypeRepr.of[T].widen.asType match
-          case '[tpe] =>
-            Expr
-              .summon[Codec[tpe]]
-              .map(codec => '{ $codec.asInstanceOf[ClassTag[T]] })
-      )
-      .getOrElse:
-        report.errorAndAbort(s"Could not find ClassTag for ${Type.show[T]}")
-  end summonClassTag
 
   private[saferis] def summonEncoder[T: Type](using Quotes): Expr[Encoder[T]] =
     import quotes.reflect.*
@@ -262,11 +239,11 @@ object Macros:
       Quotes
   ): Expr[List[(String, Placeholder)]] =
     import quotes.reflect.*
-    val tpe    = TypeRepr.of[A]
-    val fields = tpe.typeSymbol.caseFields
+    val tpe         = TypeRepr.of[A]
+    val fields      = tpe.typeSymbol.caseFields
     val fieldValues = fields.map { field =>
-      val fieldName = field.name
-      val fieldType = tpe.memberType(field)
+      val fieldName  = field.name
+      val fieldType  = tpe.memberType(field)
       val fieldValue =
         fieldType.asType match
           case '[ft] =>

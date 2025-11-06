@@ -16,8 +16,7 @@
 ## Quick Example
 
 ```scala
-import saferis.*
-import saferis.postgres.{given} // PostgreSQL dialect
+import saferis.* // PostgreSQL is the default dialect - no additional imports needed!
 
 @tableName("users")
 case class User(@generated @key id: Int, name: String, email: String) derives Table
@@ -64,11 +63,11 @@ case class User(
 ) derives Table
 ```
 
-2. **Choose your database dialect**:
+2. **Use the default PostgreSQL dialect or choose another**:
 ```scala
-import saferis.postgres.{given}  // PostgreSQL
-import saferis.mysql.{given}     // MySQL  
-import saferis.sqlite.{given}    // SQLite
+import saferis.*                 // PostgreSQL (default)
+import saferis.mysql.{given}     // Override with MySQL
+import saferis.sqlite.{given}    // Override with SQLite
 ```
 
 3. **Use safe SQL operations**:

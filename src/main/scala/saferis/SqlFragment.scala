@@ -31,7 +31,7 @@ final case class SqlFragment(
       statement  <- ZIO.attempt(connection.prepareStatement(sql))
       _          <- doWrites(statement)
       rs         <- ZIO.attempt(statement.executeQuery())
-      results <-
+      results    <-
         def loop(acc: m.Builder[E, Vector[E]]): ZIO[Any, Throwable, Vector[E]] =
           ZIO.attempt(rs.next()).flatMap { hasNext =>
             if hasNext then make[E](rs).flatMap(e => loop(acc.addOne(e)))
@@ -71,7 +71,7 @@ final case class SqlFragment(
       statement  <- ZIO.attempt(connection.prepareStatement(sql))
       _          <- doWrites(statement)
       rs         <- ZIO.attempt(statement.executeQuery())
-      result <-
+      result     <-
         if rs.next() then
           // we need to get the first column and it's name
           val name = rs.getMetaData.getColumnName(1)
@@ -112,7 +112,7 @@ final case class SqlFragment(
     for
       connection <- ZIO.serviceWithZIO[ConnectionProvider](_.getConnection)
       statement  <- ZIO.attempt(connection.prepareStatement(sql))
-      _ <- ZIO.foreach(writes.zipWithIndex): (write, idx) =>
+      _          <- ZIO.foreach(writes.zipWithIndex): (write, idx) =>
         write.write(statement, idx + 1)
       result <- ZIO.attempt(statement.executeUpdate())
     yield result

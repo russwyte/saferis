@@ -43,14 +43,14 @@ object Interpolator:
           partsExpr.map { case '{ $part: String } =>
             part.asTerm match
               case Literal(StringConstant(str)) => str
-              case _ =>
+              case _                            =>
                 report.errorAndAbort("StringContext parts must be string literals")
           }
         case _ =>
           report.errorAndAbort("Expected a literal StringContext")
 
       val argumentDisplayStrings = allArgsExprs.map(argDisplayString)
-      val sqlStatement =
+      val sqlStatement           =
         if parts.size == 1 && argumentDisplayStrings.isEmpty then parts.head
         else
           val sb = new StringBuilder(parts.head)
@@ -64,7 +64,7 @@ object Interpolator:
     val placeExprs = getPlaceHoldersExpr(allArgsExprs, holder)
     val writeExprs = '{ Placeholder.allWrites($placeExprs) }
     val query      = '{ $sc.s($placeExprs.map(_.sql)*) }
-    val res = '{
+    val res        = '{
       SqlFragment($query, $writeExprs)
     }
     res

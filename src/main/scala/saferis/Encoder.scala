@@ -2,9 +2,8 @@ package saferis
 import zio.*
 
 import java.sql.PreparedStatement
-import scala.reflect.ClassTag
 
-trait Encoder[A: ClassTag]:
+trait Encoder[A]:
   self =>
 
   /** Placeholder for the value in the SQL query
@@ -38,23 +37,18 @@ trait Encoder[A: ClassTag]:
     * @param f
     * @return
     */
-  def transform[B: ClassTag](
-      f: B => Task[A]
-  )(using dialect: Dialect = postgres.PostgresDialect, ct: ClassTag[A]): Encoder[B] =
+  def transform[B](f: B => Task[A]): Encoder[B] =
     new Encoder[B]:
       def encode(b: B, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
         f(b).flatMap(a => self.encode(a, stmt, idx))
-      override val jdbcType: Int = self.jdbcTypeFromDialect
+      override val jdbcType: Int = self.jdbcType
 
-  private def jdbcTypeFromDialect(using dialect: Dialect = postgres.PostgresDialect, ct: ClassTag[A]): Int =
-    dialect.jdbcType
+  def jdbcType: Int = java.sql.Types.OTHER
 
-  def jdbcType: Int = jdbcTypeFromDialect
+  def columnType(using dialect: Dialect): String =
+    dialect.columnType(self.jdbcType)
 
-  def columnType(using dialect: Dialect = postgres.PostgresDialect): String =
-    dialect.columnType[A](using self)
-
-  def literal(a: A)(using dialect: Dialect = postgres.PostgresDialect, ct: ClassTag[A]): String =
+  def literal(a: A): String =
     def aString = a match
       case Some(value) => value.toString
       case None | null => "null"
@@ -102,56 +96,110 @@ object Encoder:
     def encode(a: String, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
       ZIO.attempt:
         stmt.setString(idx, a)
+    override val jdbcType: Int = java.sql.Types.VARCHAR
   given short: Encoder[Short] with
     def encode(a: Short, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
       ZIO.attempt:
         stmt.setShort(idx, a)
+    override val jdbcType: Int = java.sql.Types.SMALLINT
   given int: Encoder[Int] with
     def encode(a: Int, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
       ZIO.attempt:
         stmt.setInt(idx, a)
+    override val jdbcType: Int = java.sql.Types.INTEGER
   given long: Encoder[Long] with
     def encode(a: Long, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
       ZIO.attempt:
         stmt.setLong(idx, a)
+    override val jdbcType: Int = java.sql.Types.BIGINT
   given boolean: Encoder[Boolean] with
     def encode(a: Boolean, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
       ZIO.attempt:
         stmt.setBoolean(idx, a)
+    override val jdbcType: Int = java.sql.Types.BOOLEAN
   given float: Encoder[Float] with
     def encode(a: Float, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
       ZIO.attempt:
         stmt.setFloat(idx, a)
+    override val jdbcType: Int = java.sql.Types.FLOAT
   given double: Encoder[Double] with
     def encode(a: Double, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
       ZIO.attempt:
         stmt.setDouble(idx, a)
+    override val jdbcType: Int = java.sql.Types.DOUBLE
   given date: Encoder[java.sql.Date] with
     def encode(a: java.sql.Date, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
       ZIO.attempt:
         stmt.setDate(idx, a)
+    override val jdbcType: Int = java.sql.Types.DATE
   given bigDecimal: Encoder[BigDecimal] with
     def encode(a: BigDecimal, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
       ZIO.attempt:
         stmt.setBigDecimal(idx, a.bigDecimal)
+    override val jdbcType: Int = java.sql.Types.NUMERIC
   given bigInt: Encoder[BigInt] with
     def encode(a: BigInt, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
       ZIO.attempt:
         stmt.setBigDecimal(idx, BigDecimal(a).bigDecimal)
+    override val jdbcType: Int = java.sql.Types.NUMERIC
   given time: Encoder[java.sql.Time] with
     def encode(a: java.sql.Time, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
       ZIO.attempt:
         stmt.setTime(idx, a)
+    override val jdbcType: Int = java.sql.Types.TIME
   given timestamp: Encoder[java.sql.Timestamp] with
     def encode(a: java.sql.Timestamp, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
       ZIO.attempt:
         stmt.setTimestamp(idx, a)
+    override val jdbcType: Int = java.sql.Types.TIMESTAMP
   given url: Encoder[java.net.URL] with
     def encode(a: java.net.URL, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
       ZIO.attempt:
         stmt.setURL(idx, a)
-  given uuid: Encoder[java.util.UUID] with
-    def encode(a: java.util.UUID, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
+    override val jdbcType: Int = java.sql.Types.DATALINK
+
+  // Java time API encoders
+  given instant: Encoder[java.time.Instant] with
+    def encode(a: java.time.Instant, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
       ZIO.attempt:
-        stmt.setObject(idx, a, jdbcType)
+        stmt.setTimestamp(idx, java.sql.Timestamp.from(a))
+    override val jdbcType: Int = java.sql.Types.TIMESTAMP
+
+  given localDateTime: Encoder[java.time.LocalDateTime] with
+    def encode(a: java.time.LocalDateTime, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
+      ZIO.attempt:
+        stmt.setTimestamp(idx, java.sql.Timestamp.valueOf(a))
+    override val jdbcType: Int = java.sql.Types.TIMESTAMP
+
+  given localDate: Encoder[java.time.LocalDate] with
+    def encode(a: java.time.LocalDate, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
+      ZIO.attempt:
+        stmt.setDate(idx, java.sql.Date.valueOf(a))
+    override val jdbcType: Int = java.sql.Types.DATE
+
+  given localTime: Encoder[java.time.LocalTime] with
+    def encode(a: java.time.LocalTime, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
+      ZIO.attempt:
+        stmt.setTime(idx, java.sql.Time.valueOf(a))
+    override val jdbcType: Int = java.sql.Types.TIME
+
+  given zonedDateTime: Encoder[java.time.ZonedDateTime] with
+    def encode(a: java.time.ZonedDateTime, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
+      ZIO.attempt:
+        // Convert to Instant, then to Timestamp (preserves the instant in time)
+        stmt.setTimestamp(idx, java.sql.Timestamp.from(a.toInstant))
+    override val jdbcType: Int = java.sql.Types.TIMESTAMP
+
+  given offsetDateTime: Encoder[java.time.OffsetDateTime] with
+    def encode(a: java.time.OffsetDateTime, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
+      ZIO.attempt:
+        stmt.setTimestamp(idx, java.sql.Timestamp.from(a.toInstant))
+    override val jdbcType: Int = java.sql.Types.TIMESTAMP
+
+  /** Default UUID encoder from PostgreSQL dialect - provided as a low priority given. This allows users to work with
+    * UUIDs out of the box with just `import saferis.*` Users can override this by importing dialect-specific codecs
+    * (e.g., `import saferis.mysql.{given}`)
+    */
+  given defaultUuidEncoder: Encoder[java.util.UUID] = postgres.uuidEncoder
+
 end Encoder

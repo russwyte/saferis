@@ -3,7 +3,6 @@ package saferis
 import zio.Scope
 import zio.ZIO
 import zio.Trace
-import scala.reflect.ClassTag
 
 val ddl = DataDefinitionLayer // short alias
 
@@ -18,7 +17,7 @@ object DataDefinitionLayer:
     val hasCompoundKey = keyColumns.length > 1
 
     val columnDefs = table.columns.map { col =>
-      val baseType = sqlTypeFromColumn(col)
+      val baseType    = sqlTypeFromColumn(col)
       val constraints = dialect.autoIncrementClause(col.isGenerated, col.isKey, hasCompoundKey) +
         (if col.isUnique then " unique" else "")
       s"${col.label} $baseType$constraints"
@@ -59,13 +58,12 @@ object DataDefinitionLayer:
     val sql       = SqlFragment(dialect.truncateTableSql(tableName), Seq.empty)
     sql.dml
 
-  inline def addColumn[A <: Product: Table as table, T: Encoder as encoder: ClassTag as classTag](columnName: String)(
-      using
+  inline def addColumn[A <: Product: Table as table, T: Encoder as encoder](columnName: String)(using
       dialect: Dialect,
       trace: Trace,
   ): ZIO[ConnectionProvider & Scope, Throwable, Int] =
     val tableName  = table.name
-    val columnType = dialect.columnType(using encoder, classTag)
+    val columnType = dialect.columnType(encoder.jdbcType)
     val sql        = SqlFragment(dialect.addColumnSql(tableName, columnName, columnType), Seq.empty)
     sql.dml
   end addColumn
@@ -84,7 +82,7 @@ object DataDefinitionLayer:
       unique: Boolean = false,
   )(using dialect: Dialect, trace: Trace): ZIO[ConnectionProvider & Scope, Throwable, Int] =
     val tableName = table.name
-    val sql =
+    val sql       =
       if unique then SqlFragment(dialect.createUniqueIndexSql(indexName, tableName, columnNames), Seq.empty)
       else SqlFragment(dialect.createIndexSql(indexName, tableName, columnNames), Seq.empty)
     sql.dml
@@ -135,7 +133,7 @@ object DataDefinitionLayer:
     // Create regular indexes for @indexed fields
     val indexedIndexes = table.indexedColumns.map { col =>
       val indexName = s"idx_${tableName}_${col.label}"
-      val sql = dialect match
+      val sql       = dialect match
         case d: IndexIfNotExistsSupport =>
           SqlFragment(d.createIndexIfNotExistsSql(indexName, tableName, Seq(col.label)), Seq.empty)
         case _ => SqlFragment(dialect.createIndexSql(indexName, tableName, Seq(col.label), false), Seq.empty)
@@ -145,7 +143,7 @@ object DataDefinitionLayer:
     // Create unique indexes for @uniqueIndex fields
     val uniqueIndexes = table.uniqueIndexColumns.map { col =>
       val indexName = s"idx_${tableName}_${col.label}"
-      val sql = dialect match
+      val sql       = dialect match
         case d: IndexIfNotExistsSupport =>
           SqlFragment(d.createIndexIfNotExistsSql(indexName, tableName, Seq(col.label), unique = true), Seq.empty)
         case _ => SqlFragment(dialect.createUniqueIndexSql(indexName, tableName, Seq(col.label), false), Seq.empty)
@@ -156,7 +154,7 @@ object DataDefinitionLayer:
     val compoundKeyIndex = Option.when(hasCompoundKey) {
       val keyColumnNames    = keyColumns.map(_.label)
       val compoundIndexName = s"idx_${tableName}_compound_key"
-      val sql = dialect match
+      val sql               = dialect match
         case d: IndexIfNotExistsSupport =>
           SqlFragment(d.createIndexIfNotExistsSql(compoundIndexName, tableName, keyColumnNames), Seq.empty)
         case _ => SqlFragment(dialect.createIndexSql(compoundIndexName, tableName, keyColumnNames, false), Seq.empty)
