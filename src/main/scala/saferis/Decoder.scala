@@ -73,6 +73,14 @@ object Decoder:
   given url: Decoder[java.net.URL] with
     def decode(rs: ResultSet, name: String)(using Trace): Task[java.net.URL] =
       ZIO.attempt(rs.getURL(name))
+  given uuid: Decoder[java.util.UUID] with
+    def decode(rs: ResultSet, name: String)(using Trace): Task[java.util.UUID] =
+      ZIO.attempt:
+        val obj = rs.getObject(name)
+        obj match
+          case uuid: java.util.UUID => uuid
+          case str: String          => java.util.UUID.fromString(str)
+          case _                    => throw new SQLException(s"Cannot convert $obj to UUID")
 
   // Tuple decoders - decode using column indices for tuple types
   def failTupleDecode(expected: Int, actual: Int) = ZIO.fail(

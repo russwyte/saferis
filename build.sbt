@@ -1,6 +1,6 @@
 import xerial.sbt.Sonatype.sonatypeCentralHost
 
-val scala3Version = "3.7.2"
+val scala3Version = "3.7.3"
 val zioVersion    = "2.1.21"
 usePgpKeyHex("2F64727A87F1BCF42FD307DD8582C4F16659A7D6")
 
@@ -43,6 +43,14 @@ lazy val root = project
       "org.testcontainers" % "postgresql"                % "1.21.3"   % Test,
       "org.postgresql"     % "postgresql"                % "42.7.7"   % Test,
     ),
+    // --- Test Coverage (scoverage) ---
+    coverageEnabled          := true,
+    coverageMinimumStmtTotal := 20.0, // set desired minimum coverage percentage
+    coverageFailOnMinimum    := true,
+    coverageHighlighting     := true,
+    coverageOutputHTML       := true,
+    coverageOutputXML        := true,
+    coverageOutputCobertura  := true,
     scalacOptions ++= Seq(
       "-deprecation",
       "-Wunused:all",

@@ -3,6 +3,7 @@ package saferis
 import java.sql.SQLException
 import scala.annotation.StaticAnnotation
 import scala.quoted.*
+import scala.reflect.ClassTag
 
 object Macros:
 
@@ -32,6 +33,7 @@ object Macros:
             case '[a] =>
               val reader = summonDecoder[a]
               val writer = summonEncoder[a]
+              val ct     = summonClassTag[a]
               '{
                 val label         = ${ getLabel[A](fieldName) }
                 val isKey         = ${ elemHasAnnotation[A, saferis.key](fieldName) }
@@ -44,6 +46,7 @@ object Macros:
                   using
                   $reader,
                   $writer,
+                  $ct,
                 )
               }
       end match
@@ -206,6 +209,28 @@ object Macros:
   private def refinementForLabels(fieldNames: Seq[String])(using Quotes) =
     import quotes.reflect.*
     fieldNames.foldLeft(TypeRepr.of[Instance])((t, n) => Refinement(t, n, TypeRepr.of[Column[?]]))
+
+  private[saferis] def summonClassTag[T: Type](using Quotes): Expr[ClassTag[T]] =
+    import quotes.reflect.*
+    Expr
+      .summon[ClassTag[T]]
+      .orElse(
+        TypeRepr.of[T].widen.asType match
+          case '[tpe] =>
+            Expr
+              .summon[ClassTag[tpe]]
+              .map(e => '{ $e.asInstanceOf[ClassTag[T]] })
+      )
+      .orElse(
+        TypeRepr.of[T].widen.asType match
+          case '[tpe] =>
+            Expr
+              .summon[Codec[tpe]]
+              .map(codec => '{ $codec.asInstanceOf[ClassTag[T]] })
+      )
+      .getOrElse:
+        report.errorAndAbort(s"Could not find ClassTag for ${Type.show[T]}")
+  end summonClassTag
 
   private[saferis] def summonEncoder[T: Type](using Quotes): Expr[Encoder[T]] =
     import quotes.reflect.*

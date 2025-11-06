@@ -3,13 +3,14 @@ package saferis
 import zio.*
 
 import java.sql.PreparedStatement
+import scala.reflect.ClassTag
 
 /** A class that can write a value to a prepared statement.
   *
   * @param a
   * @param writer
   */
-final class Write[A: Encoder as encoder](a: A):
+final class Write[A: Encoder as encoder: ClassTag](a: A):
 
   /** Writes the value to the prepared statement using the encoder
     *

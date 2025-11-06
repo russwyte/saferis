@@ -49,7 +49,7 @@ object SQLiteDialect extends Dialect with ReturningSupport with CommonTableExpre
 
   // === Table Operations ===
   override def addColumnSql(tableName: String, columnName: String, columnDefinition: String): String =
-    s"alter table $tableName add column $columnDefinition"
+    s"alter table ${escapeIdentifier(tableName)} add column $columnDefinition"
 
   override def dropColumnSql(tableName: String, columnName: String): String =
     // SQLite has limited support for dropping columns - requires recreating table
@@ -65,12 +65,12 @@ object SQLiteDialect extends Dialect with ReturningSupport with CommonTableExpre
       ifNotExists: Boolean = true,
   ): String =
     val ifNotExistsClause = if ifNotExists then " if not exists" else ""
-    val columns           = columnNames.mkString(", ")
-    s"create index$ifNotExistsClause $indexName on $tableName ($columns)"
+    val columns           = columnNames.map(escapeIdentifier).mkString(", ")
+    s"create index$ifNotExistsClause ${escapeIdentifier(indexName)} on ${escapeIdentifier(tableName)} ($columns)"
 
   override def dropIndexSql(indexName: String, ifExists: Boolean = false): String =
     val ifExistsClause = if ifExists then "if exists " else ""
-    s"drop index ${ifExistsClause}$indexName"
+    s"drop index $ifExistsClause${escapeIdentifier(indexName)}"
 
   // === SQLite-specific Query Features ===
   override def identifierQuote: String = "\""
@@ -78,7 +78,7 @@ object SQLiteDialect extends Dialect with ReturningSupport with CommonTableExpre
   // === SQLite-specific Table Operations ===
   override def truncateTableSql(tableName: String): String =
     // SQLite doesn't have TRUNCATE, use DELETE instead
-    s"delete from $tableName"
+    s"delete from ${escapeIdentifier(tableName)}"
 
   // ReturningSupport uses default implementations since SQLite supports RETURNING
 

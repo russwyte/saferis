@@ -47,16 +47,59 @@ object DialectSpecs extends ZIOSpecDefault:
       assertTrue(MySQLDialect.identifierQuote == "`") &&
       assertTrue(SQLiteDialect.identifierQuote == "\"")
     },
-    test("Dialects generate correct index SQL") {
+    test("Dialects generate correct index SQL with escaped identifiers") {
       val pgDialect = summon[Dialect]
       val indexSql  = pgDialect.createIndexSql("idx_test", "test_table", Seq("name"), true)
-      assertTrue(indexSql == "create index if not exists idx_test on test_table (name)")
+      assertTrue(indexSql == "create index if not exists \"idx_test\" on \"test_table\" (\"name\")")
 
       val mysqlIndexSql = MySQLDialect.createIndexSql("idx_test", "test_table", Seq("name"), true)
-      assertTrue(mysqlIndexSql == "create index idx_test on test_table (name)")
+      assertTrue(mysqlIndexSql == "create index `idx_test` on `test_table` (`name`)")
 
       val sqliteIndexSql = SQLiteDialect.createIndexSql("idx_test", "test_table", Seq("name"), true)
-      assertTrue(sqliteIndexSql == "create index if not exists idx_test on test_table (name)")
+      assertTrue(sqliteIndexSql == "create index if not exists \"idx_test\" on \"test_table\" (\"name\")")
+    },
+    test("PostgreSQL escapeIdentifier handles SQL injection attempts") {
+      val pgDialect = summon[Dialect]
+      // Test normal identifier
+      assertTrue(pgDialect.escapeIdentifier("my_column") == "\"my_column\"") &&
+      // Test identifier with embedded quotes - should double the quotes
+      assertTrue(pgDialect.escapeIdentifier("my\"column") == "\"my\"\"column\"") &&
+      // Test SQL injection attempt with DROP TABLE
+      assertTrue(pgDialect.escapeIdentifier("\"; DROP TABLE users--") == "\"\"\"; DROP TABLE users--\"") &&
+      // Test identifier with multiple quotes
+      assertTrue(pgDialect.escapeIdentifier("a\"b\"c") == "\"a\"\"b\"\"c\"") &&
+      // Test empty identifier
+      assertTrue(pgDialect.escapeIdentifier("") == "\"\"") &&
+      // Test identifier with spaces
+      assertTrue(pgDialect.escapeIdentifier("my column") == "\"my column\"")
+    },
+    test("MySQL escapeIdentifier handles SQL injection attempts") {
+      // Test normal identifier
+      assertTrue(MySQLDialect.escapeIdentifier("my_column") == "`my_column`") &&
+      // Test identifier with embedded backticks - should double the backticks
+      assertTrue(MySQLDialect.escapeIdentifier("my`column") == "`my``column`") &&
+      // Test SQL injection attempt with DROP TABLE
+      assertTrue(MySQLDialect.escapeIdentifier("`; DROP TABLE users--") == "```; DROP TABLE users--`") &&
+      // Test identifier with multiple backticks
+      assertTrue(MySQLDialect.escapeIdentifier("a`b`c") == "`a``b``c`") &&
+      // Test empty identifier
+      assertTrue(MySQLDialect.escapeIdentifier("") == "``") &&
+      // Test identifier with spaces
+      assertTrue(MySQLDialect.escapeIdentifier("my column") == "`my column`")
+    },
+    test("SQLite escapeIdentifier handles SQL injection attempts") {
+      // Test normal identifier
+      assertTrue(SQLiteDialect.escapeIdentifier("my_column") == "\"my_column\"") &&
+      // Test identifier with embedded quotes - should double the quotes
+      assertTrue(SQLiteDialect.escapeIdentifier("my\"column") == "\"my\"\"column\"") &&
+      // Test SQL injection attempt with DROP TABLE
+      assertTrue(SQLiteDialect.escapeIdentifier("\"; DROP TABLE users--") == "\"\"\"; DROP TABLE users--\"") &&
+      // Test identifier with multiple quotes
+      assertTrue(SQLiteDialect.escapeIdentifier("a\"b\"c") == "\"a\"\"b\"\"c\"") &&
+      // Test empty identifier
+      assertTrue(SQLiteDialect.escapeIdentifier("") == "\"\"") &&
+      // Test identifier with spaces
+      assertTrue(SQLiteDialect.escapeIdentifier("my column") == "\"my column\"")
     },
   )
 end DialectSpecs

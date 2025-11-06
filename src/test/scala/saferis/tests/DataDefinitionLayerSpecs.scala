@@ -7,6 +7,7 @@ import saferis.postgres.given
 import zio.*
 import zio.test.*
 import PostgresTestContainer.DataSourceProvider
+import java.util.UUID
 
 object DataDefinitionLayerSpecs extends ZIOSpecDefault:
   val xaLayer = DataSourceProvider.default >>> Transactor.default
@@ -534,6 +535,29 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
         result <- xa.run:
           sql"select id, name from test_ddl_encoder_types where id = 1".queryOne[EncoderTestTable]
       yield assertTrue(result.contains(EncoderTestTable(1, "test")))
+      end for
+
+    test("create table with UUID primary key"):
+      @tableName("test_ddl_uuid_key")
+      case class UuidKeyTable(@key id: UUID, name: String) derives Table
+
+      for
+        xa <- ZIO.service[Transactor]
+        _ <- xa.run:
+          dropTable[UuidKeyTable](ifExists = true)
+        result <- xa.run:
+          createTable[UuidKeyTable]()
+        tableExists <- xa.run:
+          sql"select count(*) as count from information_schema.tables where table_name = ${"test_ddl_uuid_key"}"
+            .queryOne[CountResult]
+        uuidVal = UUID.randomUUID()
+        _ <- xa.run:
+          insert(UuidKeyTable(uuidVal, "Test Name"))
+        fetched <- xa.run:
+          sql"select id, name from test_ddl_uuid_key where id = $uuidVal".queryOne[UuidKeyTable]
+      yield assertTrue(result >= 0) &&
+        assertTrue(tableExists.map(_.count).contains(1)) &&
+        assertTrue(fetched.contains(UuidKeyTable(uuidVal, "Test Name")))
       end for
 
   case class CountResult(count: Int) derives Table
