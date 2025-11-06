@@ -108,7 +108,7 @@ trait Dialect:
       ifNotExists: Boolean = true,
   ): String =
     val ifNotExistsClause = if ifNotExists then " if not exists" else ""
-    s"create index$ifNotExistsClause $indexName on $tableName (${columnNames.mkString(", ")})"
+    s"create index$ifNotExistsClause ${escapeIdentifier(indexName)} on ${escapeIdentifier(tableName)} (${columnNames.map(escapeIdentifier).mkString(", ")})"
   end createIndexSql
 
   /** Returns the SQL for creating a unique index.
@@ -131,7 +131,7 @@ trait Dialect:
       ifNotExists: Boolean = true,
   ): String =
     val ifNotExistsClause = if ifNotExists then " if not exists" else ""
-    s"create unique index$ifNotExistsClause $indexName on $tableName (${columnNames.mkString(", ")})"
+    s"create unique index$ifNotExistsClause ${escapeIdentifier(indexName)} on ${escapeIdentifier(tableName)} (${columnNames.map(escapeIdentifier).mkString(", ")})"
   end createUniqueIndexSql
 
   /** Returns the SQL for dropping an index.
@@ -145,7 +145,7 @@ trait Dialect:
     */
   def dropIndexSql(indexName: String, ifExists: Boolean = false): String =
     val ifExistsClause = if ifExists then " if exists" else ""
-    s"drop index$ifExistsClause $indexName"
+    s"drop index$ifExistsClause ${escapeIdentifier(indexName)}"
   end dropIndexSql
 
   // === Table Operations ===
@@ -172,7 +172,7 @@ trait Dialect:
     */
   def dropTableSql(tableName: String, ifExists: Boolean): String =
     val ifExistsClause = if ifExists then " if exists" else ""
-    s"drop table$ifExistsClause $tableName"
+    s"drop table$ifExistsClause ${escapeIdentifier(tableName)}"
   end dropTableSql
 
   /** Returns the SQL for truncating a table.
@@ -182,7 +182,7 @@ trait Dialect:
     * @return
     *   SQL statement for truncating the table
     */
-  def truncateTableSql(tableName: String): String = s"truncate table $tableName"
+  def truncateTableSql(tableName: String): String = s"truncate table ${escapeIdentifier(tableName)}"
 
   // === Column Operations ===
 
@@ -198,7 +198,7 @@ trait Dialect:
     *   SQL statement for adding the column
     */
   def addColumnSql(tableName: String, columnName: String, columnType: String): String =
-    s"alter table $tableName add column $columnName $columnType"
+    s"alter table ${escapeIdentifier(tableName)} add column ${escapeIdentifier(columnName)} $columnType"
 
   /** Returns the SQL for dropping a column from a table.
     *
@@ -210,7 +210,7 @@ trait Dialect:
     *   SQL statement for dropping the column
     */
   def dropColumnSql(tableName: String, columnName: String): String =
-    s"alter table $tableName drop column $columnName"
+    s"alter table ${escapeIdentifier(tableName)} drop column ${escapeIdentifier(columnName)}"
 
   // === Query Features ===
 
@@ -228,7 +228,9 @@ trait Dialect:
     * @return
     *   Escaped identifier
     */
-  def escapeIdentifier(identifier: String): String = s"$identifierQuote$identifier$identifierQuote"
+  def escapeIdentifier(identifier: String): String =
+    val escaped = identifier.replace(identifierQuote, identifierQuote + identifierQuote)
+    s"$identifierQuote$escaped$identifierQuote"
 
 end Dialect
 

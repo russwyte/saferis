@@ -73,7 +73,7 @@ object MySQLDialect extends Dialect with JsonSupport with WindowFunctionSupport 
       ifNotExists: Boolean = true,
   ): String =
     // MySQL doesn't support IF NOT EXISTS for indexes in older versions
-    s"create index $indexName on $tableName (${columnNames.mkString(", ")})"
+    s"create index ${escapeIdentifier(indexName)} on ${escapeIdentifier(tableName)} (${columnNames.map(escapeIdentifier).mkString(", ")})"
 
   override def createUniqueIndexSql(
       indexName: String,
@@ -81,19 +81,19 @@ object MySQLDialect extends Dialect with JsonSupport with WindowFunctionSupport 
       columnNames: Seq[String],
       ifNotExists: Boolean = true,
   ): String =
-    s"create unique index $indexName on $tableName (${columnNames.mkString(", ")})"
+    s"create unique index ${escapeIdentifier(indexName)} on ${escapeIdentifier(tableName)} (${columnNames.map(escapeIdentifier).mkString(", ")})"
 
   // === MySQL-specific Query Features ===
   // MySQL uses backticks for identifier escaping
   override def identifierQuote: String = "`"
 
   // === MySQL-specific Table Operations ===
-  override def truncateTableSql(tableName: String): String = s"truncate table $tableName"
+  override def truncateTableSql(tableName: String): String = s"truncate table ${escapeIdentifier(tableName)}"
 
   override def dropIndexSql(indexName: String, ifExists: Boolean = false): String =
     // MySQL uses different syntax for dropping indexes
-    if ifExists then s"drop index if exists $indexName"
-    else s"drop index $indexName"
+    if ifExists then s"drop index if exists ${escapeIdentifier(indexName)}"
+    else s"drop index ${escapeIdentifier(indexName)}"
 
   // === JsonSupport implementation ===
   def jsonType: String = "json"

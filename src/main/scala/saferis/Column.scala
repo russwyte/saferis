@@ -59,6 +59,8 @@ final case class Column[R: Decoder as readable: Encoder as writable: ClassTag as
 ) extends Placeholder:
   type ColumnType = R
   val writes = Seq.empty
+  // Note: We cannot access dialect here as Column is constructed at compile-time
+  // The label should already be the raw identifier, escaping happens at usage site
   val sql    = tableAlias.fold(label)(a => s"$a.$label")
 
   private[saferis] def read(rs: ResultSet)(using Trace): Task[(String, R)] =

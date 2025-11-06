@@ -21,6 +21,19 @@ object Placeholder:
   /** Create a placeholder from raw SQL (use with caution) */
   def raw(sql: String): Placeholder = RawSql(sql)
 
+  /** Create a placeholder for a safely escaped identifier (table name, column name, etc.).
+    * This prevents SQL injection by properly escaping quotes in the identifier.
+    *
+    * @param identifier
+    *   The identifier to escape
+    * @param dialect
+    *   The database dialect to use for escaping
+    * @return
+    *   A Placeholder with the properly escaped identifier
+    */
+  def identifier(identifier: String)(using dialect: Dialect): Placeholder =
+    RawSql(dialect.escapeIdentifier(identifier))
+
   /** Create a placeholder from multiple placeholders */
   def concat(placeholders: Placeholder*): Placeholder =
     Derived(placeholders.flatMap(_.writes), placeholders.map(_.sql).mkString)
