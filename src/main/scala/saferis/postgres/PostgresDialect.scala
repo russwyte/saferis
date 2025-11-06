@@ -48,10 +48,10 @@ object PostgresDialect
     case Types.LONGVARBINARY => "bytea"
     case Types.BLOB          => "bytea"
 
-    case Types.DATALINK => "text" // URLs stored as text in PostgreSQL
+    case Types.DATALINK => "text"  // URLs stored as text in PostgreSQL
     case Types.ARRAY    => "array"
     case Types.STRUCT   => "jsonb"
-    case Types.OTHER    => "jsonb"
+    case Types.OTHER    => "jsonb" // Fallback - UUID and other types override columnType
 
     // Fallback to JDBC standard name for unknown types
     case other =>

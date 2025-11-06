@@ -13,7 +13,7 @@ object TableQuerySpecs extends ZIOSpecDefault:
       case class Generated(@generated id: Int, name: String, age: Option[Int], email: Option[String]) derives Table
       for
         xa <- ZIO.service[Transactor]
-        a <- xa.run:
+        a  <- xa.run:
           insertReturning(Generated(-1, "Ben", None, None)) // id is generated
         b <- xa.run:
           sql"select * from test_table_primary_key_generated"

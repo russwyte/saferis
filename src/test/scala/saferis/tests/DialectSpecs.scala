@@ -1,7 +1,7 @@
 package saferis.tests
 
 import saferis.*
-import saferis.postgres.{given}
+import saferis.postgres.given
 import saferis.mysql.MySQLDialect
 import saferis.sqlite.SQLiteDialect
 import zio.test.*

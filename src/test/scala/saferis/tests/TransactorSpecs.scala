@@ -3,7 +3,7 @@ package saferis.tests
 import saferis.*
 import saferis.dml.*
 import saferis.ddl.*
-import saferis.postgres.{given}
+import saferis.postgres.given
 import zio.*
 import zio.test.*
 
@@ -43,7 +43,7 @@ object TransactorSpecs extends ZIOSpecDefault:
         val sql = sql"select * from $testTable"
         for
           xa <- ZIO.service[Transactor]
-          a <- xa.run:
+          a  <- xa.run:
             sql.query[TestTable]
         yield assertTrue(a.size == 4)
 
@@ -51,7 +51,7 @@ object TransactorSpecs extends ZIOSpecDefault:
         val sql = sql"select * from $testTable where name = $alice"
         for
           xa <- ZIO.service[Transactor]
-          a <- xa.run:
+          a  <- xa.run:
             sql.queryOne[TestTable]
         yield assertTrue(a == Some(TestTable("Alice", Some(30), Some("alice@example.com"))))
 
@@ -59,7 +59,7 @@ object TransactorSpecs extends ZIOSpecDefault:
         val sql = sql"select count(1) from $testTable"
         for
           xa <- ZIO.service[Transactor]
-          a <- xa.run:
+          a  <- xa.run:
             sql.queryValue[Int]
         yield assertTrue(a == Some(4))
 
@@ -67,7 +67,7 @@ object TransactorSpecs extends ZIOSpecDefault:
         val sql = sql"select name, age from $testTable where name = $bob"
         for
           xa <- ZIO.service[Transactor]
-          a <- xa.run:
+          a  <- xa.run:
             sql.queryValue[(String, Option[Int])]
         yield assertTrue(a == Some((bob, Some(25))))
 
@@ -77,7 +77,7 @@ object TransactorSpecs extends ZIOSpecDefault:
 
         for
           xa <- ZIO.service[Transactor]
-          _ <- xa.run:
+          _  <- xa.run:
             sql"drop table if exists test_transactor_insert".dml
           _ <- xa.run:
             sql"create table test_transactor_insert (id integer primary key, name varchar(255))".dml
@@ -95,7 +95,7 @@ object TransactorSpecs extends ZIOSpecDefault:
 
         for
           xa <- ZIO.service[Transactor]
-          _ <- xa.run:
+          _  <- xa.run:
             sql"drop table if exists test_transactor_update".dml
           _ <- xa.run:
             sql"create table test_transactor_update (id integer primary key, name varchar(255))".dml
@@ -115,7 +115,7 @@ object TransactorSpecs extends ZIOSpecDefault:
 
         for
           xa <- ZIO.service[Transactor]
-          _ <- xa.run:
+          _  <- xa.run:
             sql"drop table if exists test_transactor_delete".dml
           _ <- xa.run:
             sql"create table test_transactor_delete (id integer primary key, name varchar(255))".dml
@@ -135,7 +135,7 @@ object TransactorSpecs extends ZIOSpecDefault:
 
         for
           xa <- ZIO.service[Transactor]
-          _ <- xa.run:
+          _  <- xa.run:
             dropTable[DDLTable](ifExists = true)
           createResult <- xa.run:
             createTable[DDLTable]()
@@ -156,7 +156,7 @@ object TransactorSpecs extends ZIOSpecDefault:
       test("yielding an effect of the result"):
         for
           xa <- ZIO.service[Transactor]
-          a <- xa.transact:
+          a  <- xa.transact:
             for
               a <- sql"select * from $testTable where name = $alice".queryOne[TestTable]
               b <- sql"select * from $testTable where name = $bob".queryOne[TestTable]
@@ -167,7 +167,7 @@ object TransactorSpecs extends ZIOSpecDefault:
       test("commit on success"):
         for
           xa <- ZIO.service[Transactor]
-          a <- xa
+          a  <- xa
             .transact:
               insertReturning(TestTable(frank, Some(42), None))
           newNames <- xa.run:
@@ -179,7 +179,7 @@ object TransactorSpecs extends ZIOSpecDefault:
       test("rollback on effect failure"):
         val names = sql"select * from $testTable".query[TestTable].map(_.map(_.name))
         for
-          xa <- ZIO.service[Transactor]
+          xa     <- ZIO.service[Transactor]
           before <- xa.run:
             names
           error <- xa
@@ -203,7 +203,7 @@ object TransactorSpecs extends ZIOSpecDefault:
 
         for
           xa <- ZIO.service[Transactor]
-          _ <- xa.run:
+          _  <- xa.run:
             sql"drop table if exists test_transactor_mixed".dml
           _ <- xa.run:
             sql"create table test_transactor_mixed (id integer primary key, name varchar(255), value integer)".dml
@@ -227,7 +227,7 @@ object TransactorSpecs extends ZIOSpecDefault:
 
         for
           xa <- ZIO.service[Transactor]
-          _ <- xa.run:
+          _  <- xa.run:
             sql"drop table if exists test_transactor_isolation".dml
           _ <- xa.run:
             sql"create table test_transactor_isolation (id integer primary key, value integer)".dml
@@ -253,7 +253,7 @@ object TransactorSpecs extends ZIOSpecDefault:
 
         for
           xa <- ZIO.service[Transactor]
-          _ <- xa.run:
+          _  <- xa.run:
             sql"drop table if exists test_transactor_unlimited".dml
           _ <- xa.run:
             sql"create table test_transactor_unlimited (id integer primary key, name varchar(255))".dml
@@ -276,7 +276,7 @@ object TransactorSpecs extends ZIOSpecDefault:
 
         for
           xa <- ZIO.service[Transactor]
-          _ <- xa.run:
+          _  <- xa.run:
             sql"drop table if exists test_transactor_limited".dml
           _ <- xa.run:
             sql"create table test_transactor_limited (id integer primary key, name varchar(255))".dml
@@ -299,7 +299,7 @@ object TransactorSpecs extends ZIOSpecDefault:
 
         for
           xa <- ZIO.service[Transactor]
-          _ <- xa.run:
+          _  <- xa.run:
             sql"drop table if exists test_transactor_serialized".dml
           _ <- xa.run:
             sql"create table test_transactor_serialized (id integer primary key, name varchar(255))".dml

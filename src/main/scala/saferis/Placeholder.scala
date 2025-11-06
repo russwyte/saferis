@@ -21,8 +21,8 @@ object Placeholder:
   /** Create a placeholder from raw SQL (use with caution) */
   def raw(sql: String): Placeholder = RawSql(sql)
 
-  /** Create a placeholder for a safely escaped identifier (table name, column name, etc.).
-    * This prevents SQL injection by properly escaping quotes in the identifier.
+  /** Create a placeholder for a safely escaped identifier (table name, column name, etc.). This prevents SQL injection
+    * by properly escaping quotes in the identifier.
     *
     * @param identifier
     *   The identifier to escape
@@ -79,7 +79,6 @@ object Placeholder:
     override private[saferis] val writes = Seq.empty
 
     override def toString: String = s"RawSql($sql)"
-  end RawSql
 
   /** An empty placeholder that produces no SQL and no writes */
   object Empty extends Placeholder:

@@ -73,14 +73,55 @@ object Decoder:
   given url: Decoder[java.net.URL] with
     def decode(rs: ResultSet, name: String)(using Trace): Task[java.net.URL] =
       ZIO.attempt(rs.getURL(name))
-  given uuid: Decoder[java.util.UUID] with
-    def decode(rs: ResultSet, name: String)(using Trace): Task[java.util.UUID] =
+
+  // Java time API decoders
+  given instant: Decoder[java.time.Instant] with
+    def decode(rs: ResultSet, name: String)(using Trace): Task[java.time.Instant] =
       ZIO.attempt:
-        val obj = rs.getObject(name)
-        obj match
-          case uuid: java.util.UUID => uuid
-          case str: String          => java.util.UUID.fromString(str)
-          case _                    => throw new SQLException(s"Cannot convert $obj to UUID")
+        val ts = rs.getTimestamp(name)
+        if ts == null then null else ts.toInstant
+
+  given localDateTime: Decoder[java.time.LocalDateTime] with
+    def decode(rs: ResultSet, name: String)(using Trace): Task[java.time.LocalDateTime] =
+      ZIO.attempt:
+        val ts = rs.getTimestamp(name)
+        if ts == null then null else ts.toLocalDateTime
+
+  given localDate: Decoder[java.time.LocalDate] with
+    def decode(rs: ResultSet, name: String)(using Trace): Task[java.time.LocalDate] =
+      ZIO.attempt:
+        val d = rs.getDate(name)
+        if d == null then null else d.toLocalDate
+
+  given localTime: Decoder[java.time.LocalTime] with
+    def decode(rs: ResultSet, name: String)(using Trace): Task[java.time.LocalTime] =
+      ZIO.attempt:
+        val t = rs.getTime(name)
+        if t == null then null else t.toLocalTime
+
+  given zonedDateTime: Decoder[java.time.ZonedDateTime] with
+    def decode(rs: ResultSet, name: String)(using Trace): Task[java.time.ZonedDateTime] =
+      ZIO.attempt:
+        val ts = rs.getTimestamp(name)
+        if ts == null then null
+        else
+          // Convert to Instant, then to ZonedDateTime in system default zone
+          java.time.ZonedDateTime.ofInstant(ts.toInstant, java.time.ZoneId.systemDefault)
+
+  given offsetDateTime: Decoder[java.time.OffsetDateTime] with
+    def decode(rs: ResultSet, name: String)(using Trace): Task[java.time.OffsetDateTime] =
+      ZIO.attempt:
+        val ts = rs.getTimestamp(name)
+        if ts == null then null
+        else
+          // Convert to Instant, then to OffsetDateTime in system default offset
+          java.time.OffsetDateTime.ofInstant(ts.toInstant, java.time.ZoneId.systemDefault)
+
+  /** Default UUID decoder from PostgreSQL dialect - provided as a low priority given. This allows users to work with
+    * UUIDs out of the box with just `import saferis.*` Users can override this by importing dialect-specific codecs
+    * (e.g., `import saferis.mysql.{given}`)
+    */
+  given defaultUuidDecoder: Decoder[java.util.UUID] = postgres.uuidDecoder
 
   // Tuple decoders - decode using column indices for tuple types
   def failTupleDecode(expected: Int, actual: Int) = ZIO.fail(

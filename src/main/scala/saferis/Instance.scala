@@ -22,10 +22,10 @@ final case class Instance[A <: Product: Table](
   def uniqueIndexColumns: Seq[Column[?]]                           = columns.filter(_.isUniqueIndex)
   def uniqueColumns: Seq[Column[?]]                                = columns.filter(_.isUnique)
   def selectDynamic(name: String)                                  = fieldNamesToColumns(name)
-  def applyDynamic[A: Encoder](@unused name: String)(args: A*) =
+  def applyDynamic[A: Encoder](@unused name: String)(args: A*)     =
     val cs: Seq[Column[?]] =
       columns.filter(_.isKey)
-    val whereArgs = cs.zip(args).toList
+    val whereArgs   = cs.zip(args).toList
     val whereClause = whereArgs.headOption.fold(Placeholder.Empty):
       case (c, a) =>
         whereArgs.tail

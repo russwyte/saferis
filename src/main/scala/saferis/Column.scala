@@ -4,7 +4,6 @@ import zio.*
 
 import java.sql.ResultSet
 import scala.annotation.StaticAnnotation
-import scala.reflect.ClassTag
 
 /** Represents a label for a column in a result set. Fields in a case class can be annotated with this to specify the
   * column name/label Example:
@@ -47,7 +46,7 @@ class unique extends StaticAnnotation
   *   the column name/label in the result set
   * @param reader
   */
-final case class Column[R: Decoder as readable: Encoder as writable: ClassTag as classTag](
+final case class Column[R: Decoder as readable: Encoder as writable](
     name: String,
     label: String,
     isKey: Boolean,
@@ -61,14 +60,14 @@ final case class Column[R: Decoder as readable: Encoder as writable: ClassTag as
   val writes = Seq.empty
   // Note: We cannot access dialect here as Column is constructed at compile-time
   // The label should already be the raw identifier, escaping happens at usage site
-  val sql    = tableAlias.fold(label)(a => s"$a.$label")
+  val sql = tableAlias.fold(label)(a => s"$a.$label")
 
   private[saferis] def read(rs: ResultSet)(using Trace): Task[(String, R)] =
     readable.decode(rs, label).map(v => name -> v)
   private[saferis] def withTableAlias(alias: Option[String]) = copy(tableAlias = alias)
 
   // Provide SQL type information based on the encoder
-  private[saferis] def sqlType: Int = writable.jdbcType
+  private[saferis] def sqlType: Int                                                          = writable.jdbcType
   private[saferis] def columnType(using dialect: Dialect = postgres.PostgresDialect): String =
-    dialect.columnType(using writable, classTag)
+    writable.columnType
 end Column

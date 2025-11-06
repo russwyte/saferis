@@ -49,6 +49,6 @@ object EncoderSpecs extends ZIOSpecDefault:
         urlLit == "'https://example.com'",
         unknownLit == "'unknown'",
       )
-    },
+    }
   )
 end EncoderSpecs

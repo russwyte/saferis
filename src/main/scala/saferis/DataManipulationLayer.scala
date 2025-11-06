@@ -32,7 +32,6 @@ object DataManipulationLayer:
   ): ZIO[ConnectionProvider & Scope, Throwable, Int] =
     val sql = sql"update ${table.instance} set " :+ table.updateSetClause(a) :+ sql" where " :+ whereClause
     sql.update
-  end updateWhere
 
   inline def updateReturning[A <: Product: Table as table](a: A)(using
       Trace
@@ -67,7 +66,6 @@ object DataManipulationLayer:
   ): ZIO[ConnectionProvider & Scope, Throwable, Int] =
     val sql = sql"delete from ${table.instance} where " :+ whereClause
     sql.delete
-  end deleteWhere
 
   inline def deleteReturning[A <: Product: Table as table](a: A)(using
       Trace
@@ -86,6 +84,5 @@ object DataManipulationLayer:
   ): ZIO[ConnectionProvider & Scope, Throwable, Seq[A]] =
     val sql = sql"delete from ${table.instance} where " :+ whereClause :+ sql" returning ${table.returningColumnsSql}"
     sql.query[A]
-  end deleteWhereReturning
 
 end DataManipulationLayer

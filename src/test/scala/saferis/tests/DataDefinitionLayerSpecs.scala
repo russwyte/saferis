@@ -39,7 +39,7 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
 
       for
         xa <- ZIO.service[Transactor]
-        _ <- xa.run:
+        _  <- xa.run:
           dropTable[GeneratedTable](ifExists = true)
         result <- xa.run:
           createTable[GeneratedTable]()
@@ -73,6 +73,7 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
           .either
       yield assertTrue(dropResult >= 0) &&
         assertTrue(queryAttempt.isLeft) // Should fail because table was dropped
+      end for
 
     test("truncate table"):
       @tableName("test_ddl_truncate")
@@ -80,7 +81,7 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
 
       for
         xa <- ZIO.service[Transactor]
-        _ <- xa.run:
+        _  <- xa.run:
           dropTable[TruncateTable](ifExists = true)
         _ <- xa.run:
           createTable[TruncateTable]()
@@ -109,7 +110,7 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
 
       for
         xa <- ZIO.service[Transactor]
-        _ <- xa.run:
+        _  <- xa.run:
           dropTable[AlterTableString](ifExists = true)
         _ <- xa.run:
           createTable[AlterTableString]()
@@ -137,7 +138,7 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
 
       for
         xa <- ZIO.service[Transactor]
-        _ <- xa.run:
+        _  <- xa.run:
           dropTable[AlterTableInt](ifExists = true)
         _ <- xa.run:
           createTable[AlterTableInt]()
@@ -169,7 +170,7 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
 
       for
         xa <- ZIO.service[Transactor]
-        _ <- xa.run:
+        _  <- xa.run:
           dropTable[AlterTableBool](ifExists = true)
         _ <- xa.run:
           createTable[AlterTableBool]()
@@ -202,7 +203,7 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
 
       for
         xa <- ZIO.service[Transactor]
-        _ <- xa.run:
+        _  <- xa.run:
           dropTable[AlterTableDouble](ifExists = true)
         _ <- xa.run:
           createTable[AlterTableDouble]()
@@ -230,7 +231,7 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
 
       for
         xa <- ZIO.service[Transactor]
-        _ <- xa.run:
+        _  <- xa.run:
           dropTable[AlterTableOptional](ifExists = true)
         _ <- xa.run:
           createTable[AlterTableOptional]()
@@ -262,7 +263,7 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
 
       for
         xa <- ZIO.service[Transactor]
-        _ <- xa.run:
+        _  <- xa.run:
           dropTable[IndexTable](ifExists = true)
         _ <- xa.run:
           createTable[IndexTable]()
@@ -298,7 +299,7 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
 
       for
         xa <- ZIO.service[Transactor]
-        _ <- xa.run:
+        _  <- xa.run:
           dropTable[CompoundKeyTable](ifExists = true)
         result <- xa.run:
           createTable[CompoundKeyTable]()
@@ -331,7 +332,7 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
 
       for
         xa <- ZIO.service[Transactor]
-        _ <- xa.run:
+        _  <- xa.run:
           dropTable[IndexedTable](ifExists = true)
         result <- xa.run:
           createTable[IndexedTable]()
@@ -356,7 +357,7 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
 
       for
         xa <- ZIO.service[Transactor]
-        _ <- xa.run:
+        _  <- xa.run:
           dropTable[NoIndexTable](ifExists = true)
         result <- xa.run:
           createTable[NoIndexTable](createIndexes = false)
@@ -379,7 +380,7 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
 
       for
         xa <- ZIO.service[Transactor]
-        _ <- xa.run:
+        _  <- xa.run:
           dropTable[CreateIndexesTable](ifExists = true)
         // Create table without indexes
         _ <- xa.run:
@@ -410,7 +411,7 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
 
       for
         xa <- ZIO.service[Transactor]
-        _ <- xa.run:
+        _  <- xa.run:
           dropTable[IndexesSqlTable](ifExists = true)
         // Create table without indexes
         _ <- xa.run:
@@ -447,7 +448,7 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
 
       for
         xa <- ZIO.service[Transactor]
-        _ <- xa.run:
+        _  <- xa.run:
           dropTable[CompoundGeneratedTable](ifExists = true)
         result <- xa.run:
           createTable[CompoundGeneratedTable]()
@@ -480,7 +481,7 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
 
       for
         xa <- ZIO.service[Transactor]
-        _ <- xa.run:
+        _  <- xa.run:
           dropTable[UniqueConstraintTable](ifExists = true)
         result <- xa.run:
           createTable[UniqueConstraintTable]()
@@ -512,7 +513,7 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
 
       for
         xa <- ZIO.service[Transactor]
-        _ <- xa.run:
+        _  <- xa.run:
           dropTable[EncoderTestTable](ifExists = true)
         _ <- xa.run:
           createTable[EncoderTestTable]()
@@ -543,7 +544,7 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
 
       for
         xa <- ZIO.service[Transactor]
-        _ <- xa.run:
+        _  <- xa.run:
           dropTable[UuidKeyTable](ifExists = true)
         result <- xa.run:
           createTable[UuidKeyTable]()

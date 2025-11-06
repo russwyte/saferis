@@ -14,24 +14,24 @@ object TableSpecs extends ZIOSpecDefault:
   val x = TestTable("Frank", Some(42), None)
 
   val testTable = Table[TestTable]
-  val spec = suiteAll("Table"):
+  val spec      = suiteAll("Table"):
     test("table name"):
       assertTrue(testTable.sql == "test_table_no_key")
 
     test("column labels"):
       assertTrue(testTable.name.sql == "name") &&
-        assertTrue(testTable.age.sql == "age") &&
-        assertTrue(testTable.e.sql == "email")
+      assertTrue(testTable.age.sql == "age") &&
+      assertTrue(testTable.e.sql == "email")
 
     test("generated annotation"):
       assertTrue(testTable.name.isGenerated) &&
-        assertTrue(!testTable.age.isGenerated) &&
-        assertTrue(!testTable.e.isGenerated)
+      assertTrue(!testTable.age.isGenerated) &&
+      assertTrue(!testTable.e.isGenerated)
 
     test("key is assumed by generated annotation"):
       assertTrue(testTable.name.isKey) &&
-        assertTrue(!testTable.age.isKey) &&
-        assertTrue(!testTable.e.isKey)
+      assertTrue(!testTable.age.isKey) &&
+      assertTrue(!testTable.e.isKey)
 
     test("alias for table"):
       assertTrue(testTable.withAlias("tt").sql == "test_table_no_key as tt")
@@ -48,7 +48,7 @@ object TableSpecs extends ZIOSpecDefault:
 
     test("columns scala field names and labels"):
       assertTrue(testTable.columns.map(_.name) == List("name", "age", "e")) &&
-        assertTrue(testTable.columns.map(_.label) == List("name", "age", "email"))
+      assertTrue(testTable.columns.map(_.label) == List("name", "age", "email"))
 
     test("provide getByKey"):
       val sql = testTable.getByKey("Frank").sql

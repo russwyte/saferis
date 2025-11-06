@@ -1,7 +1,5 @@
 package saferis
 
-import scala.reflect.ClassTag
-
 /** Trait representing a database dialect that provides database-specific type mappings and SQL generation.
   *
   * This allows the library to support multiple databases by providing different implementations for each database's
@@ -18,36 +16,6 @@ trait Dialect:
     *   Database-specific type string
     */
   def columnType(jdbcType: Int): String
-
-  def jdbcType[A: ClassTag as ct] =
-    ct.runtimeClass match
-      case cls if cls == classOf[String]             => java.sql.Types.VARCHAR
-      case cls if cls == classOf[Short]              => java.sql.Types.SMALLINT
-      case cls if cls == classOf[Int]                => java.sql.Types.INTEGER
-      case cls if cls == classOf[Long]               => java.sql.Types.BIGINT
-      case cls if cls == classOf[Float]              => java.sql.Types.FLOAT
-      case cls if cls == classOf[Double]             => java.sql.Types.DOUBLE
-      case cls if cls == classOf[Boolean]            => java.sql.Types.BOOLEAN
-      case cls if cls == classOf[java.sql.Date]      => java.sql.Types.DATE
-      case cls if cls == classOf[java.sql.Time]      => java.sql.Types.TIME
-      case cls if cls == classOf[java.sql.Timestamp] => java.sql.Types.TIMESTAMP
-      case cls if cls == classOf[java.net.URL]       => java.sql.Types.DATALINK
-      case cls if cls == classOf[java.util.UUID]     => java.sql.Types.OTHER
-      case _                                         => java.sql.Types.OTHER
-
-  /** Returns the database-specific type string for the given column type A. Uses a type tag to allow dialects to
-    * specialize type mapping based on A. Default implementation matches on type A (e.g., UUID) and falls back to JDBC
-    * type.
-    *
-    * @tparam A
-    *   The Scala type of the column
-    * @return
-    *   Database-specific type string
-    */
-  def columnType[A](using encoder: Encoder[A], ct: ClassTag[A]): String =
-    ct.runtimeClass match
-      case cls if cls == classOf[java.util.UUID] => "uuid"
-      case _                                     => columnType(encoder.jdbcType)
 
   /** Database name/identifier */
   def name: String
@@ -146,7 +114,6 @@ trait Dialect:
   def dropIndexSql(indexName: String, ifExists: Boolean = false): String =
     val ifExistsClause = if ifExists then " if exists" else ""
     s"drop index$ifExistsClause ${escapeIdentifier(indexName)}"
-  end dropIndexSql
 
   // === Table Operations ===
 
@@ -173,7 +140,6 @@ trait Dialect:
   def dropTableSql(tableName: String, ifExists: Boolean): String =
     val ifExistsClause = if ifExists then " if exists" else ""
     s"drop table$ifExistsClause ${escapeIdentifier(tableName)}"
-  end dropTableSql
 
   /** Returns the SQL for truncating a table.
     *
@@ -235,13 +201,17 @@ trait Dialect:
 end Dialect
 
 object Dialect:
-  import scala.reflect.ClassTag
-
   /** Get the database-specific type string for a column type A using the current dialect */
-  def columnType[A](using encoder: Encoder[A], ct: ClassTag[A], dialect: Dialect): String =
-    dialect.columnType[A]
+  def columnType[A](using encoder: Encoder[A], dialect: Dialect): String =
+    dialect.columnType(encoder.jdbcType)
 
   /** Get the database-specific type string for a JDBC type using the current dialect */
   def columnType(jdbcType: Int)(using dialect: Dialect): String =
     dialect.columnType(jdbcType)
+
+  /** Default PostgreSQL dialect - provided as a low priority given. This allows users to work with Postgres out of the
+    * box with just `import saferis.*` Users can override this by providing their own given Dialect with higher
+    * priority.
+    */
+  given defaultDialect: Dialect = postgres.PostgresDialect
 end Dialect

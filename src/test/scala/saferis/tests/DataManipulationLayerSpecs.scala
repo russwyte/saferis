@@ -43,7 +43,7 @@ object DataManipulationLayerSpecs extends ZIOSpecDefault:
 
       for
         xa <- ZIO.service[Transactor]
-        _ <- xa.run:
+        _  <- xa.run:
           sql"drop table if exists test_dml_insert_generated".dml
         _ <- xa.run:
           sql"""create table test_dml_insert_generated (
@@ -63,7 +63,7 @@ object DataManipulationLayerSpecs extends ZIOSpecDefault:
 
       for
         xa <- ZIO.service[Transactor]
-        _ <- xa.run:
+        _  <- xa.run:
           sql"drop table if exists test_dml_insert_optional".dml
         _ <- xa.run:
           sql"""create table test_dml_insert_optional (
@@ -94,7 +94,7 @@ object DataManipulationLayerSpecs extends ZIOSpecDefault:
 
       for
         xa <- ZIO.service[Transactor]
-        _ <- xa.run:
+        _  <- xa.run:
           sql"drop table if exists test_dml_update_key".dml
         _ <- xa.run:
           sql"""create table test_dml_update_key (
@@ -121,7 +121,7 @@ object DataManipulationLayerSpecs extends ZIOSpecDefault:
 
       for
         xa <- ZIO.service[Transactor]
-        _ <- xa.run:
+        _  <- xa.run:
           sql"drop table if exists test_dml_update_where".dml
         _ <- xa.run:
           sql"""create table test_dml_update_where (
@@ -156,7 +156,7 @@ object DataManipulationLayerSpecs extends ZIOSpecDefault:
 
       for
         xa <- ZIO.service[Transactor]
-        _ <- xa.run:
+        _  <- xa.run:
           sql"drop table if exists test_dml_update_returning".dml
         _ <- xa.run:
           sql"""create table test_dml_update_returning (
@@ -180,7 +180,7 @@ object DataManipulationLayerSpecs extends ZIOSpecDefault:
 
       for
         xa <- ZIO.service[Transactor]
-        _ <- xa.run:
+        _  <- xa.run:
           sql"drop table if exists test_dml_delete_key".dml
         _ <- xa.run:
           sql"""create table test_dml_delete_key (
@@ -206,7 +206,7 @@ object DataManipulationLayerSpecs extends ZIOSpecDefault:
 
       for
         xa <- ZIO.service[Transactor]
-        _ <- xa.run:
+        _  <- xa.run:
           sql"drop table if exists test_dml_delete_where".dml
         _ <- xa.run:
           sql"""create table test_dml_delete_where (
@@ -237,7 +237,7 @@ object DataManipulationLayerSpecs extends ZIOSpecDefault:
 
       for
         xa <- ZIO.service[Transactor]
-        _ <- xa.run:
+        _  <- xa.run:
           sql"drop table if exists test_dml_delete_returning".dml
         _ <- xa.run:
           sql"""create table test_dml_delete_returning (
@@ -262,7 +262,7 @@ object DataManipulationLayerSpecs extends ZIOSpecDefault:
 
       for
         xa <- ZIO.service[Transactor]
-        _ <- xa.run:
+        _  <- xa.run:
           sql"drop table if exists test_dml_delete_where_returning".dml
         _ <- xa.run:
           sql"""create table test_dml_delete_where_returning (
@@ -290,7 +290,7 @@ object DataManipulationLayerSpecs extends ZIOSpecDefault:
 
       for
         xa <- ZIO.service[Transactor]
-        _ <- xa.run:
+        _  <- xa.run:
           sql"drop table if exists test_dml_compound_key".dml
         _ <- xa.run:
           sql"""create table test_dml_compound_key (
