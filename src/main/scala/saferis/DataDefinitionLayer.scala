@@ -3,6 +3,7 @@ package saferis
 import zio.Scope
 import zio.ZIO
 import zio.Trace
+import scala.reflect.ClassTag
 
 val ddl = DataDefinitionLayer // short alias
 
@@ -58,14 +59,16 @@ object DataDefinitionLayer:
     val sql       = SqlFragment(dialect.truncateTableSql(tableName), Seq.empty)
     sql.dml
 
-  inline def addColumn[A <: Product: Table as table, T: Encoder as encoder](columnName: String)(using
+  inline def addColumn[A <: Product: Table as table, T: Encoder as encoder: ClassTag as classTag](columnName: String)(
+      using
       dialect: Dialect,
       trace: Trace,
   ): ZIO[ConnectionProvider & Scope, Throwable, Int] =
     val tableName  = table.name
-    val columnType = dialect.columnType(encoder)
+    val columnType = dialect.columnType(using encoder, classTag)
     val sql        = SqlFragment(dialect.addColumnSql(tableName, columnName, columnType), Seq.empty)
     sql.dml
+  end addColumn
 
   inline def dropColumn[A <: Product: Table as table](columnName: String)(using
       dialect: Dialect,

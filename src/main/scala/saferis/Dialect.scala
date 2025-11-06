@@ -1,5 +1,7 @@
 package saferis
 
+import scala.reflect.ClassTag
+
 /** Trait representing a database dialect that provides database-specific type mappings and SQL generation.
   *
   * This allows the library to support multiple databases by providing different implementations for each database's
@@ -17,16 +19,35 @@ trait Dialect:
     */
   def columnType(jdbcType: Int): String
 
-  /** Returns the database-specific type string for the given encoder.
+  def jdbcType[A: ClassTag as ct] =
+    ct.runtimeClass match
+      case cls if cls == classOf[String]             => java.sql.Types.VARCHAR
+      case cls if cls == classOf[Short]              => java.sql.Types.SMALLINT
+      case cls if cls == classOf[Int]                => java.sql.Types.INTEGER
+      case cls if cls == classOf[Long]               => java.sql.Types.BIGINT
+      case cls if cls == classOf[Float]              => java.sql.Types.FLOAT
+      case cls if cls == classOf[Double]             => java.sql.Types.DOUBLE
+      case cls if cls == classOf[Boolean]            => java.sql.Types.BOOLEAN
+      case cls if cls == classOf[java.sql.Date]      => java.sql.Types.DATE
+      case cls if cls == classOf[java.sql.Time]      => java.sql.Types.TIME
+      case cls if cls == classOf[java.sql.Timestamp] => java.sql.Types.TIMESTAMP
+      case cls if cls == classOf[java.net.URL]       => java.sql.Types.DATALINK
+      case cls if cls == classOf[java.util.UUID]     => java.sql.Types.OTHER
+      case _                                         => java.sql.Types.OTHER
+
+  /** Returns the database-specific type string for the given column type A. Uses a type tag to allow dialects to
+    * specialize type mapping based on A. Default implementation matches on type A (e.g., UUID) and falls back to JDBC
+    * type.
     *
-    * Default implementation delegates to typeFor(jdbcType), but can be overridden for more specific type mappings.
-    *
-    * @param encoder
-    *   The encoder instance
+    * @tparam A
+    *   The Scala type of the column
     * @return
     *   Database-specific type string
     */
-  def columnType[A](encoder: Encoder[A]): String = columnType(encoder.jdbcType)
+  def columnType[A](using encoder: Encoder[A], ct: ClassTag[A]): String =
+    ct.runtimeClass match
+      case cls if cls == classOf[java.util.UUID] => "uuid"
+      case _                                     => columnType(encoder.jdbcType)
 
   /** Database name/identifier */
   def name: String
@@ -212,10 +233,13 @@ trait Dialect:
 end Dialect
 
 object Dialect:
-  /** Get the database-specific type string for an encoder using the current dialect */
-  def columnType[A](encoder: Encoder[A])(using dialect: Dialect): String =
-    dialect.columnType(encoder)
+  import scala.reflect.ClassTag
+
+  /** Get the database-specific type string for a column type A using the current dialect */
+  def columnType[A](using encoder: Encoder[A], ct: ClassTag[A], dialect: Dialect): String =
+    dialect.columnType[A]
 
   /** Get the database-specific type string for a JDBC type using the current dialect */
   def columnType(jdbcType: Int)(using dialect: Dialect): String =
     dialect.columnType(jdbcType)
+end Dialect
