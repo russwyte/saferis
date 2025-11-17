@@ -1,0 +1,113 @@
+package saferis.tests.spark
+
+import saferis.*
+import saferis.spark.given
+import zio.test.*
+import java.sql.Types
+
+object SparkDialectSpecs extends ZIOSpecDefault:
+
+  val spec = suite("Spark Dialect Support")(
+    test("Spark dialect name") {
+      val dialect = summon[Dialect]
+      assertTrue(dialect.name == "Spark SQL")
+    },
+    test("Spark uses backticks for identifier quoting") {
+      val dialect = summon[Dialect]
+      assertTrue(dialect.identifierQuote == "`")
+    },
+    test("Spark escapes identifiers with backticks") {
+      val dialect = summon[Dialect]
+      assertTrue(
+        dialect.escapeIdentifier("table_name") == "`table_name`" &&
+          dialect.escapeIdentifier("column-with-dash") == "`column-with-dash`" &&
+          dialect.escapeIdentifier("column with spaces") == "`column with spaces`" &&
+          dialect.escapeIdentifier("column`name") == "`column``name`"
+      )
+    },
+    test("Spark type mappings") {
+      val dialect = summon[Dialect]
+      assertTrue(
+        // String types map to STRING
+        dialect.columnType(Types.VARCHAR) == "string" &&
+          dialect.columnType(Types.CHAR) == "string" &&
+          dialect.columnType(Types.LONGVARCHAR) == "string" &&
+          // Integer types
+          dialect.columnType(Types.TINYINT) == "tinyint" &&
+          dialect.columnType(Types.SMALLINT) == "smallint" &&
+          dialect.columnType(Types.INTEGER) == "int" &&
+          dialect.columnType(Types.BIGINT) == "bigint" &&
+          // Floating point
+          dialect.columnType(Types.FLOAT) == "float" &&
+          dialect.columnType(Types.DOUBLE) == "double" &&
+          // Boolean
+          dialect.columnType(Types.BOOLEAN) == "boolean" &&
+          // Date/Time
+          dialect.columnType(Types.DATE) == "date" &&
+          dialect.columnType(Types.TIMESTAMP) == "timestamp"
+      )
+    },
+    test("Spark DDL uses IF NOT EXISTS") {
+      val dialect = summon[Dialect]
+      assertTrue(
+        dialect.createTableClause(ifNotExists = true) == "create table if not exists" &&
+          dialect.createTableClause(ifNotExists = false) == "create table" &&
+          dialect.dropTableSql("my_table", ifExists = true) == "drop table if exists my_table" &&
+          dialect.dropTableSql("my_table", ifExists = false) == "drop table my_table"
+      )
+    },
+    test("Spark does not support indexes") {
+      val dialect = summon[Dialect]
+      // Just verify that these methods throw UnsupportedOperationException
+      val createsIndex =
+        try
+          dialect.createIndexSql("idx", "table", Seq("col"))
+          false
+        catch case _: UnsupportedOperationException => true
+      val createsUnique =
+        try
+          dialect.createUniqueIndexSql("idx", "table", Seq("col"))
+          false
+        catch case _: UnsupportedOperationException => true
+      val dropsIndex =
+        try
+          dialect.dropIndexSql("idx")
+          false
+        catch case _: UnsupportedOperationException => true
+      assertTrue(createsIndex && createsUnique && dropsIndex)
+    },
+    test("Spark JSON support") {
+      val dialect = summon[Dialect].asInstanceOf[JsonSupport]
+      assertTrue(
+        dialect.jsonType == "string" &&
+          dialect.jsonExtractSql("data", "field") == "get_json_object(data, '$.field')"
+      )
+    },
+    test("Spark array support") {
+      val dialect = summon[Dialect].asInstanceOf[ArraySupport]
+      assertTrue(
+        dialect.arrayType("int") == "array<int>" &&
+          dialect.arrayContainsSql("tags", "value") == "array_contains(tags, value)"
+      )
+    },
+    test("String literals use single quotes (Encoder default)") {
+      val encoder = summon[Encoder[String]]
+
+      assertTrue(
+        encoder.literal("some_value") == "'some_value'" &&
+          encoder.literal("value'with'quotes") == "'value''with''quotes'"
+      )
+    },
+    test("Identifiers vs Literals - the key distinction") {
+      val dialect    = summon[Dialect]
+      val encoder    = summon[Encoder[String]]
+      val columnName = "column-with-dash"
+
+      assertTrue(
+        dialect.escapeIdentifier(columnName) == "`column-with-dash`" &&
+          encoder.literal("some_value") == "'some_value'"
+      )
+    },
+  )
+
+end SparkDialectSpecs
