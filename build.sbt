@@ -1,7 +1,7 @@
 import xerial.sbt.Sonatype.sonatypeCentralHost
 
 val scala3Version = "3.7.3"
-val zioVersion    = "2.1.21"
+val zioVersion    = "2.1.24"
 usePgpKeyHex("2F64727A87F1BCF42FD307DD8582C4F16659A7D6")
 
 lazy val root = project
@@ -36,12 +36,13 @@ lazy val root = project
     versionScheme          := Some("early-semver"),
     libraryDependencies ++= Seq(
       "dev.zio"           %% "zio"                       % zioVersion % "provided",
-      "dev.zio"           %% "zio-logging-slf4j2-bridge" % "2.5.1"    % Test,
+      "dev.zio"           %% "zio-json"                  % "0.7.39"   % "provided",
+      "dev.zio"           %% "zio-logging-slf4j2-bridge" % "2.5.3"    % Test,
       "dev.zio"           %% "zio-test"                  % zioVersion % Test,
       "dev.zio"           %% "zio-test-sbt"              % zioVersion % Test,
       "dev.zio"           %% "zio-test-magnolia"         % zioVersion % Test,
-      "org.testcontainers" % "postgresql"                % "1.21.3"   % Test,
-      "org.postgresql"     % "postgresql"                % "42.7.7"   % Test,
+      "org.testcontainers" % "postgresql"                % "1.21.4"   % Test,
+      "org.postgresql"     % "postgresql"                % "42.7.9"   % Test,
     ),
     scalacOptions ++= Seq(
       "-deprecation",

@@ -816,4 +816,15 @@ object Decoder:
         yield (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v)
   end tuple22
 
+  /** Create a Decoder from a zio-json JsonCodec - reads from JSONB columns in PostgreSQL.
+    *
+    * This is used by the macro system when a field type has a JsonCodec but no explicit Decoder.
+    */
+  def fromJsonCodec[T](using codec: zio.json.JsonCodec[T]): Decoder[T] =
+    string.transform(jsonString =>
+      ZIO
+        .fromEither(codec.decoder.decodeJson(jsonString))
+        .mapError(e => new SQLException(s"Failed to decode JSON: $e"))
+    )
+
 end Decoder

@@ -66,13 +66,14 @@ object MySQLDialect extends Dialect with JsonSupport with WindowFunctionSupport 
 
   // === MySQL-specific Index Creation ===
   // MySQL doesn't support IF NOT EXISTS for indexes in older versions
+  // MySQL also doesn't support partial indexes (WHERE clause), so we ignore it
   override def createIndexSql(
       indexName: String,
       tableName: String,
       columnNames: Seq[String],
       ifNotExists: Boolean = true,
+      where: Option[String] = None, // Ignored - MySQL doesn't support partial indexes
   ): String =
-    // MySQL doesn't support IF NOT EXISTS for indexes in older versions
     s"create index ${escapeIdentifier(indexName)} on ${escapeIdentifier(tableName)} (${columnNames.map(escapeIdentifier).mkString(", ")})"
 
   override def createUniqueIndexSql(
@@ -80,6 +81,7 @@ object MySQLDialect extends Dialect with JsonSupport with WindowFunctionSupport 
       tableName: String,
       columnNames: Seq[String],
       ifNotExists: Boolean = true,
+      where: Option[String] = None, // Ignored - MySQL doesn't support partial indexes
   ): String =
     s"create unique index ${escapeIdentifier(indexName)} on ${escapeIdentifier(tableName)} (${columnNames.map(escapeIdentifier).mkString(", ")})"
 

@@ -58,15 +58,19 @@ object SQLiteDialect extends Dialect with ReturningSupport with CommonTableExpre
     )
 
   // === Index Operations ===
+  // SQLite supports partial indexes (WHERE clause)
   override def createIndexSql(
       indexName: String,
       tableName: String,
       columnNames: Seq[String],
       ifNotExists: Boolean = true,
+      where: Option[String] = None,
   ): String =
     val ifNotExistsClause = if ifNotExists then " if not exists" else ""
     val columns           = columnNames.map(escapeIdentifier).mkString(", ")
-    s"create index$ifNotExistsClause ${escapeIdentifier(indexName)} on ${escapeIdentifier(tableName)} ($columns)"
+    val whereClause       = where.map(w => s" where $w").getOrElse("")
+    s"create index$ifNotExistsClause ${escapeIdentifier(indexName)} on ${escapeIdentifier(tableName)} ($columns)$whereClause"
+  end createIndexSql
 
   override def dropIndexSql(indexName: String, ifExists: Boolean = false): String =
     val ifExistsClause = if ifExists then "if exists " else ""

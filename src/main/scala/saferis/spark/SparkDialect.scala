@@ -93,12 +93,13 @@ object SparkDialect
   override def truncateTableSql(tableName: String): String =
     s"truncate table $tableName"
 
-  // Spark SQL doesn't support IF NOT EXISTS for indexes in standard syntax
+  // Spark SQL doesn't support indexes at all
   override def createIndexSql(
       indexName: String,
       tableName: String,
       columnNames: Seq[String],
       ifNotExists: Boolean = true,
+      where: Option[String] = None,
   ): String = throw new UnsupportedOperationException(
     "Spark SQL does not support CREATE INDEX. Consider using partitioning, bucketing, or Z-ordering instead."
   )
@@ -108,6 +109,7 @@ object SparkDialect
       tableName: String,
       columnNames: Seq[String],
       ifNotExists: Boolean = true,
+      where: Option[String] = None,
   ): String =
     throw new UnsupportedOperationException(
       "Spark SQL does not support CREATE UNIQUE INDEX. Uniqueness must be enforced at the application level."

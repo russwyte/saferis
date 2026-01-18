@@ -561,6 +561,322 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
         assertTrue(fetched.contains(UuidKeyTable(uuidVal, "Test Name")))
       end for
 
+    test("compound unique constraints with named groups"):
+      @tableName("test_ddl_compound_unique")
+      case class CompoundUniqueTable(
+          @key id: Int,
+          @unique("tenant_event") tenantId: Int,
+          @unique("tenant_event") eventId: Long,
+          @unique singleUnique: String, // Single-column unique
+          description: String,
+      ) derives Table
+
+      // Verify column metadata
+      val table           = Table[CompoundUniqueTable]
+      val tenantIdCol     = table.columns.find(_.name == "tenantId").get
+      val eventIdCol      = table.columns.find(_.name == "eventId").get
+      val singleUniqueCol = table.columns.find(_.name == "singleUnique").get
+
+      for
+        xa <- ZIO.service[Transactor]
+        _  <- xa.run:
+          dropTable[CompoundUniqueTable](ifExists = true)
+        result <- xa.run:
+          createTable[CompoundUniqueTable]()
+        // Insert first record
+        _ <- xa.run:
+          insert(CompoundUniqueTable(1, 100, 1000L, "unique1", "First"))
+        // Insert with same tenantId but different eventId (should succeed - different compound key)
+        _ <- xa.run:
+          insert(CompoundUniqueTable(2, 100, 2000L, "unique2", "Second"))
+        // Insert with different tenantId but same eventId (should succeed)
+        _ <- xa.run:
+          insert(CompoundUniqueTable(3, 200, 1000L, "unique3", "Third"))
+        // Try to insert duplicate compound key (same tenantId AND eventId - should fail)
+        duplicateCompoundAttempt <- xa
+          .run:
+            insert(CompoundUniqueTable(4, 100, 1000L, "unique4", "Duplicate compound"))
+          .either
+        // Try to insert duplicate single-column unique (should fail)
+        duplicateSingleAttempt <- xa
+          .run:
+            insert(CompoundUniqueTable(5, 300, 3000L, "unique1", "Duplicate single"))
+          .either
+      yield assertTrue(result >= 0) &&
+        assertTrue(tenantIdCol.isUnique) &&
+        assertTrue(tenantIdCol.uniqueGroup.contains("tenant_event")) &&
+        assertTrue(eventIdCol.isUnique) &&
+        assertTrue(eventIdCol.uniqueGroup.contains("tenant_event")) &&
+        assertTrue(singleUniqueCol.isUnique) &&
+        assertTrue(singleUniqueCol.uniqueGroup.isEmpty) &&
+        assertTrue(duplicateCompoundAttempt.isLeft) && // Should fail due to compound unique constraint
+        assertTrue(duplicateSingleAttempt.isLeft)      // Should fail due to single-column unique constraint
+      end for
+
+    test("default values from case class constructor are used in DDL"):
+      @tableName("test_ddl_defaults")
+      case class DefaultsTable(
+          @key id: Int,
+          name: String,
+          status: String = "pending",
+          retryCount: Int = 0,
+          isActive: Boolean = true,
+      ) derives Table
+
+      // Helper case classes to query individual columns without defaults
+      case class StatusResult(status: String) derives Table
+      case class RetryCountResult(@label("retrycount") retryCount: Int) derives Table
+      case class IsActiveResult(@label("isactive") isActive: Boolean) derives Table
+
+      // Verify column metadata - extract values to avoid path-dependent type issues with ZIO's macro
+      val table               = Table[DefaultsTable]
+      val statusCol           = table.columns.find(_.name == "status").get
+      val retryCountCol       = table.columns.find(_.name == "retryCount").get
+      val isActiveCol         = table.columns.find(_.name == "isActive").get
+      val nameCol             = table.columns.find(_.name == "name").get
+      val statusHasDefault    = statusCol.defaultValue.isDefined
+      val retryHasDefault     = retryCountCol.defaultValue.isDefined
+      val activeHasDefault    = isActiveCol.defaultValue.isDefined
+      val nameHasDefault      = nameCol.defaultValue.isDefined
+      val statusDefaultClause = statusCol.defaultClause
+      val retryDefaultClause  = retryCountCol.defaultClause
+      val activeDefaultClause = isActiveCol.defaultClause
+
+      for
+        xa <- ZIO.service[Transactor]
+        _  <- xa.run:
+          dropTable[DefaultsTable](ifExists = true)
+        result <- xa.run:
+          createTable[DefaultsTable]()
+        // Insert without specifying default columns - they should use DB defaults
+        _ <- xa.run:
+          sql"insert into test_ddl_defaults (id, name) values (1, ${"Test"})".insert
+        // Query individual columns to verify DB-level defaults (not case class defaults)
+        statusResult <- xa.run:
+          sql"select status from test_ddl_defaults where id = 1".queryOne[StatusResult]
+        retryResult <- xa.run:
+          sql"select retrycount from test_ddl_defaults where id = 1".queryOne[RetryCountResult]
+        activeResult <- xa.run:
+          sql"select isactive from test_ddl_defaults where id = 1".queryOne[IsActiveResult]
+      yield assertTrue(result >= 0) &&
+        assertTrue(statusHasDefault) &&
+        assertTrue(retryHasDefault) &&
+        assertTrue(activeHasDefault) &&
+        assertTrue(!nameHasDefault) &&
+        assertTrue(statusDefaultClause.contains("default 'pending'")) &&
+        assertTrue(retryDefaultClause.contains("default 0")) &&
+        assertTrue(activeDefaultClause.contains("default true")) &&
+        assertTrue(statusResult.map(_.status).contains("pending")) &&
+        assertTrue(retryResult.map(_.retryCount).contains(0)) &&
+        assertTrue(activeResult.map(_.isActive).contains(true))
+      end for
+
+    test("partial indexes with WHERE clause"):
+      @tableName("test_ddl_partial_index")
+      case class PartialIndexTable(
+          @key id: Int,
+          status: String,
+          @label("nextretryat") nextRetryAt: Option[java.time.Instant],
+      ) derives Table
+
+      for
+        xa <- ZIO.service[Transactor]
+        _  <- xa.run:
+          dropTable[PartialIndexTable](ifExists = true)
+        _ <- xa.run:
+          createTable[PartialIndexTable](createIndexes = false)
+        // Create a partial index on nextRetryAt only for pending records
+        _ <- xa.run:
+          createIndex[PartialIndexTable](
+            "idx_pending_retry",
+            Seq("nextretryat"),
+            where = Some("status = 'pending'"),
+          )
+        // Insert some test data
+        _ <- xa.run:
+          sql"insert into test_ddl_partial_index (id, status, nextretryat) values (1, ${"pending"}, ${java.time.Instant.now()})".insert
+        _ <- xa.run:
+          sql"insert into test_ddl_partial_index (id, status, nextretryat) values (2, ${"completed"}, ${Option.empty[java.time.Instant]})".insert
+        // Query to verify data exists (partial indexes are transparent to queries)
+        count <- xa.run:
+          sql"select count(*) as count from test_ddl_partial_index".queryOne[CountResult]
+        // Drop the index to clean up
+        _ <- xa.run:
+          dropIndex("idx_pending_retry")
+      yield assertTrue(count.map(_.count).contains(2))
+      end for
+
+    test("compound index annotations"):
+      @tableName("test_ddl_compound_index")
+      case class CompoundIndexTable(
+          @key id: Int,
+          @indexed singleCol: String,                    // Single-column index
+          @indexed("idx_tenant_event") tenantId: Int,    // Compound index
+          @indexed("idx_tenant_event") eventTime: Long,  // Same compound index
+          @uniqueIndex("uidx_user_email") userId: Int,   // Compound unique index
+          @uniqueIndex("uidx_user_email") email: String, // Same compound unique index
+          description: String,
+      ) derives Table
+
+      // Verify column metadata
+      val table        = Table[CompoundIndexTable]
+      val singleCol    = table.columns.find(_.name == "singleCol").get
+      val tenantIdCol  = table.columns.find(_.name == "tenantId").get
+      val eventTimeCol = table.columns.find(_.name == "eventTime").get
+      val userIdCol    = table.columns.find(_.name == "userId").get
+      val emailCol     = table.columns.find(_.name == "email").get
+
+      val singleHasGroup  = singleCol.indexGroup.isDefined
+      val tenantHasGroup  = tenantIdCol.indexGroup.contains("idx_tenant_event")
+      val eventHasGroup   = eventTimeCol.indexGroup.contains("idx_tenant_event")
+      val userHasUiGroup  = userIdCol.uniqueIndexGroup.contains("uidx_user_email")
+      val emailHasUiGroup = emailCol.uniqueIndexGroup.contains("uidx_user_email")
+
+      for
+        xa <- ZIO.service[Transactor]
+        _  <- xa.run:
+          dropTable[CompoundIndexTable](ifExists = true)
+        result <- xa.run:
+          createTable[CompoundIndexTable]()
+        // Verify indexes were created by inserting data and querying
+        _ <- xa.run:
+          sql"insert into test_ddl_compound_index values (1, ${"single"}, 100, 1000, 200, ${"test@test.com"}, ${"desc"})".insert
+        count <- xa.run:
+          sql"select count(*) as count from test_ddl_compound_index".queryOne[CountResult]
+      yield assertTrue(result >= 0) &&
+        assertTrue(!singleHasGroup) && // Single column index has no group
+        assertTrue(tenantHasGroup) &&  // Compound index group
+        assertTrue(eventHasGroup) &&   // Same compound index group
+        assertTrue(userHasUiGroup) &&  // Compound unique index group
+        assertTrue(emailHasUiGroup) && // Same compound unique index group
+        assertTrue(count.map(_.count).contains(1))
+      end for
+
+    test("non-Option fields are NOT NULL, Option fields are nullable"):
+      @tableName("test_ddl_not_null")
+      case class NotNullTable(
+          @key id: Int,
+          name: String,                // NOT NULL
+          email: String,               // NOT NULL
+          description: Option[String], // nullable
+          age: Option[Int],            // nullable
+      ) derives Table
+
+      // Verify column metadata
+      val table    = Table[NotNullTable]
+      val idCol    = table.columns.find(_.name == "id").get
+      val nameCol  = table.columns.find(_.name == "name").get
+      val emailCol = table.columns.find(_.name == "email").get
+      val descCol  = table.columns.find(_.name == "description").get
+      val ageCol   = table.columns.find(_.name == "age").get
+
+      for
+        xa <- ZIO.service[Transactor]
+        _  <- xa.run:
+          dropTable[NotNullTable](ifExists = true)
+        result <- xa.run:
+          createTable[NotNullTable]()
+        // Insert valid data with optional fields as None
+        _ <- xa.run:
+          insert(NotNullTable(1, "John", "john@example.com", None, None))
+        // Insert valid data with optional fields populated
+        _ <- xa.run:
+          insert(NotNullTable(2, "Jane", "jane@example.com", Some("A description"), Some(25)))
+        // Verify data exists
+        fetched <- xa.run:
+          sql"select * from test_ddl_not_null where id = 1".queryOne[NotNullTable]
+        // Try to insert with missing NOT NULL column - should fail
+        // (omitting 'name' which is NOT NULL)
+        missingNotNullAttempt <- xa
+          .run:
+            sql"insert into test_ddl_not_null (id, email) values (3, ${"test@example.com"})".insert
+          .either
+      yield assertTrue(result >= 0) &&
+        assertTrue(!idCol.isNullable) &&
+        assertTrue(!nameCol.isNullable) &&
+        assertTrue(!emailCol.isNullable) &&
+        assertTrue(descCol.isNullable) &&
+        assertTrue(ageCol.isNullable) &&
+        assertTrue(fetched.isDefined) &&
+        assertTrue(missingNotNullAttempt.isLeft) // Should fail due to NOT NULL constraint
+      end for
+
+    test("declarative partial indexes via @indexed annotation"):
+      @tableName("test_ddl_partial_index_annotation")
+      case class PartialIndexAnnotationTable(
+          @key id: Int,
+          @indexed("idx_pending_retry", "status = 'pending'") nextRetryAt: Option[java.time.Instant],
+          status: String,
+      ) derives Table
+
+      // Verify column metadata captures the condition
+      val table        = Table[PartialIndexAnnotationTable]
+      val nextRetryCol = table.columns.find(_.name == "nextRetryAt").get
+
+      // Verify the SQL generation includes WHERE clause
+      val indexSql = ddl.createIndexesSql[PartialIndexAnnotationTable]()
+
+      for
+        xa <- ZIO.service[Transactor]
+        _  <- xa.run:
+          dropTable[PartialIndexAnnotationTable](ifExists = true)
+        result <- xa.run:
+          createTable[PartialIndexAnnotationTable]()
+        // Insert test data
+        _ <- xa.run:
+          sql"insert into test_ddl_partial_index_annotation (id, nextretryat, status) values (1, ${java.time.Instant.now()}, ${"pending"})".insert
+        _ <- xa.run:
+          sql"insert into test_ddl_partial_index_annotation (id, nextretryat, status) values (2, ${Option.empty[java.time.Instant]}, ${"completed"})".insert
+        count <- xa.run:
+          sql"select count(*) as count from test_ddl_partial_index_annotation".queryOne[CountResult]
+      yield assertTrue(nextRetryCol.indexCondition.contains("status = 'pending'")) &&
+        assertTrue(indexSql.toLowerCase.contains("where status = 'pending'")) &&
+        assertTrue(count.map(_.count).contains(2))
+      end for
+
+    test("declarative partial unique indexes via @uniqueIndex annotation"):
+      @tableName("test_ddl_partial_unique_index_annotation")
+      case class PartialUniqueIndexAnnotationTable(
+          @key id: Int,
+          @uniqueIndex("uidx_active_email", "active = true") email: String,
+          active: Boolean,
+      ) derives Table
+
+      // Verify column metadata captures the condition
+      val table    = Table[PartialUniqueIndexAnnotationTable]
+      val emailCol = table.columns.find(_.name == "email").get
+
+      // Verify the SQL generation includes WHERE clause
+      val indexSql = ddl.createIndexesSql[PartialUniqueIndexAnnotationTable]()
+
+      for
+        xa <- ZIO.service[Transactor]
+        _  <- xa.run:
+          dropTable[PartialUniqueIndexAnnotationTable](ifExists = true)
+        result <- xa.run:
+          createTable[PartialUniqueIndexAnnotationTable]()
+        // Insert active user with email
+        _ <- xa.run:
+          sql"insert into test_ddl_partial_unique_index_annotation (id, email, active) values (1, ${"user@example.com"}, ${true})".insert
+        // Insert inactive user with same email (should succeed because unique only applies to active=true)
+        _ <- xa.run:
+          sql"insert into test_ddl_partial_unique_index_annotation (id, email, active) values (2, ${"user@example.com"}, ${false})".insert
+        // Insert another inactive user with same email (should succeed)
+        _ <- xa.run:
+          sql"insert into test_ddl_partial_unique_index_annotation (id, email, active) values (3, ${"user@example.com"}, ${false})".insert
+        // Try to insert another active user with same email (should fail due to partial unique constraint)
+        duplicateActiveAttempt <- xa
+          .run:
+            sql"insert into test_ddl_partial_unique_index_annotation (id, email, active) values (4, ${"user@example.com"}, ${true})".insert
+          .either
+        count <- xa.run:
+          sql"select count(*) as count from test_ddl_partial_unique_index_annotation".queryOne[CountResult]
+      yield assertTrue(emailCol.uniqueIndexCondition.contains("active = true")) &&
+        assertTrue(indexSql.toLowerCase.contains("where active = true")) &&
+        assertTrue(count.map(_.count).contains(3)) && // 3 rows inserted before the duplicate attempt
+        assertTrue(duplicateActiveAttempt.isLeft)     // Should fail due to partial unique constraint
+      end for
+
   case class CountResult(count: Int) derives Table
 
   val spec = suite("DDL Operations")(ddlTests).provideShared(xaLayer) @@ TestAspect.sequential

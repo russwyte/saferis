@@ -63,6 +63,8 @@ trait IndexIfNotExistsSupport:
     *   Column names to index
     * @param unique
     *   Whether the index should be unique
+    * @param where
+    *   Optional WHERE clause for partial indexes
     * @return
     *   SQL statement for creating the index with IF NOT EXISTS
     */
@@ -71,9 +73,11 @@ trait IndexIfNotExistsSupport:
       tableName: String,
       columnNames: Seq[String],
       unique: Boolean = false,
+      where: Option[String] = None,
   ): String =
     val uniqueClause = if unique then "unique " else ""
-    s"create ${uniqueClause}index if not exists $indexName on $tableName (${columnNames.mkString(", ")})"
+    val whereClause  = where.map(w => s" where $w").getOrElse("")
+    s"create ${uniqueClause}index if not exists $indexName on $tableName (${columnNames.mkString(", ")})$whereClause"
   end createIndexIfNotExistsSql
 end IndexIfNotExistsSupport
 

@@ -74,9 +74,11 @@ trait Dialect:
       tableName: String,
       columnNames: Seq[String],
       ifNotExists: Boolean = true,
+      where: Option[String] = None,
   ): String =
     val ifNotExistsClause = if ifNotExists then " if not exists" else ""
-    s"create index$ifNotExistsClause ${escapeIdentifier(indexName)} on ${escapeIdentifier(tableName)} (${columnNames.map(escapeIdentifier).mkString(", ")})"
+    val whereClause       = where.map(w => s" where $w").getOrElse("")
+    s"create index$ifNotExistsClause ${escapeIdentifier(indexName)} on ${escapeIdentifier(tableName)} (${columnNames.map(escapeIdentifier).mkString(", ")})$whereClause"
   end createIndexSql
 
   /** Returns the SQL for creating a unique index.
@@ -97,9 +99,11 @@ trait Dialect:
       tableName: String,
       columnNames: Seq[String],
       ifNotExists: Boolean = true,
+      where: Option[String] = None,
   ): String =
     val ifNotExistsClause = if ifNotExists then " if not exists" else ""
-    s"create unique index$ifNotExistsClause ${escapeIdentifier(indexName)} on ${escapeIdentifier(tableName)} (${columnNames.map(escapeIdentifier).mkString(", ")})"
+    val whereClause       = where.map(w => s" where $w").getOrElse("")
+    s"create unique index$ifNotExistsClause ${escapeIdentifier(indexName)} on ${escapeIdentifier(tableName)} (${columnNames.map(escapeIdentifier).mkString(", ")})$whereClause"
   end createUniqueIndexSql
 
   /** Returns the SQL for dropping an index.

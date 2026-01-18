@@ -163,7 +163,7 @@ object Encoder:
     def encode(a: java.time.Instant, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
       ZIO.attempt:
         stmt.setTimestamp(idx, java.sql.Timestamp.from(a))
-    override val jdbcType: Int = java.sql.Types.TIMESTAMP
+    override val jdbcType: Int = java.sql.Types.TIMESTAMP_WITH_TIMEZONE
 
   given localDateTime: Encoder[java.time.LocalDateTime] with
     def encode(a: java.time.LocalDateTime, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
@@ -188,18 +188,29 @@ object Encoder:
       ZIO.attempt:
         // Convert to Instant, then to Timestamp (preserves the instant in time)
         stmt.setTimestamp(idx, java.sql.Timestamp.from(a.toInstant))
-    override val jdbcType: Int = java.sql.Types.TIMESTAMP
+    override val jdbcType: Int = java.sql.Types.TIMESTAMP_WITH_TIMEZONE
 
   given offsetDateTime: Encoder[java.time.OffsetDateTime] with
     def encode(a: java.time.OffsetDateTime, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
       ZIO.attempt:
         stmt.setTimestamp(idx, java.sql.Timestamp.from(a.toInstant))
-    override val jdbcType: Int = java.sql.Types.TIMESTAMP
+    override val jdbcType: Int = java.sql.Types.TIMESTAMP_WITH_TIMEZONE
 
   /** Default UUID encoder from PostgreSQL dialect - provided as a low priority given. This allows users to work with
     * UUIDs out of the box with just `import saferis.*` Users can override this by importing dialect-specific codecs
     * (e.g., `import saferis.mysql.{given}`)
     */
   given defaultUuidEncoder: Encoder[java.util.UUID] = postgres.uuidEncoder
+
+  /** Create an Encoder from a zio-json JsonCodec - stores as JSONB in PostgreSQL.
+    *
+    * This is used by the macro system when a field type has a JsonCodec but no explicit Encoder.
+    */
+  def fromJsonCodec[T](using codec: zio.json.JsonCodec[T]): Encoder[T] = new Encoder[T]:
+    override val jdbcType: Int = java.sql.Types.OTHER // Maps to jsonb in PostgreSQL
+    def encode(a: T, stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
+      ZIO.attempt:
+        val jsonString = codec.encoder.encodeJson(a, None).toString
+        stmt.setObject(idx, jsonString, jdbcType)
 
 end Encoder

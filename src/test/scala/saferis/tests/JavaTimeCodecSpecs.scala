@@ -7,7 +7,7 @@ import java.time.*
 object JavaTimeCodecSpecs extends ZIOSpecDefault:
 
   val spec = suite("Java Time Codec Support")(
-    test("Instant codec is available") {
+    test("Instant codec is available and uses TIMESTAMP_WITH_TIMEZONE") {
       val encoder = summon[Encoder[Instant]]
       val decoder = summon[Decoder[Instant]]
       val codec   = summon[Codec[Instant]]
@@ -15,7 +15,7 @@ object JavaTimeCodecSpecs extends ZIOSpecDefault:
       assertTrue(encoder != null) &&
       assertTrue(decoder != null) &&
       assertTrue(codec != null) &&
-      assertTrue(encoder.jdbcType == java.sql.Types.TIMESTAMP)
+      assertTrue(encoder.jdbcType == java.sql.Types.TIMESTAMP_WITH_TIMEZONE)
     },
     test("LocalDateTime codec is available") {
       val encoder = summon[Encoder[LocalDateTime]]
@@ -47,7 +47,7 @@ object JavaTimeCodecSpecs extends ZIOSpecDefault:
       assertTrue(codec != null) &&
       assertTrue(encoder.jdbcType == java.sql.Types.TIME)
     },
-    test("ZonedDateTime codec is available") {
+    test("ZonedDateTime codec is available and uses TIMESTAMP_WITH_TIMEZONE") {
       val encoder = summon[Encoder[ZonedDateTime]]
       val decoder = summon[Decoder[ZonedDateTime]]
       val codec   = summon[Codec[ZonedDateTime]]
@@ -55,9 +55,9 @@ object JavaTimeCodecSpecs extends ZIOSpecDefault:
       assertTrue(encoder != null) &&
       assertTrue(decoder != null) &&
       assertTrue(codec != null) &&
-      assertTrue(encoder.jdbcType == java.sql.Types.TIMESTAMP)
+      assertTrue(encoder.jdbcType == java.sql.Types.TIMESTAMP_WITH_TIMEZONE)
     },
-    test("OffsetDateTime codec is available") {
+    test("OffsetDateTime codec is available and uses TIMESTAMP_WITH_TIMEZONE") {
       val encoder = summon[Encoder[OffsetDateTime]]
       val decoder = summon[Decoder[OffsetDateTime]]
       val codec   = summon[Codec[OffsetDateTime]]
@@ -65,16 +65,16 @@ object JavaTimeCodecSpecs extends ZIOSpecDefault:
       assertTrue(encoder != null) &&
       assertTrue(decoder != null) &&
       assertTrue(codec != null) &&
-      assertTrue(encoder.jdbcType == java.sql.Types.TIMESTAMP)
+      assertTrue(encoder.jdbcType == java.sql.Types.TIMESTAMP_WITH_TIMEZONE)
     },
-    test("Can use Instant in table definition") {
+    test("Can use Instant in table definition with timestamptz column type") {
       @tableName("events")
       case class Event(@key id: Int, @indexed occurredAt: Instant, description: String) derives Table
 
       val table            = Table[Event]
       val occurredAtColumn = table.occurredAt
 
-      assertTrue(occurredAtColumn.columnType == "timestamp")
+      assertTrue(occurredAtColumn.columnType == "timestamptz")
     },
     test("Can use LocalDateTime in table definition") {
       @tableName("appointments")

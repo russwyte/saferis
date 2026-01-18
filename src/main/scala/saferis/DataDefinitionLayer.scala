@@ -17,10 +17,13 @@ object DataDefinitionLayer:
     val hasCompoundKey = keyColumns.length > 1
 
     val columnDefs = table.columns.map { col =>
-      val baseType    = sqlTypeFromColumn(col)
-      val constraints = dialect.autoIncrementClause(col.isGenerated, col.isKey, hasCompoundKey) +
-        (if col.isUnique then " unique" else "")
-      s"${col.label} $baseType$constraints"
+      val baseType      = sqlTypeFromColumn(col)
+      val notNullClause = if !col.isNullable then " not null" else ""
+      val defaultClause = col.defaultClause.map(d => s" $d").getOrElse("")
+      val autoIncrement = dialect.autoIncrementClause(col.isGenerated, col.isKey, hasCompoundKey)
+      // Only add inline UNIQUE for columns without a uniqueGroup (single-column unique constraints)
+      val uniqueClause = if col.isUnique && col.uniqueGroup.isEmpty then " unique" else ""
+      s"${col.label} $baseType$notNullClause$defaultClause$autoIncrement$uniqueClause"
     }
 
     // Add compound primary key constraint if needed
@@ -29,7 +32,17 @@ object DataDefinitionLayer:
       dialect.compoundPrimaryKeyClause(keyColumnNames)
     }
 
-    val allConstraints = columnDefs ++ primaryKeyConstraint.toSeq
+    // Group columns by uniqueGroup for compound unique constraints
+    val compoundUniqueConstraints = table.columns
+      .filter(col => col.isUnique && col.uniqueGroup.isDefined)
+      .groupBy(_.uniqueGroup.get)
+      .map { case (constraintName, cols) =>
+        val columnNames = cols.map(_.label)
+        s"constraint ${dialect.escapeIdentifier(constraintName)} unique (${columnNames.mkString(", ")})"
+      }
+      .toSeq
+
+    val allConstraints = columnDefs ++ primaryKeyConstraint.toSeq ++ compoundUniqueConstraints
     val tableName      = table.name
     val createClause   = dialect.createTableClause(ifNotExists)
     val sql            = SqlFragment(s"$createClause $tableName (${allConstraints.mkString(", ")})", Seq.empty)
@@ -80,11 +93,13 @@ object DataDefinitionLayer:
       indexName: String,
       columnNames: Seq[String],
       unique: Boolean = false,
+      where: Option[String] = None,
   )(using dialect: Dialect, trace: Trace): ZIO[ConnectionProvider & Scope, Throwable, Int] =
     val tableName = table.name
     val sql       =
-      if unique then SqlFragment(dialect.createUniqueIndexSql(indexName, tableName, columnNames), Seq.empty)
-      else SqlFragment(dialect.createIndexSql(indexName, tableName, columnNames), Seq.empty)
+      if unique then
+        SqlFragment(dialect.createUniqueIndexSql(indexName, tableName, columnNames, where = where), Seq.empty)
+      else SqlFragment(dialect.createIndexSql(indexName, tableName, columnNames, where = where), Seq.empty)
     sql.dml
   end createIndex
 
@@ -93,22 +108,60 @@ object DataDefinitionLayer:
     val keyColumns     = table.columns.filter(_.isKey)
     val hasCompoundKey = keyColumns.length > 1
 
-    // Create regular indexes for @indexed fields
-    val indexedIndexes = table.indexedColumns.map { col =>
-      val indexName = s"idx_${tableName}_${col.label}"
-      dialect match
-        case d: IndexIfNotExistsSupport => d.createIndexIfNotExistsSql(indexName, tableName, Seq(col.label))
-        case _                          => dialect.createIndexSql(indexName, tableName, Seq(col.label), false)
-    }
-
-    // Create unique indexes for @uniqueIndex fields
-    val uniqueIndexes = table.uniqueIndexColumns.map { col =>
+    // Create regular indexes for @indexed fields without indexGroup (single-column)
+    val singleColumnIndexes = table.indexedColumns.filter(_.indexGroup.isEmpty).map { col =>
       val indexName = s"idx_${tableName}_${col.label}"
       dialect match
         case d: IndexIfNotExistsSupport =>
-          d.createIndexIfNotExistsSql(indexName, tableName, Seq(col.label), unique = true)
-        case _ => dialect.createUniqueIndexSql(indexName, tableName, Seq(col.label), false)
+          d.createIndexIfNotExistsSql(indexName, tableName, Seq(col.label), where = col.indexCondition)
+        case _ => dialect.createIndexSql(indexName, tableName, Seq(col.label), false, col.indexCondition)
     }
+
+    // Create compound indexes for @indexed fields with indexGroup
+    val compoundIndexes = table.indexedColumns
+      .filter(_.indexGroup.isDefined)
+      .groupBy(_.indexGroup.get)
+      .map { case (indexName, cols) =>
+        val columnNames = cols.map(_.label)
+        // For compound indexes, merge conditions (take the first non-empty condition)
+        val condition = cols.flatMap(_.indexCondition).headOption
+        dialect match
+          case d: IndexIfNotExistsSupport =>
+            d.createIndexIfNotExistsSql(indexName, tableName, columnNames, where = condition)
+          case _ => dialect.createIndexSql(indexName, tableName, columnNames, false, condition)
+      }
+      .toSeq
+
+    // Create unique indexes for @uniqueIndex fields without uniqueIndexGroup (single-column)
+    val singleColumnUniqueIndexes = table.uniqueIndexColumns.filter(_.uniqueIndexGroup.isEmpty).map { col =>
+      val indexName = s"idx_${tableName}_${col.label}"
+      dialect match
+        case d: IndexIfNotExistsSupport =>
+          d.createIndexIfNotExistsSql(
+            indexName,
+            tableName,
+            Seq(col.label),
+            unique = true,
+            where = col.uniqueIndexCondition,
+          )
+        case _ => dialect.createUniqueIndexSql(indexName, tableName, Seq(col.label), false, col.uniqueIndexCondition)
+      end match
+    }
+
+    // Create compound unique indexes for @uniqueIndex fields with uniqueIndexGroup
+    val compoundUniqueIndexes = table.uniqueIndexColumns
+      .filter(_.uniqueIndexGroup.isDefined)
+      .groupBy(_.uniqueIndexGroup.get)
+      .map { case (indexName, cols) =>
+        val columnNames = cols.map(_.label)
+        // For compound indexes, merge conditions (take the first non-empty condition)
+        val condition = cols.flatMap(_.uniqueIndexCondition).headOption
+        dialect match
+          case d: IndexIfNotExistsSupport =>
+            d.createIndexIfNotExistsSql(indexName, tableName, columnNames, unique = true, where = condition)
+          case _ => dialect.createUniqueIndexSql(indexName, tableName, columnNames, false, condition)
+      }
+      .toSeq
 
     // For compound keys, also create a compound index on all key columns for better query performance
     val compoundKeyIndex = Option.when(hasCompoundKey) {
@@ -119,7 +172,8 @@ object DataDefinitionLayer:
         case _                          => dialect.createIndexSql(compoundIndexName, tableName, keyColumnNames, false)
     }
 
-    (indexedIndexes ++ uniqueIndexes ++ compoundKeyIndex.toSeq).mkString("\n")
+    (singleColumnIndexes ++ compoundIndexes ++ singleColumnUniqueIndexes ++ compoundUniqueIndexes ++ compoundKeyIndex.toSeq)
+      .mkString("\n")
   end createIndexesSql
 
   inline def createIndexes[A <: Product: Table as table]()(using
@@ -130,25 +184,81 @@ object DataDefinitionLayer:
     val keyColumns     = table.columns.filter(_.isKey)
     val hasCompoundKey = keyColumns.length > 1
 
-    // Create regular indexes for @indexed fields
-    val indexedIndexes = table.indexedColumns.map { col =>
+    // Create regular indexes for @indexed fields without indexGroup (single-column)
+    val singleColumnIndexes = table.indexedColumns.filter(_.indexGroup.isEmpty).map { col =>
       val indexName = s"idx_${tableName}_${col.label}"
       val sql       = dialect match
         case d: IndexIfNotExistsSupport =>
-          SqlFragment(d.createIndexIfNotExistsSql(indexName, tableName, Seq(col.label)), Seq.empty)
-        case _ => SqlFragment(dialect.createIndexSql(indexName, tableName, Seq(col.label), false), Seq.empty)
+          SqlFragment(
+            d.createIndexIfNotExistsSql(indexName, tableName, Seq(col.label), where = col.indexCondition),
+            Seq.empty,
+          )
+        case _ =>
+          SqlFragment(
+            dialect.createIndexSql(indexName, tableName, Seq(col.label), false, col.indexCondition),
+            Seq.empty,
+          )
       sql.dml
     }
 
-    // Create unique indexes for @uniqueIndex fields
-    val uniqueIndexes = table.uniqueIndexColumns.map { col =>
+    // Create compound indexes for @indexed fields with indexGroup
+    val compoundIndexes = table.indexedColumns
+      .filter(_.indexGroup.isDefined)
+      .groupBy(_.indexGroup.get)
+      .map { case (indexName, cols) =>
+        val columnNames = cols.map(_.label)
+        // For compound indexes, merge conditions (take the first non-empty condition)
+        val condition = cols.flatMap(_.indexCondition).headOption
+        val sql       = dialect match
+          case d: IndexIfNotExistsSupport =>
+            SqlFragment(d.createIndexIfNotExistsSql(indexName, tableName, columnNames, where = condition), Seq.empty)
+          case _ => SqlFragment(dialect.createIndexSql(indexName, tableName, columnNames, false, condition), Seq.empty)
+        sql.dml
+      }
+      .toSeq
+
+    // Create unique indexes for @uniqueIndex fields without uniqueIndexGroup (single-column)
+    val singleColumnUniqueIndexes = table.uniqueIndexColumns.filter(_.uniqueIndexGroup.isEmpty).map { col =>
       val indexName = s"idx_${tableName}_${col.label}"
       val sql       = dialect match
         case d: IndexIfNotExistsSupport =>
-          SqlFragment(d.createIndexIfNotExistsSql(indexName, tableName, Seq(col.label), unique = true), Seq.empty)
-        case _ => SqlFragment(dialect.createUniqueIndexSql(indexName, tableName, Seq(col.label), false), Seq.empty)
+          SqlFragment(
+            d.createIndexIfNotExistsSql(
+              indexName,
+              tableName,
+              Seq(col.label),
+              unique = true,
+              where = col.uniqueIndexCondition,
+            ),
+            Seq.empty,
+          )
+        case _ =>
+          SqlFragment(
+            dialect.createUniqueIndexSql(indexName, tableName, Seq(col.label), false, col.uniqueIndexCondition),
+            Seq.empty,
+          )
       sql.dml
     }
+
+    // Create compound unique indexes for @uniqueIndex fields with uniqueIndexGroup
+    val compoundUniqueIndexes = table.uniqueIndexColumns
+      .filter(_.uniqueIndexGroup.isDefined)
+      .groupBy(_.uniqueIndexGroup.get)
+      .map { case (indexName, cols) =>
+        val columnNames = cols.map(_.label)
+        // For compound indexes, merge conditions (take the first non-empty condition)
+        val condition = cols.flatMap(_.uniqueIndexCondition).headOption
+        val sql       = dialect match
+          case d: IndexIfNotExistsSupport =>
+            SqlFragment(
+              d.createIndexIfNotExistsSql(indexName, tableName, columnNames, unique = true, where = condition),
+              Seq.empty,
+            )
+          case _ =>
+            SqlFragment(dialect.createUniqueIndexSql(indexName, tableName, columnNames, false, condition), Seq.empty)
+        sql.dml
+      }
+      .toSeq
 
     // For compound keys, also create a compound index on all key columns for better query performance
     val compoundKeyIndex = Option.when(hasCompoundKey) {
@@ -161,7 +271,9 @@ object DataDefinitionLayer:
       sql.dml
     }
 
-    ZIO.collectAll(indexedIndexes ++ uniqueIndexes ++ compoundKeyIndex.toSeq)
+    ZIO.collectAll(
+      singleColumnIndexes ++ compoundIndexes ++ singleColumnUniqueIndexes ++ compoundUniqueIndexes ++ compoundKeyIndex.toSeq
+    )
   end createIndexes
 
   inline def dropIndex(indexName: String, ifExists: Boolean = false)(using
