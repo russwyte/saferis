@@ -31,3 +31,6 @@ metals.sbt
 .idea
 .idea_modules
 /.worksheet/
+
+CLAUDE.md
+.mcp.json
