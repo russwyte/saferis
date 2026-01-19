@@ -140,6 +140,7 @@ object Macros:
             $name,
             $columns,
             $alias,
+            Vector.empty,
           )(using x).asInstanceOf[t]
         }
     res
@@ -657,5 +658,66 @@ object Macros:
 
     Expr.ofList(fieldValues)
   end columnPlaceholdersImpl
+
+  // === Field extraction macros for type-safe selectors ===
+
+  /** Extract field name from a selector function like `_.fieldName`.
+    *
+    * This is used by JoinSpec for type-safe ON and WHERE conditions, and by ForeignKey for type-safe references.
+    *
+    * @param selector
+    *   A lambda like `(a: A) => a.fieldName` or `_.fieldName`
+    * @return
+    *   The field name as a String
+    */
+  private[saferis] inline def extractFieldName[A, T](inline selector: A => T): String =
+    ${ extractFieldNameImpl[A, T]('selector) }
+
+  private[saferis] def extractFieldNameImpl[A: Type, T: Type](selector: Expr[A => T])(using Quotes): Expr[String] =
+    val fieldName = extractFieldNameFromSelector(selector)
+    Expr(fieldName)
+
+  /** Internal helper to extract field name from selector - returns String directly for use in other macros */
+  private[saferis] def extractFieldNameFromSelector[A: Type, T: Type](selector: Expr[A => T])(using Quotes): String =
+    import quotes.reflect.*
+    findFieldName(selector.asTerm)
+
+  /** Recursively find the field name from a selector expression */
+  private def findFieldName(using Quotes)(term: quotes.reflect.Term): String =
+    import quotes.reflect.*
+    term match
+      // Handle: Block(List(DefDef(..., Some(Select(_, name)))), _)
+      case Block(List(DefDef(_, _, _, Some(body))), _) =>
+        extractFromBody(body)
+      // Handle: Inlined(_, _, innerTerm)
+      case Inlined(_, _, inner) =>
+        findFieldName(inner)
+      // Handle: Lambda(_, Select(_, name))
+      case Lambda(_, body) =>
+        extractFromBody(body)
+      // Handle: Typed(inner, _) - wraps typed expressions
+      case Typed(inner, _) =>
+        findFieldName(inner)
+      // Handle: Block containing just the lambda
+      case Block(stats, expr) =>
+        findFieldName(expr)
+      case other =>
+        report.errorAndAbort(
+          s"Expected a simple field selector like _.fieldName, got: ${other.show} (class: ${other.getClass.getName})"
+        )
+    end match
+  end findFieldName
+
+  private def extractFromBody(using Quotes)(body: quotes.reflect.Term): String =
+    import quotes.reflect.*
+    body match
+      case Select(_, fieldName) => fieldName
+      case Inlined(_, _, inner) => extractFromBody(inner)
+      case Typed(inner, _)      => extractFromBody(inner)
+      case other                =>
+        report.errorAndAbort(
+          s"Expected a field access like _.fieldName, got: ${other.show} (class: ${other.getClass.getName})"
+        )
+  end extractFromBody
 
 end Macros
