@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "metals": {
-      "url": "http://localhost:34255/mcp",
-      "type": "http"
-    }
-  }
-}

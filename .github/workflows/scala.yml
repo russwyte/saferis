@@ -28,7 +28,7 @@ jobs:
 
     - name: Build and test
       shell: bash
-      run: sbt -v "clean; scalafmtCheckAll; test"
+      run: sbt -v "clean; scalafmtCheckAll; test; docs/mdoc"
 
     - name: Upload dependency graph
       uses: scalacenter/sbt-dependency-submission@v2

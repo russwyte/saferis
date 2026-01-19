@@ -53,6 +53,42 @@ object DataDefinitionLayer:
     yield result
   end createTable
 
+  /** Returns the CREATE TABLE SQL without executing it. Pretty-printed with newlines. */
+  inline def createTableSql[A <: Product: Table as table](
+      ifNotExists: Boolean = true
+  )(using dialect: Dialect): String =
+    val keyColumns     = table.columns.filter(_.isKey)
+    val hasCompoundKey = keyColumns.length > 1
+
+    val columnDefs = table.columns.map { col =>
+      val baseType      = sqlTypeFromColumn(col)
+      val notNullClause = if !col.isNullable then " not null" else ""
+      val defaultClause = col.defaultClause.map(d => s" $d").getOrElse("")
+      val autoIncrement = dialect.autoIncrementClause(col.isGenerated, col.isKey, hasCompoundKey)
+      val uniqueClause  = if col.isUnique && col.uniqueGroup.isEmpty then " unique" else ""
+      s"${col.label} $baseType$notNullClause$defaultClause$autoIncrement$uniqueClause"
+    }
+
+    val primaryKeyConstraint = Option.when(hasCompoundKey) {
+      val keyColumnNames = keyColumns.map(_.label)
+      dialect.compoundPrimaryKeyClause(keyColumnNames)
+    }
+
+    val compoundUniqueConstraints = table.columns
+      .filter(col => col.isUnique && col.uniqueGroup.isDefined)
+      .groupBy(_.uniqueGroup.get)
+      .map { case (constraintName, cols) =>
+        val columnNames = cols.map(_.label)
+        s"constraint ${dialect.escapeIdentifier(constraintName)} unique (${columnNames.mkString(", ")})"
+      }
+      .toSeq
+
+    val allConstraints = columnDefs ++ primaryKeyConstraint.toSeq ++ compoundUniqueConstraints
+    val tableName      = table.name
+    val createClause   = dialect.createTableClause(ifNotExists)
+    s"$createClause $tableName (\n  ${allConstraints.mkString(",\n  ")}\n)"
+  end createTableSql
+
   private def sqlTypeFromColumn[R](col: Column[R])(using dialect: Dialect): String = col.columnType
 
   inline def dropTable[A <: Product: Table as table](ifExists: Boolean = false)(using
