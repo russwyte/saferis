@@ -116,14 +116,15 @@ object Macros:
 
   private def instanceImpl[A <: Product: Type](alias: Expr[Option[String]])(using Quotes) =
     import quotes.reflect.*
-    val columns             = columnsOfImpl[A]
-    val name                = nameOfImpl[A]
-    val tpe                 = TypeRepr.of[A]
-    val caseClassFields     = tpe.typeSymbol.caseFields
-    val caseClassFieldNames = caseClassFields.map(_.name)
-    val refined             = refinementForLabels(caseClassFieldNames)
-    val keys                = elemsWithAnnotation[A, key]
-    val x                   = MethodType(MethodTypeKind.Plain)(keys.map((name, _) => name))(
+    val columns         = columnsOfImpl[A]
+    val name            = nameOfImpl[A]
+    val tpe             = TypeRepr.of[A]
+    val caseClassFields = tpe.typeSymbol.caseFields
+    // Collect both field names and their types for type-safe refinements
+    val caseClassFieldNamesAndTypes = caseClassFields.map(f => (f.name, tpe.memberType(f)))
+    val refined                     = refinementForLabels(caseClassFieldNamesAndTypes)
+    val keys                        = elemsWithAnnotation[A, key]
+    val x                           = MethodType(MethodTypeKind.Plain)(keys.map((name, _) => name))(
       _ =>
         keys.map: (_, tpe) =>
           tpe,
@@ -594,10 +595,14 @@ object Macros:
   end makeImpl
 
   // This method is used to refine the Instance type with the field names/labels
-  // Instance is a structural type
-  private def refinementForLabels(fieldNames: Seq[String])(using Quotes) =
-    import quotes.reflect.*
-    fieldNames.foldLeft(TypeRepr.of[Instance])((t, n) => Refinement(t, n, TypeRepr.of[Column[?]]))
+  // Instance is a structural type - we preserve the actual field types for type-safe column access
+  private def refinementForLabels(using q: Quotes)(fieldNamesAndTypes: Seq[(String, q.reflect.TypeRepr)]) =
+    import q.reflect.*
+    fieldNamesAndTypes.foldLeft(TypeRepr.of[Instance]): (t, nt) =>
+      val (name, fieldType) = nt
+      // Create Column[FieldType] refinement to preserve type information
+      val columnType = TypeRepr.of[Column].appliedTo(fieldType)
+      Refinement(t, name, columnType)
 
   private[saferis] def summonEncoder[T: Type](using Quotes): Expr[Encoder[T]] =
     import quotes.reflect.*
