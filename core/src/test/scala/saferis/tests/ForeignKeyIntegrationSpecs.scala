@@ -4,7 +4,7 @@ import saferis.*
 import saferis.ddl.*
 import saferis.dml.*
 import saferis.postgres.given
-import saferis.TableAspects.*
+import saferis.Schema.*
 import zio.*
 import zio.test.*
 import PostgresTestContainer.DataSourceProvider
@@ -35,11 +35,13 @@ object ForeignKeyIntegrationSpecs extends ZIOSpecDefault:
 
   val spec = suite("Foreign Key Integration Tests")(
     test("createTable with Instance generates FK constraints") {
-      val orders = Table[Order]
-        @@ foreignKey[Order, Int](_.userId).references[User](_.id)
-        @@ foreignKey[Order, Int](_.productId).references[Product](_.id)
-
-      val sql = createTableSql(orders, ifNotExists = false)
+      val sql = Schema[Order]
+        .withForeignKey(_.userId)
+        .references[User](_.id)
+        .withForeignKey(_.productId)
+        .references[Product](_.id)
+        .ddl(ifNotExists = false)
+        .sql
 
       assertTrue(
         sql.contains("foreign key (userId) references fk_int_users (id)"),
@@ -47,11 +49,15 @@ object ForeignKeyIntegrationSpecs extends ZIOSpecDefault:
       )
     },
     test("createTable with Instance includes ON DELETE actions") {
-      val orders = Table[Order]
-        @@ foreignKey[Order, Int](_.userId).references[User](_.id).onDelete(ForeignKeyAction.Cascade)
-        @@ foreignKey[Order, Int](_.productId).references[Product](_.id).onDelete(ForeignKeyAction.SetNull)
-
-      val sql = createTableSql(orders, ifNotExists = false)
+      val sql = Schema[Order]
+        .withForeignKey(_.userId)
+        .references[User](_.id)
+        .onDelete(Cascade)
+        .withForeignKey(_.productId)
+        .references[Product](_.id)
+        .onDelete(SetNull)
+        .ddl(ifNotExists = false)
+        .sql
 
       assertTrue(
         sql.contains("on delete cascade"),
@@ -59,25 +65,32 @@ object ForeignKeyIntegrationSpecs extends ZIOSpecDefault:
       )
     },
     test("createTable with Instance includes ON UPDATE actions") {
-      val orders = Table[Order]
-        @@ foreignKey[Order, Int](_.userId).references[User](_.id).onUpdate(ForeignKeyAction.Cascade)
-
-      val sql = createTableSql(orders, ifNotExists = false)
+      val sql = Schema[Order]
+        .withForeignKey(_.userId)
+        .references[User](_.id)
+        .onUpdate(Cascade)
+        .ddl(ifNotExists = false)
+        .sql
 
       assertTrue(sql.contains("on update cascade"))
     },
     test("createTable with Instance includes constraint names") {
-      val orders = Table[Order]
-        @@ foreignKey[Order, Int](_.userId).references[User](_.id).named("fk_order_user")
-
-      val sql = createTableSql(orders, ifNotExists = false)
+      val sql = Schema[Order]
+        .withForeignKey(_.userId)
+        .references[User](_.id)
+        .named("fk_order_user")
+        .ddl(ifNotExists = false)
+        .sql
 
       assertTrue(sql.contains("constraint fk_order_user foreign key"))
     },
     test("FK constraint prevents insert when parent doesn't exist") {
-      val orders = Table[Order]
-        @@ foreignKey[Order, Int](_.userId).references[User](_.id)
-        @@ foreignKey[Order, Int](_.productId).references[Product](_.id)
+      val orders = Schema[Order]
+        .withForeignKey(_.userId)
+        .references[User](_.id)
+        .withForeignKey(_.productId)
+        .references[Product](_.id)
+        .build
 
       for
         xa <- ZIO.service[Transactor]
@@ -98,9 +111,12 @@ object ForeignKeyIntegrationSpecs extends ZIOSpecDefault:
       end for
     },
     test("FK constraint allows insert when parent exists") {
-      val orders = Table[Order]
-        @@ foreignKey[Order, Int](_.userId).references[User](_.id)
-        @@ foreignKey[Order, Int](_.productId).references[Product](_.id)
+      val orders = Schema[Order]
+        .withForeignKey(_.userId)
+        .references[User](_.id)
+        .withForeignKey(_.productId)
+        .references[Product](_.id)
+        .build
 
       for
         xa <- ZIO.service[Transactor]
@@ -124,9 +140,13 @@ object ForeignKeyIntegrationSpecs extends ZIOSpecDefault:
       end for
     },
     test("ON DELETE CASCADE deletes child rows") {
-      val orders = Table[Order]
-        @@ foreignKey[Order, Int](_.userId).references[User](_.id).onDelete(ForeignKeyAction.Cascade)
-        @@ foreignKey[Order, Int](_.productId).references[Product](_.id)
+      val orders = Schema[Order]
+        .withForeignKey(_.userId)
+        .references[User](_.id)
+        .onDelete(Cascade)
+        .withForeignKey(_.productId)
+        .references[Product](_.id)
+        .build
 
       for
         xa <- ZIO.service[Transactor]
@@ -191,9 +211,13 @@ object ForeignKeyIntegrationSpecs extends ZIOSpecDefault:
       )
     },
     test("ON DELETE RESTRICT prevents parent deletion") {
-      val orders = Table[Order]
-        @@ foreignKey[Order, Int](_.userId).references[User](_.id).onDelete(ForeignKeyAction.Restrict)
-        @@ foreignKey[Order, Int](_.productId).references[Product](_.id)
+      val orders = Schema[Order]
+        .withForeignKey(_.userId)
+        .references[User](_.id)
+        .onDelete(Restrict)
+        .withForeignKey(_.productId)
+        .references[Product](_.id)
+        .build
 
       for
         xa <- ZIO.service[Transactor]
@@ -217,11 +241,13 @@ object ForeignKeyIntegrationSpecs extends ZIOSpecDefault:
       end for
     },
     test("compound FK constraint works correctly") {
-      val orderDetails = Table[OrderDetail]
-      val orderItems   = Table[OrderItem]
-        @@ foreignKey[OrderItem, Int, Int](_.orderId, _.lineNum)
-          .references[OrderDetail](_.orderId, _.lineNum)
-          .onDelete(ForeignKeyAction.Cascade)
+      val orderItems = Schema[OrderItem]
+        .withForeignKey(_.orderId)
+        .and(_.lineNum)
+        .references[OrderDetail](_.orderId)
+        .and(_.lineNum)
+        .onDelete(Cascade)
+        .build
 
       for
         xa <- ZIO.service[Transactor]
@@ -229,7 +255,7 @@ object ForeignKeyIntegrationSpecs extends ZIOSpecDefault:
         _ <- xa.run(dropTable[OrderItem](ifExists = true))
         _ <- xa.run(dropTable[OrderDetail](ifExists = true))
         // Create tables
-        _ <- xa.run(createTable(orderDetails))
+        _ <- xa.run(createTable[OrderDetail]())
         _ <- xa.run(createTable(orderItems))
         // Insert detail
         _ <- xa.run(insert(OrderDetail(1, 1, "SKU-001")))

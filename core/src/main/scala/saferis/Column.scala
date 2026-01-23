@@ -26,81 +26,6 @@ class generated extends key
   */
 class key extends StaticAnnotation
 
-/** denotes fields of a case class that should be indexed
-  *
-  * When multiple fields share the same index name, they form a compound index.
-  *
-  * Example:
-  * {{{
-  *   case class Event(
-  *     @key id: Int,
-  *     @indexed tenantId: Int,                   // Single-column index
-  *     @indexed("compound_idx") userId: Int,    // Compound index
-  *     @indexed("compound_idx") eventTime: Long // Same name = same compound index
-  *   ) derives Table
-  *
-  *   // Partial index with WHERE clause:
-  *   case class CommandRow(
-  *     @key id: Long,
-  *     @indexed("idx_pending", "status = 'pending'") nextRetryAt: Instant,
-  *     status: String
-  *   ) derives Table
-  * }}}
-  *
-  * @param name
-  *   Optional index name. Columns with the same name form a compound index.
-  * @param condition
-  *   Optional WHERE clause condition for partial indexes.
-  */
-final case class indexed(name: String = "", condition: String = "") extends StaticAnnotation
-
-/** denotes fields of a case class that should have a unique index
-  *
-  * When multiple fields share the same index name, they form a compound unique index.
-  *
-  * Example:
-  * {{{
-  *   case class Event(
-  *     @key id: Int,
-  *     @uniqueIndex email: String,                        // Single-column unique index
-  *     @uniqueIndex("compound_idx") tenantId: Int,        // Compound unique index
-  *     @uniqueIndex("compound_idx") eventId: Long         // Same name = same compound index
-  *   ) derives Table
-  *
-  *   // Partial unique index with WHERE clause:
-  *   case class User(
-  *     @key id: Long,
-  *     @uniqueIndex("idx_active_email", "active = true") email: String,
-  *     active: Boolean
-  *   ) derives Table
-  * }}}
-  *
-  * @param name
-  *   Optional index name. Columns with the same name form a compound unique index.
-  * @param condition
-  *   Optional WHERE clause condition for partial unique indexes.
-  */
-final case class uniqueIndex(name: String = "", condition: String = "") extends StaticAnnotation
-
-/** denotes fields of a case class that should have a unique constraint at the column level
-  *
-  * When multiple fields share the same constraint name, they form a compound unique constraint.
-  *
-  * Example:
-  * {{{
-  *   case class Event(
-  *     @key id: Int,
-  *     @unique instanceId: String,           // Single-column unique constraint
-  *     @unique("composite") tenantId: Int,   // Compound unique constraint
-  *     @unique("composite") eventId: Long    // Same name = same constraint
-  *   ) derives Table
-  * }}}
-  *
-  * @param name
-  *   Optional constraint name. Columns with the same name form a compound unique constraint.
-  */
-final case class unique(name: String = "") extends StaticAnnotation
-
 /** Represents a column/field in result set
   *
   * @param name
@@ -114,15 +39,7 @@ final case class Column[R: Decoder as readable: Encoder as writable](
     label: String,
     isKey: Boolean,
     isGenerated: Boolean,
-    isIndexed: Boolean,
-    isUniqueIndex: Boolean,
-    isUnique: Boolean,
     isNullable: Boolean,
-    uniqueGroup: Option[String],
-    indexGroup: Option[String],
-    uniqueIndexGroup: Option[String],
-    indexCondition: Option[String],
-    uniqueIndexCondition: Option[String],
     defaultValue: Option[R],
     tableAlias: Option[String],
 ) extends Placeholder:

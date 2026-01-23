@@ -151,6 +151,54 @@ trait JsonSupport:
     *   SQL expression for field extraction
     */
   def jsonExtractSql(columnName: String, fieldPath: String): String
+
+  /** Returns SQL for checking if a JSON column contains a value. PostgreSQL: `column @> '{"key": "value"}'` MySQL:
+    * `JSON_CONTAINS(column, '{"key": "value"}')`
+    *
+    * @param columnName
+    *   Name of the JSON column
+    * @param jsonValue
+    *   JSON value to check for (as a string literal)
+    * @return
+    *   SQL expression for JSON containment
+    */
+  def jsonContainsSql(columnName: String, jsonValue: String): String
+
+  /** Returns SQL for checking if a JSON column has a key. PostgreSQL: `column ? 'key'` MySQL:
+    * `JSON_CONTAINS_PATH(column, 'one', '$.key')`
+    *
+    * @param columnName
+    *   Name of the JSON column
+    * @param key
+    *   Key to check for
+    * @return
+    *   SQL expression for key existence check
+    */
+  def jsonHasKeySql(columnName: String, key: String): String
+
+  /** Returns SQL for checking if a JSON column has any of the specified keys. PostgreSQL:
+    * `column ?| array['key1', 'key2']` MySQL: `JSON_CONTAINS_PATH(column, 'one', '$.key1', '$.key2')`
+    *
+    * @param columnName
+    *   Name of the JSON column
+    * @param keys
+    *   Keys to check for (any match)
+    * @return
+    *   SQL expression for any key existence check
+    */
+  def jsonHasAnyKeySql(columnName: String, keys: Seq[String]): String
+
+  /** Returns SQL for checking if a JSON column has all of the specified keys. PostgreSQL:
+    * `column ?& array['key1', 'key2']` MySQL: `JSON_CONTAINS_PATH(column, 'all', '$.key1', '$.key2')`
+    *
+    * @param columnName
+    *   Name of the JSON column
+    * @param keys
+    *   Keys to check for (all must exist)
+    * @return
+    *   SQL expression for all keys existence check
+    */
+  def jsonHasAllKeysSql(columnName: String, keys: Seq[String]): String
 end JsonSupport
 
 /** Trait for dialects that support array operations */

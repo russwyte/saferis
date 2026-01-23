@@ -80,6 +80,22 @@ object PostgresDialect
   def jsonExtractSql(columnName: String, fieldPath: String): String =
     s"$columnName->>'$fieldPath'"
 
+  def jsonContainsSql(columnName: String, jsonValue: String): String =
+    s"$columnName @> '$jsonValue'"
+
+  // Note: We use function equivalents instead of ? / ?| / ?& operators because
+  // the ? character is interpreted as a JDBC parameter placeholder in PreparedStatements
+  def jsonHasKeySql(columnName: String, key: String): String =
+    s"jsonb_exists($columnName, '$key')"
+
+  def jsonHasAnyKeySql(columnName: String, keys: Seq[String]): String =
+    val keysArray = keys.map(k => s"'$k'").mkString(", ")
+    s"jsonb_exists_any($columnName, array[$keysArray])"
+
+  def jsonHasAllKeysSql(columnName: String, keys: Seq[String]): String =
+    val keysArray = keys.map(k => s"'$k'").mkString(", ")
+    s"jsonb_exists_all($columnName, array[$keysArray])"
+
   // === ArraySupport implementation ===
   def arrayType(elementType: String): String = s"$elementType[]"
 

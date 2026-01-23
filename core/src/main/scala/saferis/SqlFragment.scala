@@ -104,6 +104,12 @@ final case class SqlFragment(
     */
   def insert(using Trace): ZIO[ConnectionProvider & Scope, Throwable, Int] = dml
 
+  /** Generic execution for any SQL statement (DML or DDL). Alias for [[dml]] with a more generic name suitable for DDL
+    * operations.
+    * @return
+    */
+  def execute(using Trace): ZIO[ConnectionProvider & Scope, Throwable, Int] = dml
+
   /** Executes the statement which must be an SQL Data Manipulation Language (DML) statement, such as INSERT, UPDATE or
     * DELETE or an SQL statement that returns nothing, such as a DDL statement.
     * @return

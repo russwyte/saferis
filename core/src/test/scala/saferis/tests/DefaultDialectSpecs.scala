@@ -26,16 +26,16 @@ object DefaultDialectSpecs extends ZIOSpecDefault:
       val table = Table[TestTable]
       assertTrue(table.sql == "test_default_dialect")
     },
-    test("Can generate index SQL with default dialect") {
+    test("Can generate compound key index SQL with default dialect") {
       @tableName("test_create_sql")
-      case class TestTable(@generated @key id: Int, @indexed name: String) derives Table
+      case class TestTable(@key id: Int, @key tenantId: Int, name: String) derives Table
 
       import saferis.ddl.*
       val sql = createIndexesSql[TestTable]()
 
-      // Should contain PostgreSQL-specific syntax
+      // Should contain PostgreSQL-specific compound key index syntax
       assertTrue(sql.contains("create index if not exists")) &&
-      assertTrue(sql.contains("idx_test_create_sql_name")) &&
+      assertTrue(sql.contains("compound_key")) &&
       assertTrue(sql.contains("test_create_sql"))
     },
   )
