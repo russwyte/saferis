@@ -69,7 +69,7 @@ object JavaTimeCodecSpecs extends ZIOSpecDefault:
     },
     test("Can use Instant in table definition with timestamptz column type") {
       @tableName("events")
-      case class Event(@key id: Int, @indexed occurredAt: Instant, description: String) derives Table
+      case class Event(@key id: Int, occurredAt: Instant, description: String) derives Table
 
       val table            = Table[Event]
       val occurredAtColumn = table.occurredAt

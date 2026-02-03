@@ -8,8 +8,10 @@ A comprehensive guide to Saferis - the type-safe, resource-safe SQL client libra
 - [Core Concepts](#core-concepts)
 - [Dialect System](#dialect-system)
 - [Data Definition Layer (DDL)](#data-definition-layer-ddl)
+- [Foreign Key Support](#foreign-key-support)
 - [Data Manipulation Layer (DML)](#data-manipulation-layer-dml)
-- [Pagination](#pagination)
+- [Query Builder](#query-builder)
+- [Subqueries](#subqueries)
 - [Type-Safe Capabilities](#type-safe-capabilities)
 
 ---
@@ -68,8 +70,8 @@ import saferis.*
 @tableName("products")
 case class Product(
   @generated @key id: Long,      // Auto-generated primary key
-  @indexed name: String,          // Single-column index
-  @uniqueIndex sku: String,       // Unique index
+  name: String,
+  sku: String,
   price: Double,
   inStock: Boolean = true,        // Has default value
   description: Option[String]     // Nullable
@@ -83,13 +85,9 @@ case class Product(
 | `@tableName("name")` | Specifies the SQL table name |
 | `@key` | Marks a primary key column |
 | `@generated` | Marks an auto-generated column (identity/auto-increment) |
-| `@indexed` | Creates a single-column index |
-| `@indexed("name")` | Creates a named index (same name = compound index) |
-| `@indexed("name", "condition")` | Creates a partial index with WHERE clause |
-| `@uniqueIndex` | Creates a unique index |
-| `@uniqueIndex("name", "condition")` | Creates a partial unique index with WHERE clause |
-| `@unique("name")` | Creates a named unique constraint (same name = compound) |
 | `@label("column_name")` | Maps field to a different column name |
+
+For indexes, unique constraints, and foreign keys, use the [Schema DSL](#schema-dsl-for-indexes-and-constraints).
 
 #### Automatic Column Properties
 
@@ -103,6 +101,7 @@ Saferis infers column properties from your Scala types:
 
 ```scala mdoc:reset:silent
 import saferis.*
+import saferis.Schema.*
 
 @tableName("products")
 case class Product(
@@ -116,7 +115,7 @@ case class Product(
 
 ```scala mdoc
 // See the generated SQL with all column properties
-ddl.createTableSql[Product]()
+Schema[Product].ddl().sql
 ```
 
 #### Compound Primary Keys
@@ -125,6 +124,7 @@ Use multiple `@key` annotations to create a composite primary key:
 
 ```scala mdoc:reset:silent
 import saferis.*
+import saferis.Schema.*
 import saferis.docs.DocTestContainer.{run, transactor as xa}
 
 @tableName("order_items")
@@ -137,7 +137,7 @@ case class OrderItem(
 
 ```scala mdoc
 // Show the generated CREATE TABLE SQL with compound primary key
-ddl.createTableSql[OrderItem]()
+Schema[OrderItem].ddl().sql
 ```
 
 ```scala mdoc
@@ -153,24 +153,6 @@ run {
 }
 ```
 
-#### Compound Indexes and Constraints
-
-Use the same name to group columns:
-
-```scala mdoc:compile-only
-import saferis.*
-
-@tableName("events")
-case class Event(
-  @generated @key id: Long,
-  @indexed("tenant_user_idx") tenantId: String,   // Part of compound index
-  @indexed("tenant_user_idx") userId: Int,        // Part of compound index
-  @unique("natural_key") source: String,          // Part of compound unique
-  @unique("natural_key") externalId: String,      // Part of compound unique
-  createdAt: java.time.Instant
-) derives Table
-```
-
 ### SQL Interpolation
 
 The `sql"..."` interpolator provides SQL injection protection:
@@ -181,8 +163,8 @@ import saferis.*
 @tableName("products")
 case class Product(
   @generated @key id: Long,
-  @indexed name: String,
-  @uniqueIndex sku: String,
+  name: String,
+  sku: String,
   price: Double,
   inStock: Boolean = true,
   description: Option[String]
@@ -293,33 +275,13 @@ The DDL layer provides type-safe schema management operations.
 
 ```scala mdoc:reset:silent
 import saferis.*
-
-@tableName("customers")
-case class Customer(
-  @generated @key id: Long,
-  @indexed name: String,
-  @uniqueIndex email: String,
-  status: String = "active",
-  notes: Option[String]
-) derives Table
-```
-
-```scala mdoc
-// Show index creation SQL
-ddl.createIndexesSql[Customer]()
-```
-
-### Running DDL Operations
-
-```scala mdoc:reset:silent
-import saferis.*
 import saferis.docs.DocTestContainer.{run, transactor as xa}
 
 @tableName("customers")
 case class Customer(
   @generated @key id: Long,
-  @indexed name: String,
-  @uniqueIndex email: String,
+  name: String,
+  email: String,
   status: String = "active",
   notes: Option[String]
 ) derives Table
@@ -338,8 +300,8 @@ import saferis.*
 @tableName("customers")
 case class Customer(
   @generated @key id: Long,
-  @indexed name: String,
-  @uniqueIndex email: String,
+  name: String,
+  email: String,
   status: String = "active",
   notes: Option[String]
 ) derives Table
@@ -370,7 +332,7 @@ import saferis.*
 @tableName("my_table")
 case class MyTable(@key id: Int, name: String) derives Table
 
-// Default: creates table and all indexes
+// Default: creates table and indexes for compound primary keys
 ddl.createTable[MyTable]()
 
 // Skip table creation if it already exists
@@ -378,38 +340,93 @@ ddl.createTable[MyTable](ifNotExists = true)
 
 // Create table without indexes (create them separately later)
 ddl.createTable[MyTable](createIndexes = false)
-
-// Then create indexes separately
-ddl.createIndexes[MyTable]()
 ```
 
-### Partial Indexes
+### Schema DSL for Indexes and Constraints
 
-Partial indexes only index rows that match a condition, making them smaller and faster for filtered queries.
-
-#### Via Annotation
-
-Use `@indexed("name", "condition")` or `@uniqueIndex("name", "condition")`:
+Use the `Schema` DSL to define indexes, unique constraints, and foreign keys with full DDL generation:
 
 ```scala mdoc:reset:silent
 import saferis.*
+import saferis.Schema.*
+import saferis.docs.DocTestContainer.{run, transactor as xa}
 
-@tableName("tasks")
-case class TaskWithIndex(
+@tableName("schema_users")
+case class SchemaUser(
   @generated @key id: Int,
-  status: String,
-  @indexed("idx_pending_tasks", "status = 'pending'") priority: Int
+  name: String,
+  email: String,
+  status: String
 ) derives Table
 ```
 
 ```scala mdoc
-// Show the generated index SQL with WHERE clause
-ddl.createIndexesSql[TaskWithIndex]()
+// Simple index
+Schema[SchemaUser]
+  .withIndex(_.name)
+  .ddl().sql
 ```
 
-#### Via Runtime API
+```scala mdoc
+// Unique index
+Schema[SchemaUser]
+  .withUniqueIndex(_.email)
+  .ddl().sql
+```
 
-Create partial indexes programmatically:
+```scala mdoc
+// Compound index on multiple columns
+Schema[SchemaUser]
+  .withIndex(_.name).and(_.status).named("idx_name_status")
+  .ddl().sql
+```
+
+```scala mdoc
+// Partial index with WHERE clause
+Schema[SchemaUser]
+  .withIndex(_.name).where(_.status).eql("active")
+  .ddl().sql
+```
+
+```scala mdoc
+// Partial unique index - uniqueness only for active users
+Schema[SchemaUser]
+  .withUniqueIndex(_.email).where(_.status).eql("active")
+  .ddl().sql
+```
+
+```scala mdoc
+// Multiple indexes chained together
+Schema[SchemaUser]
+  .withIndex(_.name)
+  .withUniqueIndex(_.email)
+  .ddl().sql
+```
+
+```scala mdoc
+// Compound unique constraint
+Schema[SchemaUser]
+  .withUniqueConstraint(_.name).and(_.status)
+  .ddl().sql
+```
+
+### Creating Tables with Schema
+
+Use `.build` to get an Instance for `ddl.createTable`:
+
+```scala mdoc
+// Build schema with indexes and create table
+val schemaUsers = Schema[SchemaUser]
+  .withIndex(_.name)
+  .withUniqueIndex(_.email)
+  .build
+
+run { xa.run(ddl.createTable(schemaUsers)) }
+```
+
+### Partial Indexes via Runtime API
+
+Create partial indexes programmatically using `ddl.createIndex`:
 
 ```scala mdoc:reset:silent
 import saferis.*
@@ -436,25 +453,223 @@ run {
 }
 ```
 
-#### Partial Unique Indexes
+---
 
-Enforce uniqueness only for specific rows:
+## Foreign Key Support
+
+Saferis provides a type-safe `Schema` builder for defining foreign key constraints. The builder uses Scala 3 macros to extract column names at compile time, ensuring type safety and catching errors early.
+
+### Basic Foreign Keys
+
+Define a foreign key using `Schema[A].withForeignKey(_.column).references[Table](_.column)`:
 
 ```scala mdoc:reset:silent
 import saferis.*
+import saferis.Schema.*
+import saferis.docs.DocTestContainer.{run, transactor as xa}
 
-@tableName("users")
-case class UserWithPartialUnique(
+// Parent table
+@tableName("fk_users")
+case class FkUser(@generated @key id: Int, name: String) derives Table
+
+// Child table with foreign key column
+@tableName("fk_orders")
+case class FkOrder(@generated @key id: Int, userId: Int, amount: BigDecimal) derives Table
+```
+
+```scala mdoc
+// Define the foreign key relationship and get DDL
+Schema[FkOrder]
+  .withForeignKey(_.userId).references[FkUser](_.id)
+  .ddl().sql
+```
+
+```scala mdoc
+// Build the instance for use with ddl.createTable
+val orders = Schema[FkOrder]
+  .withForeignKey(_.userId).references[FkUser](_.id)
+  .build
+
+// Create tables with foreign key constraint
+run {
+  xa.run(for
+    _ <- ddl.createTable[FkUser]()
+    _ <- ddl.createTable(orders)
+    _ <- dml.insert(FkUser(-1, "Alice"))
+    _ <- dml.insert(FkOrder(-1, 1, BigDecimal(99.99)))
+    result <- sql"SELECT * FROM ${Table[FkOrder]}".query[FkOrder]
+  yield result)
+}
+```
+
+### ON DELETE and ON UPDATE Actions
+
+Specify what happens when a referenced row is deleted or updated:
+
+```scala mdoc:reset:silent
+import saferis.*
+import saferis.Schema.*
+
+@tableName("action_users")
+case class ActionUser(@generated @key id: Int, name: String) derives Table
+
+@tableName("action_orders")
+case class ActionOrder(@generated @key id: Int, userId: Int) derives Table
+```
+
+```scala mdoc
+// CASCADE: Deleting a user deletes their orders
+Schema[ActionOrder]
+  .withForeignKey(_.userId).references[ActionUser](_.id)
+  .onDelete(Cascade)
+  .ddl().sql
+```
+
+```scala mdoc
+// SET NULL: Sets FK column to NULL when parent is deleted
+// Note: The FK column should be nullable (Option[T]) for SET NULL to work properly at runtime
+Schema[ActionOrder]
+  .withForeignKey(_.userId).references[ActionUser](_.id)
+  .onDelete(SetNull)
+  .ddl().sql
+```
+
+Available actions (import `saferis.Schema.*` to use short names):
+
+| Action | Description |
+|--------|-------------|
+| `NoAction` | Fail if referenced row is deleted/updated (default) |
+| `Cascade` | Delete/update child rows when parent is deleted/updated |
+| `SetNull` | Set the FK column to NULL |
+| `SetDefault` | Set the FK column to its default value |
+| `Restrict` | Fail immediately (same as NoAction but checked immediately) |
+
+### Named Constraints
+
+Give your foreign key constraint a custom name:
+
+```scala mdoc:reset:silent
+import saferis.*
+import saferis.Schema.*
+
+@tableName("named_users")
+case class NamedUser(@generated @key id: Int, name: String) derives Table
+
+@tableName("named_orders")
+case class NamedOrder(@generated @key id: Int, userId: Int) derives Table
+```
+
+```scala mdoc
+Schema[NamedOrder]
+  .withForeignKey(_.userId).references[NamedUser](_.id)
+  .onDelete(Cascade)
+  .named("fk_order_user")
+  .ddl().sql
+```
+
+### Compound Foreign Keys
+
+Reference a composite primary key with multiple columns using `.and()`:
+
+```scala mdoc:reset:silent
+import saferis.*
+import saferis.Schema.*
+import saferis.docs.DocTestContainer.{run, transactor as xa}
+
+// Parent with compound primary key
+@tableName("compound_products")
+case class CompoundProduct(@key tenantId: String, @key sku: String, name: String) derives Table
+
+// Child referencing the compound key
+@tableName("compound_inventory")
+case class CompoundInventory(
   @generated @key id: Int,
-  @uniqueIndex("uidx_active_email", "active = true") email: String,
-  active: Boolean
+  tenantId: String,
+  productSku: String,
+  quantity: Int
 ) derives Table
 ```
 
 ```scala mdoc
-// The unique constraint only applies when active = true
-// Multiple inactive users can have the same email
-ddl.createIndexesSql[UserWithPartialUnique]()
+// Reference multiple columns using .and()
+Schema[CompoundInventory]
+  .withForeignKey(_.tenantId).and(_.productSku)
+  .references[CompoundProduct](_.tenantId).and(_.sku)
+  .onDelete(Cascade)
+  .ddl().sql
+```
+
+```scala mdoc
+// Build and create tables with compound FK
+val inventory = Schema[CompoundInventory]
+  .withForeignKey(_.tenantId).and(_.productSku)
+  .references[CompoundProduct](_.tenantId).and(_.sku)
+  .onDelete(Cascade)
+  .build
+
+run {
+  xa.run(for
+    _ <- ddl.createTable[CompoundProduct]()
+    _ <- ddl.createTable(inventory)
+    _ <- dml.insert(CompoundProduct("tenant1", "SKU-001", "Widget"))
+    _ <- dml.insert(CompoundInventory(-1, "tenant1", "SKU-001", 100))
+    result <- sql"SELECT * FROM ${Table[CompoundInventory]}".query[CompoundInventory]
+  yield result)
+}
+```
+
+### Multiple Foreign Keys
+
+Chain multiple foreign keys using `.withForeignKey()`:
+
+```scala mdoc:reset:silent
+import saferis.*
+import saferis.Schema.*
+
+@tableName("multi_users")
+case class MultiUser(@generated @key id: Int, name: String) derives Table
+
+@tableName("multi_products")
+case class MultiProduct(@generated @key id: Int, name: String) derives Table
+
+@tableName("multi_order_items")
+case class MultiOrderItem(
+  @generated @key id: Int,
+  userId: Int,
+  productId: Int,
+  quantity: Int
+) derives Table
+```
+
+```scala mdoc
+// Multiple foreign keys on one table
+Schema[MultiOrderItem]
+  .withForeignKey(_.userId).references[MultiUser](_.id).onDelete(Cascade)
+  .withForeignKey(_.productId).references[MultiProduct](_.id).onDelete(Restrict)
+  .ddl().sql
+```
+
+### Type Safety
+
+The foreign key builder provides compile-time type safety. The column types must match between the source and referenced columns:
+
+```scala mdoc:compile-only
+import saferis.*
+import saferis.Schema.*
+
+@tableName("type_users")
+case class TypeUser(@generated @key id: Int, name: String) derives Table
+
+@tableName("type_orders")
+case class TypeOrder(@generated @key id: Int, userId: Int, userName: String) derives Table
+
+// This compiles - Int matches Int
+val valid = Schema[TypeOrder]
+  .withForeignKey(_.userId).references[TypeUser](_.id)
+
+// This would NOT compile - String doesn't match Int
+// val invalid = Schema[TypeOrder]
+//   .withForeignKey(_.userName).references[TypeUser](_.id)
 ```
 
 ---
@@ -631,182 +846,437 @@ run {
 
 ---
 
-## Pagination
+## Query Builder
 
-Saferis provides type-safe pagination through `PageSpec`, supporting both offset-based and cursor-based (seek) pagination.
+Saferis provides a unified, type-safe `Query` builder for constructing SQL queries. It supports single-table queries, multi-table joins (up to 5 tables), WHERE clauses, pagination, and subqueries - all with compile-time type safety.
+
+### Basic Queries
+
+Start with `Query[A]` for single-table queries:
 
 ```scala mdoc:reset:silent
 import saferis.*
+import saferis.postgres.given
+import saferis.docs.DocTestContainer.{run, transactor as xa}
 
-@tableName("articles")
+@tableName("query_users")
+case class QueryUser(@generated @key id: Int, name: String, email: String, age: Int) derives Table
+
+val users = Table[QueryUser]
+```
+
+```scala mdoc
+// Simple query with type-safe WHERE
+Query[QueryUser]
+  .where(_.name).eq("Alice")
+  .build.sql
+```
+
+```scala mdoc
+// Query with ordering and pagination
+Query[QueryUser]
+  .where(_.age).gt(18)
+  .orderBy(users.name.asc)
+  .limit(10)
+  .offset(20)
+  .build.sql
+```
+
+### Type-Safe WHERE Clauses
+
+Use selector syntax for type-safe column references:
+
+```scala mdoc
+// Equality
+Query[QueryUser].where(_.name).eq("Alice").build.sql
+```
+
+```scala mdoc
+// Comparison operators
+Query[QueryUser].where(_.age).gt(21).build.sql
+```
+
+```scala mdoc
+// IS NULL / IS NOT NULL
+Query[QueryUser].where(_.email).isNotNull().build.sql
+```
+
+You can also use raw `SqlFragment` for complex conditions:
+
+```scala mdoc
+// Raw SQL fragment
+Query[QueryUser]
+  .where(sql"${users.age} BETWEEN 18 AND 65")
+  .build.sql
+```
+
+### Joins
+
+Chain joins with the fluent API. The `on()` method uses type-safe selectors:
+
+```scala mdoc:reset:silent
+import saferis.*
+import saferis.postgres.given
+import saferis.docs.DocTestContainer.{run, transactor as xa}
+
+@tableName("join_users")
+case class JoinUser(@generated @key id: Int, name: String) derives Table
+
+@tableName("join_orders")
+case class JoinOrder(@generated @key id: Int, userId: Int, amount: BigDecimal) derives Table
+
+@tableName("join_items")
+case class JoinItem(@key orderId: Int, @key productId: Int, quantity: Int) derives Table
+```
+
+```scala mdoc
+// Inner join
+Query[JoinUser]
+  .innerJoin[JoinOrder].on(_.id).eq(_.userId)
+  .build.sql
+```
+
+```scala mdoc
+// Left join
+Query[JoinUser]
+  .leftJoin[JoinOrder].on(_.id).eq(_.userId)
+  .build.sql
+```
+
+```scala mdoc
+// Right join
+Query[JoinUser]
+  .rightJoin[JoinOrder].on(_.id).eq(_.userId)
+  .build.sql
+```
+
+```scala mdoc
+// Full join
+Query[JoinUser]
+  .fullJoin[JoinOrder].on(_.id).eq(_.userId)
+  .build.sql
+```
+
+### Multi-Table Joins
+
+Chain up to 5 tables. Use `onPrev()` to reference the previously joined table:
+
+```scala mdoc
+// Three-table join
+Query[JoinUser]
+  .innerJoin[JoinOrder].on(_.id).eq(_.userId)
+  .innerJoin[JoinItem].onPrev(_.id).eq(_.orderId)
+  .build.sql
+```
+
+### WHERE on Joined Queries
+
+After joining, use `where()` for the first table or `whereFrom()` for joined tables:
+
+```scala mdoc
+// WHERE on first table
+Query[JoinUser]
+  .innerJoin[JoinOrder].on(_.id).eq(_.userId)
+  .where(_.name).eq("Alice")
+  .build.sql
+```
+
+```scala mdoc
+// WHERE on joined table
+Query[JoinUser]
+  .innerJoin[JoinOrder].on(_.id).eq(_.userId)
+  .whereFrom(_.amount).gt(BigDecimal(100))
+  .build.sql
+```
+
+### ON Clause Operators
+
+All comparison operators are available in the ON clause:
+
+| Method | SQL | Description |
+|--------|-----|-------------|
+| `eq()` | `=` | Equality |
+| `neq()` | `<>` | Not equal |
+| `lt()` | `<` | Less than |
+| `lte()` | `<=` | Less than or equal |
+| `gt()` | `>` | Greater than |
+| `gte()` | `>=` | Greater than or equal |
+| `isNull()` | `IS NULL` | Null check |
+| `isNotNull()` | `IS NOT NULL` | Non-null check |
+| `op(Operator.X)` | Custom | Any operator |
+
+### Pagination
+
+#### Offset-Based Pagination
+
+Traditional LIMIT/OFFSET pagination:
+
+```scala mdoc:reset:silent
+import saferis.*
+import saferis.postgres.given
+
+@tableName("page_articles")
 case class Article(@generated @key id: Long, title: String, views: Int, published: Boolean) derives Table
 
 val articles = Table[Article]
 ```
-
-### Offset Pagination
-
-Traditional pagination with LIMIT and OFFSET:
 
 ```scala mdoc
 // Page 3 with 10 items per page
-PageSpec[Article]
-  .where(sql"${articles.published} = ${true}")
-  .orderBy(articles.views, SortOrder.Desc)
+Query[Article]
+  .where(_.published).eq(true)
+  .orderBy(articles.views.desc)
   .limit(10)
   .offset(20)
-  .build
-  .show
+  .build.sql
 ```
 
-### Cursor/Seek Pagination
+#### Cursor/Seek Pagination
 
-More efficient for large datasets - uses indexed lookups instead of scanning:
+More efficient for large datasets - uses indexed lookups:
 
 ```scala mdoc
-// Get next page after a known ID
-PageSpec[Article]
+// Get next page after ID 100
+Query[Article]
   .seekAfter(articles.id, 100L)
   .limit(10)
-  .build
-  .show
+  .build.sql
 ```
 
 ```scala mdoc
-// Get previous page before a known ID
-PageSpec[Article]
+// Get previous page before ID 50
+Query[Article]
   .seekBefore(articles.id, 50L)
   .limit(10)
-  .build
-  .show
+  .build.sql
 ```
 
-### Combined Filters and Sorting
+### Sorting
+
+Use column extensions for concise sorting:
 
 ```scala mdoc
-PageSpec[Article]
-  .where(sql"${articles.published} = ${true}")
-  .where(sql"${articles.views} > ${100}")
-  .orderBy(articles.views, SortOrder.Desc)
-  .orderBy(articles.id, SortOrder.Asc)
-  .limit(20)
-  .build
-  .show
-```
-
-### Running Paginated Queries
-
-```scala mdoc:reset:silent
-import saferis.*
-import saferis.docs.DocTestContainer.{run, transactor as xa}
-
-@tableName("articles")
-case class Article(@generated @key id: Long, title: String, views: Int, published: Boolean) derives Table
-
-val articles = Table[Article]
-```
-
-```scala mdoc
-// Setup test data and run pagination
-run {
-  xa.run(for
-    _ <- ddl.createTable[Article]()
-    _ <- dml.insert(Article(-1, "First Post", 100, true))
-    _ <- dml.insert(Article(-1, "Second Post", 250, true))
-    _ <- dml.insert(Article(-1, "Draft", 0, false))
-    _ <- dml.insert(Article(-1, "Popular", 1000, true))
-    page <- PageSpec[Article]
-      .where(sql"${articles.published} = ${true}")
-      .orderBy(articles.views, SortOrder.Desc)
-      .limit(2)
-      .query[Article]
-  yield page)
-}
-```
-
-### Null Handling in Sort Order
-
-Control how NULL values are sorted using `NullOrder`:
-
-```scala mdoc
-// NullOrder.First - NULLs appear first
-PageSpec[Article]
-  .orderBy(articles.views, SortOrder.Asc, NullOrder.First)
-  .build
-  .show
-```
-
-```scala mdoc
-// NullOrder.Last - NULLs appear last
-PageSpec[Article]
-  .orderBy(articles.views, SortOrder.Desc, NullOrder.Last)
-  .build
-  .show
-```
-
-```scala mdoc
-// NullOrder.Default - database default behavior (no NULLS clause)
-PageSpec[Article]
-  .orderBy(articles.views, SortOrder.Asc, NullOrder.Default)
-  .build
-  .show
-```
-
-### Column Extensions
-
-For more concise syntax, use column extension methods:
-
-#### Sorting Extensions
-
-```scala mdoc
-// .asc and .desc for simple sorting
-PageSpec[Article]
+Query[Article]
   .orderBy(articles.views.desc)
   .orderBy(articles.title.asc)
-  .build
-  .show
+  .build.sql
 ```
 
+Control NULL ordering:
+
 ```scala mdoc
-// Combined with null handling
-PageSpec[Article]
+Query[Article]
   .orderBy(articles.views.descNullsLast)
-  .orderBy(articles.title.ascNullsFirst)
-  .build
-  .show
+  .build.sql
 ```
 
 Available sorting extensions:
-- `.asc` - ascending order
-- `.desc` - descending order
-- `.ascNullsFirst` - ascending, NULLs first
-- `.ascNullsLast` - ascending, NULLs last
-- `.descNullsFirst` - descending, NULLs first
-- `.descNullsLast` - descending, NULLs last
+- `.asc` / `.desc` - basic ordering
+- `.ascNullsFirst` / `.ascNullsLast`
+- `.descNullsFirst` / `.descNullsLast`
 
-#### Comparison Extensions for Seek Pagination
+### Executing Queries
 
-```scala mdoc
-// Use .gt (greater than) for seek-after
-PageSpec[Article]
-  .seek(articles.id.gt(100L))
-  .limit(10)
-  .build
-  .show
+Use `.query[R]` to execute and decode results:
+
+```scala mdoc:reset:silent
+import saferis.*
+import saferis.postgres.given
+import saferis.docs.DocTestContainer.{run, transactor as xa}
+
+@tableName("exec_users")
+case class ExecUser(@generated @key id: Int, name: String) derives Table
+
+@tableName("exec_orders")
+case class ExecOrder(@generated @key id: Int, userId: Int, amount: BigDecimal) derives Table
+
+val users = Table[ExecUser]
 ```
 
 ```scala mdoc
-// Use .lt (less than) for seek-before
-PageSpec[Article]
-  .seek(articles.id.lt(50L))
-  .limit(10)
-  .build
-  .show
+run {
+  xa.run(for
+    _ <- ddl.createTable[ExecUser]()
+    _ <- ddl.createTable[ExecOrder]()
+    _ <- dml.insert(ExecUser(-1, "Alice"))
+    _ <- dml.insert(ExecUser(-1, "Bob"))
+    _ <- dml.insert(ExecOrder(-1, 1, BigDecimal(100)))
+    _ <- dml.insert(ExecOrder(-1, 1, BigDecimal(200)))
+    result <- Query[ExecUser]
+      .innerJoin[ExecOrder].on(_.id).eq(_.userId)
+      .where(_.name).eq("Alice")
+      .limit(10)
+      .query[ExecUser]
+  yield result)
+}
 ```
 
-Available comparison extensions:
-- `.gt(value)` - greater than (for forward pagination)
-- `.lt(value)` - less than (for backward pagination)
+---
+
+## Subqueries
+
+The Query builder supports type-safe subqueries for IN, NOT IN, EXISTS, and derived tables.
+
+### IN Subqueries
+
+Use `.select(_.column)` to create a typed subquery, then pass it to `.in()`:
+
+```scala mdoc:reset:silent
+import saferis.*
+import saferis.postgres.given
+import saferis.docs.DocTestContainer.{run, transactor as xa}
+
+@tableName("sub_users")
+case class SubUser(@generated @key id: Int, name: String) derives Table
+
+@tableName("sub_orders")
+case class SubOrder(@generated @key id: Int, userId: Int, status: String) derives Table
+```
+
+```scala mdoc
+// Type-safe IN subquery - column types must match
+val activeUserIds = Query[SubOrder]
+  .where(_.status).eq("active")
+  .select(_.userId)  // Returns SelectQuery[Int]
+
+Query[SubUser]
+  .where(_.id).in(activeUserIds)  // Compiles: both are Int
+  .build.sql
+```
+
+```scala mdoc
+// NOT IN subquery
+Query[SubUser]
+  .where(_.id).notIn(activeUserIds)
+  .build.sql
+```
+
+The type safety is enforced at compile time - if the column types don't match, it won't compile.
+
+### EXISTS Subqueries
+
+Use `whereExists()` or `whereNotExists()`:
+
+```scala mdoc
+// EXISTS - find users who have orders
+Query[SubUser]
+  .whereExists(Query[SubOrder])
+  .build.sql
+```
+
+```scala mdoc
+// NOT EXISTS - find users without orders
+Query[SubUser]
+  .whereNotExists(Query[SubOrder].where(_.status).eq("cancelled"))
+  .build.sql
+```
+
+### Correlated Subqueries
+
+For correlated subqueries, use `sql"..."` to reference outer table columns:
+
+```scala mdoc
+val users = Table[SubUser]
+
+// Correlated EXISTS - find users who have at least one order
+Query[SubUser]
+  .whereExists(
+    Query[SubOrder].where(sql"userId = ${users.id}")
+  )
+  .build.sql
+```
+
+### Derived Tables
+
+Use subqueries in the FROM clause with `Query.from()`:
+
+```scala mdoc:reset:silent
+import saferis.*
+import saferis.postgres.given
+import saferis.docs.DocTestContainer.{run, transactor as xa}
+
+@tableName("derived_orders")
+case class DerivedOrder(@generated @key id: Int, userId: Int, amount: BigDecimal, status: String) derives Table
+
+@tableName("derived_users")
+case class DerivedUser(@generated @key id: Int, name: String) derives Table
+
+// Virtual type for the subquery result
+@tableName("order_summary")
+case class OrderSummary(userId: Int, amount: BigDecimal) derives Table
+```
+
+```scala mdoc
+// Create a typed subquery
+val highValueOrders = Query[DerivedOrder]
+  .where(_.amount).gt(BigDecimal(100))
+  .selectAll[OrderSummary]  // Returns SelectQuery[OrderSummary]
+
+// Use as derived table with explicit alias
+Query.from(highValueOrders, "high_value")
+  .where(_.userId).gt(0)
+  .build.sql
+```
+
+```scala mdoc
+// Derived table with join
+Query.from(highValueOrders, "summary")
+  .innerJoin[DerivedUser].on(_.userId).eq(_.id)
+  .build.sql
+```
+
+### Complex Nested Subqueries
+
+Subqueries can be arbitrarily complex - they support joins, nested subqueries, and all Query features:
+
+```scala mdoc:reset:silent
+import saferis.*
+import saferis.postgres.given
+
+@tableName("complex_users")
+case class ComplexUser(@generated @key id: Int, name: String) derives Table
+
+@tableName("complex_orders")
+case class ComplexOrder(@generated @key id: Int, userId: Int, productId: Int) derives Table
+
+@tableName("complex_products")
+case class ComplexProduct(@generated @key id: Int, category: String) derives Table
+```
+
+```scala mdoc
+// Nested subquery: find users who ordered electronics
+val electronicProductIds = Query[ComplexProduct]
+  .where(_.category).eq("electronics")
+  .select(_.id)
+
+val usersWithElectronics = Query[ComplexOrder]
+  .where(_.productId).in(electronicProductIds)
+  .select(_.userId)
+
+Query[ComplexUser]
+  .where(_.id).in(usersWithElectronics)
+  .build.sql
+```
+
+### Operator Reference
+
+All available operators in `Operator`:
+
+| Operator | SQL | Notes |
+|----------|-----|-------|
+| `Eq` | `=` | Standard equality |
+| `Neq` | `<>` | Standard inequality |
+| `Lt` | `<` | Less than |
+| `Lte` | `<=` | Less than or equal |
+| `Gt` | `>` | Greater than |
+| `Gte` | `>=` | Greater than or equal |
+| `Like` | `LIKE` | Pattern matching |
+| `ILike` | `ILIKE` | Case-insensitive LIKE (PostgreSQL) |
+| `SimilarTo` | `SIMILAR TO` | Regex pattern (PostgreSQL) |
+| `RegexMatch` | `~` | Regex match (PostgreSQL) |
+| `RegexMatchCI` | `~*` | Case-insensitive regex (PostgreSQL) |
+| `IsNull` | `IS NULL` | Null check |
+| `IsNotNull` | `IS NOT NULL` | Non-null check |
 
 ---
 

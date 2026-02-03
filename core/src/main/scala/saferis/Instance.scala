@@ -11,18 +11,24 @@ import scala.annotation.unused
   * @param fieldNamesToLabels
   * @param alias
   */
-final case class Instance[A <: Product: Table](
+final case class Instance[A <: Product: Table as table](
     private[saferis] val tableName: String,
     private[saferis] val columns: Seq[Column[?]],
     private[saferis] val alias: Option[String],
+    private[saferis] val foreignKeys: Vector[ForeignKeySpec[A, ?]] = Vector.empty,
+    private[saferis] val indexes: Vector[IndexSpec[?]] = Vector.empty,
+    private[saferis] val uniqueConstraints: Vector[UniqueConstraintSpec[?]] = Vector.empty,
 ) extends Selectable
     with Placeholder:
   private[saferis] val fieldNamesToColumns: Map[String, Column[?]] = columns.map(c => c.name -> c).toMap
-  def indexedColumns: Seq[Column[?]]                               = columns.filter(_.isIndexed)
-  def uniqueIndexColumns: Seq[Column[?]]                           = columns.filter(_.isUniqueIndex)
-  def uniqueColumns: Seq[Column[?]]                                = columns.filter(_.isUnique)
-  def selectDynamic(name: String)                                  = fieldNamesToColumns(name)
-  def applyDynamic[A: Encoder](@unused name: String)(args: A*)     =
+
+  /** Exposes the Table[A] evidence for use in builder classes */
+  private[saferis] def tableEvidence: Table[A] = table
+  def foreignKeyConstraints: Seq[String]       = foreignKeys.map(_.toConstraintSql).toSeq
+  def uniqueConstraintsSql: Seq[String]        = uniqueConstraints.map(_.toConstraintSql).toSeq
+
+  def selectDynamic(name: String)                              = fieldNamesToColumns(name)
+  def applyDynamic[A: Encoder](@unused name: String)(args: A*) =
     val cs: Seq[Column[?]] =
       columns.filter(_.isKey)
     val whereArgs   = cs.zip(args).toList
@@ -40,11 +46,23 @@ final case class Instance[A <: Product: Table](
 
   transparent inline def withAlias(alias: String) =
     val newColumns = columns.map(_.withTableAlias(Some(alias)))
-    copy(alias = Some(alias), columns = newColumns).asInstanceOf[this.type]
+    copy(
+      alias = Some(alias),
+      columns = newColumns,
+      foreignKeys = foreignKeys,
+      indexes = indexes,
+      uniqueConstraints = uniqueConstraints,
+    ).asInstanceOf[this.type]
 
   transparent inline def deAliased =
     val newColumns = columns.map(_.withTableAlias(None))
-    copy(alias = None, columns = newColumns).asInstanceOf[this.type]
+    copy(
+      alias = None,
+      columns = newColumns,
+      foreignKeys = foreignKeys,
+      indexes = indexes,
+      uniqueConstraints = uniqueConstraints,
+    ).asInstanceOf[this.type]
 
   final private[saferis] class TypedFragment(val fragment: SqlFragment):
     def sql                                                  = fragment.sql

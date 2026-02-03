@@ -12,6 +12,32 @@ import java.util.UUID
 object DataDefinitionLayerSpecs extends ZIOSpecDefault:
   val xaLayer = DataSourceProvider.default >>> Transactor.default
 
+  // Case classes for aspect-based index tests (must be at object level for inline macros)
+  @tableName("test_ddl_compound_index")
+  case class CompoundIndexTable(
+      @key id: Int,
+      singleCol: String,
+      tenantId: Int,
+      eventTime: Long,
+      userId: Int,
+      email: String,
+      description: String,
+  ) derives Table
+
+  @tableName("test_ddl_partial_index_aspect")
+  case class PartialIndexTable(
+      @key id: Int,
+      @label("nextretryat") nextRetryAt: Option[java.time.Instant],
+      status: String,
+  ) derives Table
+
+  @tableName("test_ddl_partial_unique_aspect")
+  case class PartialUniqueTable(
+      @key id: Int,
+      email: String,
+      active: Boolean,
+  ) derives Table
+
   val ddlTests = suiteAll("should handle DDL operations"):
     test("create table"):
       @tableName("test_ddl_create")
@@ -22,9 +48,9 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
         // First, ensure the table doesn't exist by trying to drop it
         _ <- xa.run:
           dropTable[TestTable](ifExists = true)
-        // Create the table
+        // Create the table using Schema.ddl()
         result <- xa.run:
-          createTable[TestTable](ifNotExists = true)
+          Schema[TestTable].ddl().execute
         // Verify table exists by checking schema
         tableExists <- xa.run:
           sql"select count(*) as count from information_schema.tables where table_name = ${"test_ddl_create"}"
@@ -42,7 +68,7 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
         _  <- xa.run:
           dropTable[GeneratedTable](ifExists = true)
         result <- xa.run:
-          createTable[GeneratedTable]()
+          Schema[GeneratedTable].ddl().execute
         // Verify table was created with proper identity column
         tableExists <- xa.run:
           sql"select count(*) as count from information_schema.tables where table_name = ${"test_ddl_generated"}"
@@ -57,9 +83,9 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
 
       for
         xa <- ZIO.service[Transactor]
-        // Create a table first
+        // Create a table first using Schema.ddl()
         _ <- xa.run:
-          createTable[DropTable]()
+          Schema[DropTable].ddl(ifNotExists = false).execute
         // Insert some data
         _ <- xa.run:
           insert(DropTable(1, "To be dropped"))
@@ -84,7 +110,7 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
         _  <- xa.run:
           dropTable[TruncateTable](ifExists = true)
         _ <- xa.run:
-          createTable[TruncateTable]()
+          Schema[TruncateTable].ddl().execute
         // Insert some test data
         _ <- xa.run:
           insert(TruncateTable(1, "Data 1"))
@@ -113,7 +139,7 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
         _  <- xa.run:
           dropTable[AlterTableString](ifExists = true)
         _ <- xa.run:
-          createTable[AlterTableString]()
+          Schema[AlterTableString].ddl().execute
         // Add a new column using string type
         addResult <- xa.run:
           addColumn[AlterTableString, String]("description")
@@ -141,7 +167,7 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
         _  <- xa.run:
           dropTable[AlterTableInt](ifExists = true)
         _ <- xa.run:
-          createTable[AlterTableInt]()
+          Schema[AlterTableInt].ddl().execute
         // Add a new integer column using encoder
         addResult <- xa.run:
           addColumn[AlterTableInt, Int]("score")
@@ -173,7 +199,7 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
         _  <- xa.run:
           dropTable[AlterTableBool](ifExists = true)
         _ <- xa.run:
-          createTable[AlterTableBool]()
+          Schema[AlterTableBool].ddl().execute
         // Add a new boolean column using encoder
         addResult <- xa.run:
           addColumn[AlterTableBool, Boolean]("is_active")
@@ -206,7 +232,7 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
         _  <- xa.run:
           dropTable[AlterTableDouble](ifExists = true)
         _ <- xa.run:
-          createTable[AlterTableDouble]()
+          Schema[AlterTableDouble].ddl().execute
         // Add a new double column using encoder
         addResult <- xa.run:
           addColumn[AlterTableDouble, Double]("price")
@@ -234,7 +260,7 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
         _  <- xa.run:
           dropTable[AlterTableOptional](ifExists = true)
         _ <- xa.run:
-          createTable[AlterTableOptional]()
+          Schema[AlterTableOptional].ddl().execute
         // Add a new optional integer column using encoder
         addResult <- xa.run:
           addColumn[AlterTableOptional, Option[Int]]("age")
@@ -266,7 +292,7 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
         _  <- xa.run:
           dropTable[IndexTable](ifExists = true)
         _ <- xa.run:
-          createTable[IndexTable]()
+          Schema[IndexTable].ddl().execute
         // Create a regular index
         createIndexResult <- xa.run:
           createIndex[IndexTable]("idx_test_name", Seq("name"))
@@ -302,7 +328,7 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
         _  <- xa.run:
           dropTable[CompoundKeyTable](ifExists = true)
         result <- xa.run:
-          createTable[CompoundKeyTable]()
+          Schema[CompoundKeyTable].ddl().execute
         // Insert test data
         _ <- xa.run:
           insert(CompoundKeyTable(1, 2, "2023-01-01"))
@@ -321,12 +347,12 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
         assertTrue(duplicateAttempt.isLeft) // Should fail due to primary key constraint
       end for
 
-    test("create table with indexed and unique index columns"):
+    test("create table with indexes via createIndex"):
       @tableName("test_ddl_indexed_cols")
       case class IndexedTable(
           @key id: Int,
-          @indexed name: String,
-          @uniqueIndex email: String,
+          name: String,
+          email: String,
           description: String,
       ) derives Table
 
@@ -334,8 +360,13 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
         xa <- ZIO.service[Transactor]
         _  <- xa.run:
           dropTable[IndexedTable](ifExists = true)
-        result <- xa.run:
-          createTable[IndexedTable]()
+        _ <- xa.run:
+          createTable[IndexedTable](createIndexes = false)
+        // Create indexes using createIndex DDL function
+        _ <- xa.run:
+          createIndex[IndexedTable]("idx_name", Seq("name"))
+        _ <- xa.run:
+          createIndex[IndexedTable]("idx_email", Seq("email"), unique = true)
         // Insert test data
         _ <- xa.run:
           insert(IndexedTable(1, "John", "john@example.com", "Test user"))
@@ -347,13 +378,12 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
         // Insert with same name but different email (should succeed)
         _ <- xa.run:
           insert(IndexedTable(2, "John", "john2@example.com", "Another John"))
-      yield assertTrue(result >= 0) &&
-        assertTrue(duplicateEmailAttempt.isLeft) // Should fail due to unique constraint
+      yield assertTrue(duplicateEmailAttempt.isLeft) // Should fail due to unique constraint
       end for
 
     test("create table without indexes"):
       @tableName("test_ddl_no_indexes")
-      case class NoIndexTable(@key id: Int, @indexed name: String) derives Table
+      case class NoIndexTable(@key id: Int, name: String) derives Table
 
       for
         xa <- ZIO.service[Transactor]
@@ -370,12 +400,12 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
         assertTrue(queryResult.contains(NoIndexTable(1, "Test")))
       end for
 
-    test("createIndexes function"):
+    test("createIndexes function for compound keys"):
       @tableName("test_ddl_create_indexes")
       case class CreateIndexesTable(
-          @key id: Int,
-          @indexed name: String,
-          @uniqueIndex email: String,
+          @key userId: Int,
+          @key roleId: Int,
+          name: String,
       ) derives Table
 
       for
@@ -385,28 +415,24 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
         // Create table without indexes
         _ <- xa.run:
           createTable[CreateIndexesTable](createIndexes = false)
-        // Create indexes separately
+        // Create indexes separately (will create compound key index)
         indexResults <- xa.run:
           createIndexes[CreateIndexesTable]()
         // Insert test data
         _ <- xa.run:
-          insert(CreateIndexesTable(1, "John", "john@example.com"))
-        // Try to insert duplicate unique index (should fail)
-        duplicateAttempt <- xa
-          .run:
-            insert(CreateIndexesTable(2, "Jane", "john@example.com"))
-          .either
+          insert(CreateIndexesTable(1, 2, "John"))
+        queryResult <- xa.run:
+          sql"select * from test_ddl_create_indexes where userid = 1 and roleid = 2".queryOne[CreateIndexesTable]
       yield assertTrue(indexResults.nonEmpty) &&
-        assertTrue(duplicateAttempt.isLeft) // Should fail due to unique constraint
+        assertTrue(queryResult.contains(CreateIndexesTable(1, 2, "John")))
       end for
 
-    test("createIndexesSql function"):
+    test("createIndexesSql function for compound keys"):
       @tableName("test_ddl_indexes_sql")
       case class IndexesSqlTable(
           @key userId: Int,
           @key roleId: Int,
-          @indexed name: String,
-          @uniqueIndex email: String,
+          name: String,
       ) derives Table
 
       for
@@ -416,7 +442,7 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
         // Create table without indexes
         _ <- xa.run:
           createTable[IndexesSqlTable](createIndexes = false)
-        // Get index creation SQL
+        // Get index creation SQL (only compound key index)
         indexSql = createIndexesSql[IndexesSqlTable]()
         // Execute the generated SQL statements
         indexSqlStatements = indexSql.split("\n").filter(_.nonEmpty)
@@ -425,17 +451,12 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
             SqlFragment(stmt, Seq.empty).dml
         // Insert test data
         _ <- xa.run:
-          insert(IndexesSqlTable(1, 2, "John", "john@example.com"))
-        // Try to insert duplicate unique index (should fail)
-        duplicateAttempt <- xa
-          .run:
-            insert(IndexesSqlTable(1, 3, "Jane", "john@example.com"))
-          .either
+          insert(IndexesSqlTable(1, 2, "John"))
+        queryResult <- xa.run:
+          sql"select * from test_ddl_indexes_sql where userid = 1 and roleid = 2".queryOne[IndexesSqlTable]
       yield assertTrue(indexSql.nonEmpty) &&
-        assertTrue(indexSql.contains("create index")) &&
-        assertTrue(indexSql.contains("create unique index")) &&
         assertTrue(indexSql.contains("compound_key")) && // Should have compound key index
-        assertTrue(duplicateAttempt.isLeft)              // Should fail due to unique constraint
+        assertTrue(queryResult.contains(IndexesSqlTable(1, 2, "John")))
       end for
 
     test("table with compound key and generated column"):
@@ -451,7 +472,7 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
         _  <- xa.run:
           dropTable[CompoundGeneratedTable](ifExists = true)
         result <- xa.run:
-          createTable[CompoundGeneratedTable]()
+          Schema[CompoundGeneratedTable].ddl().execute
         // Insert test data (id should be generated)
         inserted1 <- xa.run:
           insertReturning(CompoundGeneratedTable(-1, 1, "Item 1"))
@@ -473,9 +494,9 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
       @tableName("test_ddl_unique_constraints")
       case class UniqueConstraintTable(
           @key id: Int,
-          @indexed name: String,
-          @uniqueIndex email: String,
-          @unique username: String,
+          name: String,
+          email: String,
+          username: String,
           description: String,
       ) derives Table
 
@@ -483,8 +504,16 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
         xa <- ZIO.service[Transactor]
         _  <- xa.run:
           dropTable[UniqueConstraintTable](ifExists = true)
-        result <- xa.run:
-          createTable[UniqueConstraintTable]()
+        _ <- xa.run:
+          Schema[UniqueConstraintTable]
+            .withUniqueConstraint(_.username)
+            .ddl()
+            .execute
+        // Create indexes using createIndex DDL function
+        _ <- xa.run:
+          createIndex[UniqueConstraintTable]("idx_unique_name", Seq("name"))
+        _ <- xa.run:
+          createIndex[UniqueConstraintTable]("idx_unique_email", Seq("email"), unique = true)
         // Insert test data
         _ <- xa.run:
           insert(UniqueConstraintTable(1, "John", "john@example.com", "john_unique", "Test user"))
@@ -501,10 +530,8 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
         // Insert with different unique values (should succeed)
         _ <- xa.run:
           insert(UniqueConstraintTable(4, "Alice", "alice@example.com", "alice_unique", "Alice user"))
-      yield assertTrue(result >= 0) &&
-        assertTrue(duplicateUsernameAttempt.isLeft) && // Should fail due to unique constraint
-        assertTrue(duplicateEmailAttempt.isLeft) &&    // Should fail due to unique index
-        assertTrue(true)                               // Last insert should succeed
+      yield assertTrue(duplicateUsernameAttempt.isLeft) && // Should fail due to unique constraint
+        assertTrue(duplicateEmailAttempt.isLeft)           // Should fail due to unique index
       end for
 
     test("verify encoder method infers correct PostgreSQL types"):
@@ -516,7 +543,7 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
         _  <- xa.run:
           dropTable[EncoderTestTable](ifExists = true)
         _ <- xa.run:
-          createTable[EncoderTestTable]()
+          Schema[EncoderTestTable].ddl().execute
         // Add various columns using encoders to verify type inference
         _ <- xa.run:
           addColumn[EncoderTestTable, String]("text_col")
@@ -547,7 +574,7 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
         _  <- xa.run:
           dropTable[UuidKeyTable](ifExists = true)
         result <- xa.run:
-          createTable[UuidKeyTable]()
+          Schema[UuidKeyTable].ddl().execute
         tableExists <- xa.run:
           sql"select count(*) as count from information_schema.tables where table_name = ${"test_ddl_uuid_key"}"
             .queryOne[CountResult]
@@ -565,24 +592,24 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
       @tableName("test_ddl_compound_unique")
       case class CompoundUniqueTable(
           @key id: Int,
-          @unique("tenant_event") tenantId: Int,
-          @unique("tenant_event") eventId: Long,
-          @unique singleUnique: String, // Single-column unique
+          tenantId: Int,
+          eventId: Long,
+          singleUnique: String,
           description: String,
       ) derives Table
-
-      // Verify column metadata
-      val table           = Table[CompoundUniqueTable]
-      val tenantIdCol     = table.columns.find(_.name == "tenantId").get
-      val eventIdCol      = table.columns.find(_.name == "eventId").get
-      val singleUniqueCol = table.columns.find(_.name == "singleUnique").get
 
       for
         xa <- ZIO.service[Transactor]
         _  <- xa.run:
           dropTable[CompoundUniqueTable](ifExists = true)
         result <- xa.run:
-          createTable[CompoundUniqueTable]()
+          Schema[CompoundUniqueTable]
+            .withUniqueConstraint(_.tenantId)
+            .and(_.eventId)
+            .named("tenant_event")
+            .withUniqueConstraint(_.singleUnique)
+            .ddl()
+            .execute
         // Insert first record
         _ <- xa.run:
           insert(CompoundUniqueTable(1, 100, 1000L, "unique1", "First"))
@@ -603,12 +630,6 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
             insert(CompoundUniqueTable(5, 300, 3000L, "unique1", "Duplicate single"))
           .either
       yield assertTrue(result >= 0) &&
-        assertTrue(tenantIdCol.isUnique) &&
-        assertTrue(tenantIdCol.uniqueGroup.contains("tenant_event")) &&
-        assertTrue(eventIdCol.isUnique) &&
-        assertTrue(eventIdCol.uniqueGroup.contains("tenant_event")) &&
-        assertTrue(singleUniqueCol.isUnique) &&
-        assertTrue(singleUniqueCol.uniqueGroup.isEmpty) &&
         assertTrue(duplicateCompoundAttempt.isLeft) && // Should fail due to compound unique constraint
         assertTrue(duplicateSingleAttempt.isLeft)      // Should fail due to single-column unique constraint
       end for
@@ -647,7 +668,7 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
         _  <- xa.run:
           dropTable[DefaultsTable](ifExists = true)
         result <- xa.run:
-          createTable[DefaultsTable]()
+          Schema[DefaultsTable].ddl().execute
         // Insert without specifying default columns - they should use DB defaults
         _ <- xa.run:
           sql"insert into test_ddl_defaults (id, name) values (1, ${"Test"})".insert
@@ -706,49 +727,38 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
       yield assertTrue(count.map(_.count).contains(2))
       end for
 
-    test("compound index annotations"):
-      @tableName("test_ddl_compound_index")
-      case class CompoundIndexTable(
-          @key id: Int,
-          @indexed singleCol: String,                    // Single-column index
-          @indexed("idx_tenant_event") tenantId: Int,    // Compound index
-          @indexed("idx_tenant_event") eventTime: Long,  // Same compound index
-          @uniqueIndex("uidx_user_email") userId: Int,   // Compound unique index
-          @uniqueIndex("uidx_user_email") email: String, // Same compound unique index
-          description: String,
-      ) derives Table
+    test("aspect-based compound indexes"):
+      import saferis.Schema.*
 
-      // Verify column metadata
-      val table        = Table[CompoundIndexTable]
-      val singleCol    = table.columns.find(_.name == "singleCol").get
-      val tenantIdCol  = table.columns.find(_.name == "tenantId").get
-      val eventTimeCol = table.columns.find(_.name == "eventTime").get
-      val userIdCol    = table.columns.find(_.name == "userId").get
-      val emailCol     = table.columns.find(_.name == "email").get
-
-      val singleHasGroup  = singleCol.indexGroup.isDefined
-      val tenantHasGroup  = tenantIdCol.indexGroup.contains("idx_tenant_event")
-      val eventHasGroup   = eventTimeCol.indexGroup.contains("idx_tenant_event")
-      val userHasUiGroup  = userIdCol.uniqueIndexGroup.contains("uidx_user_email")
-      val emailHasUiGroup = emailCol.uniqueIndexGroup.contains("uidx_user_email")
+      // Using Schema[A] for fluent index and FK configuration
+      val compoundTable = Schema[CompoundIndexTable]
+        .withIndex(_.singleCol)
+        .withIndex(_.tenantId)
+        .and(_.eventTime)
+        .named("idx_tenant_event")
+        .withUniqueIndex(_.userId)
+        .and(_.email)
+        .named("uidx_user_email")
+        .build
 
       for
         xa <- ZIO.service[Transactor]
         _  <- xa.run:
           dropTable[CompoundIndexTable](ifExists = true)
         result <- xa.run:
-          createTable[CompoundIndexTable]()
+          createTable(compoundTable)
         // Verify indexes were created by inserting data and querying
         _ <- xa.run:
           sql"insert into test_ddl_compound_index values (1, ${"single"}, 100, 1000, 200, ${"test@test.com"}, ${"desc"})".insert
+        // Try to insert duplicate compound unique index (should fail)
+        duplicateAttempt <- xa
+          .run:
+            sql"insert into test_ddl_compound_index values (2, ${"other"}, 101, 1001, 200, ${"test@test.com"}, ${"desc2"})".insert
+          .either
         count <- xa.run:
           sql"select count(*) as count from test_ddl_compound_index".queryOne[CountResult]
       yield assertTrue(result >= 0) &&
-        assertTrue(!singleHasGroup) && // Single column index has no group
-        assertTrue(tenantHasGroup) &&  // Compound index group
-        assertTrue(eventHasGroup) &&   // Same compound index group
-        assertTrue(userHasUiGroup) &&  // Compound unique index group
-        assertTrue(emailHasUiGroup) && // Same compound unique index group
+        assertTrue(duplicateAttempt.isLeft) && // Should fail due to compound unique index
         assertTrue(count.map(_.count).contains(1))
       end for
 
@@ -775,7 +785,7 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
         _  <- xa.run:
           dropTable[NotNullTable](ifExists = true)
         result <- xa.run:
-          createTable[NotNullTable]()
+          Schema[NotNullTable].ddl().execute
         // Insert valid data with optional fields as None
         _ <- xa.run:
           insert(NotNullTable(1, "John", "john@example.com", None, None))
@@ -801,78 +811,68 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
         assertTrue(missingNotNullAttempt.isLeft) // Should fail due to NOT NULL constraint
       end for
 
-    test("declarative partial indexes via @indexed annotation"):
-      @tableName("test_ddl_partial_index_annotation")
-      case class PartialIndexAnnotationTable(
-          @key id: Int,
-          @indexed("idx_pending_retry", "status = 'pending'") nextRetryAt: Option[java.time.Instant],
-          status: String,
-      ) derives Table
+    test("aspect-based partial indexes with WHERE clause"):
+      import saferis.Schema.*
 
-      // Verify column metadata captures the condition
-      val table        = Table[PartialIndexAnnotationTable]
-      val nextRetryCol = table.columns.find(_.name == "nextRetryAt").get
-
-      // Verify the SQL generation includes WHERE clause
-      val indexSql = ddl.createIndexesSql[PartialIndexAnnotationTable]()
+      // Using Schema[A] with partial index WHERE clause
+      val partialTable = Schema[PartialIndexTable]
+        .withIndex(_.nextRetryAt)
+        .where(_.status)
+        .eql("pending")
+        .named("idx_pending_retry")
+        .build
 
       for
         xa <- ZIO.service[Transactor]
         _  <- xa.run:
-          dropTable[PartialIndexAnnotationTable](ifExists = true)
+          dropTable[PartialIndexTable](ifExists = true)
         result <- xa.run:
-          createTable[PartialIndexAnnotationTable]()
+          createTable(partialTable)
         // Insert test data
         _ <- xa.run:
-          sql"insert into test_ddl_partial_index_annotation (id, nextretryat, status) values (1, ${java.time.Instant.now()}, ${"pending"})".insert
+          sql"insert into test_ddl_partial_index_aspect (id, nextretryat, status) values (1, ${java.time.Instant.now()}, ${"pending"})".insert
         _ <- xa.run:
-          sql"insert into test_ddl_partial_index_annotation (id, nextretryat, status) values (2, ${Option.empty[java.time.Instant]}, ${"completed"})".insert
+          sql"insert into test_ddl_partial_index_aspect (id, nextretryat, status) values (2, ${Option.empty[java.time.Instant]}, ${"completed"})".insert
         count <- xa.run:
-          sql"select count(*) as count from test_ddl_partial_index_annotation".queryOne[CountResult]
-      yield assertTrue(nextRetryCol.indexCondition.contains("status = 'pending'")) &&
-        assertTrue(indexSql.toLowerCase.contains("where status = 'pending'")) &&
+          sql"select count(*) as count from test_ddl_partial_index_aspect".queryOne[CountResult]
+      yield assertTrue(result >= 0) &&
         assertTrue(count.map(_.count).contains(2))
       end for
 
-    test("declarative partial unique indexes via @uniqueIndex annotation"):
-      @tableName("test_ddl_partial_unique_index_annotation")
-      case class PartialUniqueIndexAnnotationTable(
-          @key id: Int,
-          @uniqueIndex("uidx_active_email", "active = true") email: String,
-          active: Boolean,
-      ) derives Table
+    test("aspect-based partial unique indexes"):
+      import saferis.Schema.*
 
-      // Verify column metadata captures the condition
-      val table    = Table[PartialUniqueIndexAnnotationTable]
-      val emailCol = table.columns.find(_.name == "email").get
-
-      // Verify the SQL generation includes WHERE clause
-      val indexSql = ddl.createIndexesSql[PartialUniqueIndexAnnotationTable]()
+      // Using Schema[A] with partial unique index WHERE clause
+      val partialUniqueTable = Schema[PartialUniqueTable]
+        .withUniqueIndex(_.email)
+        .where(_.active)
+        .eql(true)
+        .named("uidx_active_email")
+        .build
 
       for
         xa <- ZIO.service[Transactor]
         _  <- xa.run:
-          dropTable[PartialUniqueIndexAnnotationTable](ifExists = true)
+          dropTable[PartialUniqueTable](ifExists = true)
         result <- xa.run:
-          createTable[PartialUniqueIndexAnnotationTable]()
+          createTable(partialUniqueTable)
         // Insert active user with email
         _ <- xa.run:
-          sql"insert into test_ddl_partial_unique_index_annotation (id, email, active) values (1, ${"user@example.com"}, ${true})".insert
+          sql"insert into test_ddl_partial_unique_aspect (id, email, active) values (1, ${"user@example.com"}, ${true})".insert
         // Insert inactive user with same email (should succeed because unique only applies to active=true)
         _ <- xa.run:
-          sql"insert into test_ddl_partial_unique_index_annotation (id, email, active) values (2, ${"user@example.com"}, ${false})".insert
+          sql"insert into test_ddl_partial_unique_aspect (id, email, active) values (2, ${"user@example.com"}, ${false})".insert
         // Insert another inactive user with same email (should succeed)
         _ <- xa.run:
-          sql"insert into test_ddl_partial_unique_index_annotation (id, email, active) values (3, ${"user@example.com"}, ${false})".insert
+          sql"insert into test_ddl_partial_unique_aspect (id, email, active) values (3, ${"user@example.com"}, ${false})".insert
         // Try to insert another active user with same email (should fail due to partial unique constraint)
         duplicateActiveAttempt <- xa
           .run:
-            sql"insert into test_ddl_partial_unique_index_annotation (id, email, active) values (4, ${"user@example.com"}, ${true})".insert
+            sql"insert into test_ddl_partial_unique_aspect (id, email, active) values (4, ${"user@example.com"}, ${true})".insert
           .either
         count <- xa.run:
-          sql"select count(*) as count from test_ddl_partial_unique_index_annotation".queryOne[CountResult]
-      yield assertTrue(emailCol.uniqueIndexCondition.contains("active = true")) &&
-        assertTrue(indexSql.toLowerCase.contains("where active = true")) &&
+          sql"select count(*) as count from test_ddl_partial_unique_aspect".queryOne[CountResult]
+      yield assertTrue(result >= 0) &&
         assertTrue(count.map(_.count).contains(3)) && // 3 rows inserted before the duplicate attempt
         assertTrue(duplicateActiveAttempt.isLeft)     // Should fail due to partial unique constraint
       end for

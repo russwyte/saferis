@@ -125,6 +125,26 @@ object SparkDialect
   def jsonExtractSql(columnName: String, fieldPath: String): String =
     s"get_json_object($columnName, '$$.$fieldPath')"
 
+  // Spark doesn't have a native @> operator, but we can use get_json_object to compare
+  def jsonContainsSql(columnName: String, jsonValue: String): String =
+    throw new UnsupportedOperationException(
+      "Spark SQL does not support JSON containment. Use get_json_object for field extraction instead."
+    )
+
+  // Check if a key exists by checking if get_json_object returns non-null
+  def jsonHasKeySql(columnName: String, key: String): String =
+    s"get_json_object($columnName, '$$.$key') is not null"
+
+  // Check if any of the keys exist
+  def jsonHasAnyKeySql(columnName: String, keys: Seq[String]): String =
+    val checks = keys.map(k => s"get_json_object($columnName, '$$.$k') is not null")
+    checks.mkString("(", " or ", ")")
+
+  // Check if all keys exist
+  def jsonHasAllKeysSql(columnName: String, keys: Seq[String]): String =
+    val checks = keys.map(k => s"get_json_object($columnName, '$$.$k') is not null")
+    checks.mkString("(", " and ", ")")
+
   // === ArraySupport implementation ===
   def arrayType(elementType: String): String = s"array<$elementType>"
 

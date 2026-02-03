@@ -103,4 +103,18 @@ object MySQLDialect extends Dialect with JsonSupport with WindowFunctionSupport 
   def jsonExtractSql(columnName: String, fieldPath: String): String =
     s"JSON_EXTRACT($columnName, '$$.$fieldPath')"
 
+  def jsonContainsSql(columnName: String, jsonValue: String): String =
+    s"JSON_CONTAINS($columnName, '$jsonValue')"
+
+  def jsonHasKeySql(columnName: String, key: String): String =
+    s"JSON_CONTAINS_PATH($columnName, 'one', '$$.$key')"
+
+  def jsonHasAnyKeySql(columnName: String, keys: Seq[String]): String =
+    val paths = keys.map(k => s"'$$.$k'").mkString(", ")
+    s"JSON_CONTAINS_PATH($columnName, 'one', $paths)"
+
+  def jsonHasAllKeysSql(columnName: String, keys: Seq[String]): String =
+    val paths = keys.map(k => s"'$$.$k'").mkString(", ")
+    s"JSON_CONTAINS_PATH($columnName, 'all', $paths)"
+
 end MySQLDialect

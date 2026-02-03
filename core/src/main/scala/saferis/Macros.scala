@@ -24,26 +24,6 @@ object Macros:
     val tpe    = TypeRepr.of[A]
     val fields = tpe.typeSymbol.caseFields
 
-    // First pass: collect all labels and types for validation
-    val labelAnnotation                                       = TypeRepr.of[label].typeSymbol
-    val fieldLabelsAndTypes: List[(String, String, TypeRepr)] = fields.map { field =>
-      val fieldName = field.name
-      val fieldType = tpe.memberType(field)
-      // Get the label (either from @label annotation or the field name)
-      val columnLabel = tpe.typeSymbol.primaryConstructor.paramSymss.head
-        .find(sym => sym.name == fieldName && sym.hasAnnotation(labelAnnotation))
-        .flatMap(sym => sym.getAnnotation(labelAnnotation))
-        .collect { case Apply(_, List(Literal(StringConstant(name)))) => name }
-        .getOrElse(fieldName)
-      (fieldName, columnLabel, fieldType)
-    }
-
-    val allLabels: Set[String]             = fieldLabelsAndTypes.map(_._2).toSet
-    val columnTypes: Map[String, TypeRepr] = fieldLabelsAndTypes.map { case (_, label, tpe) =>
-      label.toLowerCase -> tpe
-    }.toMap
-
-    // Second pass: validate conditions and build columns
     val columns = fields.map { field =>
       val fieldName = field.name
 
@@ -56,49 +36,17 @@ object Macros:
               val isNullable = isOptionType[a]
               val defaultVal = getDefaultValue[A, a](fieldName)
 
-              // Extract conditions from annotations (runtime expressions)
-              val indexConditionExpr       = getIndexCondition[A](fieldName)
-              val uniqueIndexConditionExpr = getUniqueIndexCondition[A](fieldName)
-
-              // Validate index condition at compile time using literal extraction
-              extractIndexConditionLiteral[A](fieldName).foreach { cond =>
-                validateConditionColumns(cond, allLabels, "indexed", fieldName)
-                validateConditionTypes(cond, columnTypes, "indexed", fieldName)
-              }
-
-              // Validate unique index condition at compile time using literal extraction
-              extractUniqueIndexConditionLiteral[A](fieldName).foreach { cond =>
-                validateConditionColumns(cond, allLabels, "uniqueIndex", fieldName)
-                validateConditionTypes(cond, columnTypes, "uniqueIndex", fieldName)
-              }
-
               '{
-                val label                = ${ getLabel[A](fieldName) }
-                val isKey                = ${ elemHasAnnotation[A, saferis.key](fieldName) }
-                val isGenerated          = ${ elemHasAnnotation[A, saferis.generated](fieldName) }
-                val isIndexed            = ${ elemHasAnnotation[A, saferis.indexed](fieldName) }
-                val isUniqueIndex        = ${ elemHasAnnotation[A, saferis.uniqueIndex](fieldName) }
-                val isUnique             = ${ elemHasAnnotation[A, saferis.unique](fieldName) }
-                val uniqueGroup          = ${ getUniqueGroup[A](fieldName) }
-                val indexGroup           = ${ getIndexGroup[A](fieldName) }
-                val uniqueIndexGroup     = ${ getUniqueIndexGroup[A](fieldName) }
-                val indexCondition       = $indexConditionExpr
-                val uniqueIndexCondition = $uniqueIndexConditionExpr
+                val label       = ${ getLabel[A](fieldName) }
+                val isKey       = ${ elemHasAnnotation[A, saferis.key](fieldName) }
+                val isGenerated = ${ elemHasAnnotation[A, saferis.generated](fieldName) }
 
                 Column[a](
                   ${ Expr(fieldName) },
                   label,
                   isKey,
                   isGenerated,
-                  isIndexed,
-                  isUniqueIndex,
-                  isUnique,
                   $isNullable,
-                  uniqueGroup,
-                  indexGroup,
-                  uniqueIndexGroup,
-                  indexCondition,
-                  uniqueIndexCondition,
                   $defaultVal,
                   None,
                 )(using
@@ -140,6 +88,9 @@ object Macros:
             $name,
             $columns,
             $alias,
+            Vector.empty,
+            Vector.empty,
+            Vector.empty,
           )(using x).asInstanceOf[t]
         }
     res
@@ -200,276 +151,6 @@ object Macros:
       .map(label => '{ $label.name })
       .getOrElse(Expr(elemName))
   end getLabel
-
-  private def getUniqueGroup[T: Type](elemName: String)(using
-      Quotes
-  ): Expr[Option[String]] =
-    import quotes.reflect.*
-    val a = TypeRepr.of[unique].typeSymbol
-    TypeRepr
-      .of[T]
-      .typeSymbol
-      .primaryConstructor
-      .paramSymss
-      .head
-      .find(sym => sym.name == elemName && sym.hasAnnotation(a))
-      .flatMap(sym => sym.getAnnotation(a))
-      .flatMap { term =>
-        // Extract the name parameter from @unique("name") or @unique(name = "name")
-        term match
-          case Apply(_, List(Literal(StringConstant(name)))) if name.nonEmpty              => Some(Expr(Some(name)))
-          case Apply(_, List(NamedArg(_, Literal(StringConstant(name))))) if name.nonEmpty => Some(Expr(Some(name)))
-          case _                                                                           => None
-      }
-      .getOrElse(Expr(None))
-  end getUniqueGroup
-
-  private def getIndexGroup[T: Type](elemName: String)(using
-      Quotes
-  ): Expr[Option[String]] =
-    import quotes.reflect.*
-    val a = TypeRepr.of[indexed].typeSymbol
-    TypeRepr
-      .of[T]
-      .typeSymbol
-      .primaryConstructor
-      .paramSymss
-      .head
-      .find(sym => sym.name == elemName && sym.hasAnnotation(a))
-      .flatMap(sym => sym.getAnnotation(a))
-      .map { term =>
-        // Cast to indexed type and access .name field directly
-        val ann = term.asExprOf[indexed]
-        '{ if $ann.name.nonEmpty then Some($ann.name) else None }
-      }
-      .getOrElse(Expr(None))
-  end getIndexGroup
-
-  private def getUniqueIndexGroup[T: Type](elemName: String)(using
-      Quotes
-  ): Expr[Option[String]] =
-    import quotes.reflect.*
-    val a = TypeRepr.of[uniqueIndex].typeSymbol
-    TypeRepr
-      .of[T]
-      .typeSymbol
-      .primaryConstructor
-      .paramSymss
-      .head
-      .find(sym => sym.name == elemName && sym.hasAnnotation(a))
-      .flatMap(sym => sym.getAnnotation(a))
-      .map { term =>
-        // Cast to uniqueIndex type and access .name field directly
-        val ann = term.asExprOf[uniqueIndex]
-        '{ if $ann.name.nonEmpty then Some($ann.name) else None }
-      }
-      .getOrElse(Expr(None))
-  end getUniqueIndexGroup
-
-  private def getIndexCondition[T: Type](elemName: String)(using
-      Quotes
-  ): Expr[Option[String]] =
-    import quotes.reflect.*
-    val a = TypeRepr.of[indexed].typeSymbol
-    TypeRepr
-      .of[T]
-      .typeSymbol
-      .primaryConstructor
-      .paramSymss
-      .head
-      .find(sym => sym.name == elemName && sym.hasAnnotation(a))
-      .flatMap(sym => sym.getAnnotation(a))
-      .map { term =>
-        // Cast to indexed type and access .condition field directly
-        val ann = term.asExprOf[indexed]
-        '{ if $ann.condition.nonEmpty then Some($ann.condition) else None }
-      }
-      .getOrElse(Expr(None))
-  end getIndexCondition
-
-  private def getUniqueIndexCondition[T: Type](elemName: String)(using
-      Quotes
-  ): Expr[Option[String]] =
-    import quotes.reflect.*
-    val a = TypeRepr.of[uniqueIndex].typeSymbol
-    TypeRepr
-      .of[T]
-      .typeSymbol
-      .primaryConstructor
-      .paramSymss
-      .head
-      .find(sym => sym.name == elemName && sym.hasAnnotation(a))
-      .flatMap(sym => sym.getAnnotation(a))
-      .map { term =>
-        // Cast to uniqueIndex type and access .condition field directly
-        val ann = term.asExprOf[uniqueIndex]
-        '{ if $ann.condition.nonEmpty then Some($ann.condition) else None }
-      }
-      .getOrElse(Expr(None))
-  end getUniqueIndexCondition
-
-  // Helper to extract condition literal at compile-time for validation
-  private def extractIndexConditionLiteral[T: Type](elemName: String)(using
-      Quotes
-  ): Option[String] =
-    import quotes.reflect.*
-    val a = TypeRepr.of[indexed].typeSymbol
-    TypeRepr
-      .of[T]
-      .typeSymbol
-      .primaryConstructor
-      .paramSymss
-      .head
-      .find(sym => sym.name == elemName && sym.hasAnnotation(a))
-      .flatMap(sym => sym.getAnnotation(a))
-      .flatMap { term =>
-        // Try to extract the condition string from the AST
-        term match
-          case Apply(_, args) if args.length >= 2 =>
-            args(1) match
-              case Literal(StringConstant(cond)) if cond.nonEmpty => Some(cond)
-              case _                                              => None
-          case _ => None
-      }
-  end extractIndexConditionLiteral
-
-  // Helper to extract unique index condition literal at compile-time for validation
-  private def extractUniqueIndexConditionLiteral[T: Type](elemName: String)(using
-      Quotes
-  ): Option[String] =
-    import quotes.reflect.*
-    val a = TypeRepr.of[uniqueIndex].typeSymbol
-    TypeRepr
-      .of[T]
-      .typeSymbol
-      .primaryConstructor
-      .paramSymss
-      .head
-      .find(sym => sym.name == elemName && sym.hasAnnotation(a))
-      .flatMap(sym => sym.getAnnotation(a))
-      .flatMap { term =>
-        // Try to extract the condition string from the AST
-        term match
-          case Apply(_, args) if args.length >= 2 =>
-            args(1) match
-              case Literal(StringConstant(cond)) if cond.nonEmpty => Some(cond)
-              case _                                              => None
-          case _ => None
-      }
-  end extractUniqueIndexConditionLiteral
-
-  /** Validates that all column references in a WHERE condition exist in the table. Uses case-insensitive matching for
-    * SQL keywords.
-    */
-  private def validateConditionColumns(
-      condition: String,
-      allLabels: Set[String],
-      annotationName: String,
-      fieldName: String,
-  )(using Quotes): Unit =
-    import quotes.reflect.*
-    // Case-insensitive pattern for SQL operators - extracts column name before operators
-    val columnPattern     = """(?i)(\w+)\s*(?:=|<>|!=|<=|>=|<|>|IS\s+(?:NOT\s+)?NULL|IN\s*\(|LIKE|BETWEEN)""".r
-    val referencedColumns = columnPattern.findAllMatchIn(condition).map(_.group(1).toLowerCase).toSet
-    // Filter out SQL keywords that might be matched
-    val sqlKeywords    = Set("and", "or", "not", "is", "in", "like", "between", "null", "true", "false")
-    val actualColumns  = referencedColumns -- sqlKeywords
-    val invalidColumns = actualColumns -- allLabels.map(_.toLowerCase)
-    if invalidColumns.nonEmpty then
-      report.errorAndAbort(
-        s"@$annotationName condition on field '$fieldName' references unknown column(s): ${invalidColumns.mkString(", ")}. " +
-          s"Available columns: ${allLabels.mkString(", ")}"
-      )
-  end validateConditionColumns
-
-  /** Validates that literal values in a WHERE condition are type-compatible with the referenced columns. Uses
-    * case-insensitive matching for SQL keywords.
-    */
-  private def validateConditionTypes(using
-      q: Quotes
-  )(
-      condition: String,
-      columnTypes: Map[String, q.reflect.TypeRepr],
-      annotationName: String,
-      fieldName: String,
-  ): Unit =
-    import q.reflect.*
-
-    def isStringType(tpe: TypeRepr): Boolean =
-      tpe <:< TypeRepr.of[String] ||
-        tpe <:< TypeRepr.of[Text] ||
-        (tpe <:< TypeRepr.of[Option[?]] && tpe.typeArgs.headOption.exists(isStringType))
-
-    def isNumericType(tpe: TypeRepr): Boolean =
-      tpe <:< TypeRepr.of[Int] ||
-        tpe <:< TypeRepr.of[Long] ||
-        tpe <:< TypeRepr.of[Double] ||
-        tpe <:< TypeRepr.of[Float] ||
-        tpe <:< TypeRepr.of[Short] ||
-        tpe <:< TypeRepr.of[Byte] ||
-        tpe <:< TypeRepr.of[BigDecimal] ||
-        tpe <:< TypeRepr.of[BigInt] ||
-        (tpe <:< TypeRepr.of[Option[?]] && tpe.typeArgs.headOption.exists(isNumericType))
-
-    def isBooleanType(tpe: TypeRepr): Boolean =
-      tpe <:< TypeRepr.of[Boolean] ||
-        (tpe <:< TypeRepr.of[Option[?]] && tpe.typeArgs.headOption.exists(isBooleanType))
-
-    def isOptionType(tpe: TypeRepr): Boolean =
-      tpe <:< TypeRepr.of[Option[?]]
-
-    // Check string literals (e.g., status = 'pending')
-    val stringLiteralPattern = """(?i)(\w+)\s*(?:=|!=|<>|LIKE)\s*'[^']*'""".r
-    stringLiteralPattern.findAllMatchIn(condition).foreach { m =>
-      val colName = m.group(1).toLowerCase
-      columnTypes.get(colName).foreach { tpe =>
-        if !isStringType(tpe) then
-          report.errorAndAbort(
-            s"@$annotationName condition on field '$fieldName': column '$colName' is not a String type, " +
-              s"but condition uses string literal"
-          )
-      }
-    }
-
-    // Check numeric literals (e.g., count > 5)
-    val numericLiteralPattern = """(?i)(\w+)\s*(?:=|!=|<>|<|>|<=|>=)\s*(\d+(?:\.\d+)?)(?!\s*')""".r
-    numericLiteralPattern.findAllMatchIn(condition).foreach { m =>
-      val colName = m.group(1).toLowerCase
-      columnTypes.get(colName).foreach { tpe =>
-        if !isNumericType(tpe) then
-          report.errorAndAbort(
-            s"@$annotationName condition on field '$fieldName': column '$colName' is not a numeric type, " +
-              s"but condition uses numeric literal"
-          )
-      }
-    }
-
-    // Check boolean literals (e.g., active = true)
-    val booleanPattern = """(?i)(\w+)\s*(?:=|!=)\s*(true|false)(?!\s*')""".r
-    booleanPattern.findAllMatchIn(condition).foreach { m =>
-      val colName = m.group(1).toLowerCase
-      columnTypes.get(colName).foreach { tpe =>
-        if !isBooleanType(tpe) then
-          report.errorAndAbort(
-            s"@$annotationName condition on field '$fieldName': column '$colName' is not a Boolean type, " +
-              s"but condition uses boolean literal"
-          )
-      }
-    }
-
-    // Check IS NULL usage (should be Option[_] type)
-    val nullPattern = """(?i)(\w+)\s+IS\s+(?:NOT\s+)?NULL""".r
-    nullPattern.findAllMatchIn(condition).foreach { m =>
-      val colName = m.group(1).toLowerCase
-      columnTypes.get(colName).foreach { tpe =>
-        if !isOptionType(tpe) then
-          report.errorAndAbort(
-            s"@$annotationName condition on field '$fieldName': column '$colName' is not nullable (Option type), " +
-              s"but condition uses IS NULL"
-          )
-      }
-    }
-  end validateConditionTypes
 
   private def getDefaultValue[T: Type, A: Type](elemName: String)(using
       Quotes
@@ -657,5 +338,66 @@ object Macros:
 
     Expr.ofList(fieldValues)
   end columnPlaceholdersImpl
+
+  // === Field extraction macros for type-safe selectors ===
+
+  /** Extract field name from a selector function like `_.fieldName`.
+    *
+    * This is used by Query for type-safe ON and WHERE conditions, and by ForeignKey for type-safe references.
+    *
+    * @param selector
+    *   A lambda like `(a: A) => a.fieldName` or `_.fieldName`
+    * @return
+    *   The field name as a String
+    */
+  private[saferis] inline def extractFieldName[A, T](inline selector: A => T): String =
+    ${ extractFieldNameImpl[A, T]('selector) }
+
+  private[saferis] def extractFieldNameImpl[A: Type, T: Type](selector: Expr[A => T])(using Quotes): Expr[String] =
+    val fieldName = extractFieldNameFromSelector(selector)
+    Expr(fieldName)
+
+  /** Internal helper to extract field name from selector - returns String directly for use in other macros */
+  private[saferis] def extractFieldNameFromSelector[A: Type, T: Type](selector: Expr[A => T])(using Quotes): String =
+    import quotes.reflect.*
+    findFieldName(selector.asTerm)
+
+  /** Recursively find the field name from a selector expression */
+  private def findFieldName(using Quotes)(term: quotes.reflect.Term): String =
+    import quotes.reflect.*
+    term match
+      // Handle: Block(List(DefDef(..., Some(Select(_, name)))), _)
+      case Block(List(DefDef(_, _, _, Some(body))), _) =>
+        extractFromBody(body)
+      // Handle: Inlined(_, _, innerTerm)
+      case Inlined(_, _, inner) =>
+        findFieldName(inner)
+      // Handle: Lambda(_, Select(_, name))
+      case Lambda(_, body) =>
+        extractFromBody(body)
+      // Handle: Typed(inner, _) - wraps typed expressions
+      case Typed(inner, _) =>
+        findFieldName(inner)
+      // Handle: Block containing just the lambda
+      case Block(stats, expr) =>
+        findFieldName(expr)
+      case other =>
+        report.errorAndAbort(
+          s"Expected a simple field selector like _.fieldName, got: ${other.show} (class: ${other.getClass.getName})"
+        )
+    end match
+  end findFieldName
+
+  private def extractFromBody(using Quotes)(body: quotes.reflect.Term): String =
+    import quotes.reflect.*
+    body match
+      case Select(_, fieldName) => fieldName
+      case Inlined(_, _, inner) => extractFromBody(inner)
+      case Typed(inner, _)      => extractFromBody(inner)
+      case other                =>
+        report.errorAndAbort(
+          s"Expected a field access like _.fieldName, got: ${other.show} (class: ${other.getClass.getName})"
+        )
+  end extractFromBody
 
 end Macros
