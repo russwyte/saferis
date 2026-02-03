@@ -47,7 +47,7 @@ object QuerySpecs extends ZIOSpecDefault:
         val sql = q.build.sql
         assertTrue(
           sql.contains("where"),
-          sql.contains("name =")
+          sql.contains("name ="),
         )
       },
       test("orderBy adds sort clause") {
@@ -65,7 +65,7 @@ object QuerySpecs extends ZIOSpecDefault:
         val sql = q.build.sql
         assertTrue(
           sql.contains("limit 10"),
-          sql.contains("offset 20")
+          sql.contains("offset 20"),
         )
       },
       test("seekAfter generates where and order by") {
@@ -75,7 +75,7 @@ object QuerySpecs extends ZIOSpecDefault:
         val sql   = q.build.sql
         assertTrue(
           sql.contains("where id > ?"),
-          sql.contains("order by id asc")
+          sql.contains("order by id asc"),
         )
       },
     ),
@@ -90,7 +90,7 @@ object QuerySpecs extends ZIOSpecDefault:
         assertTrue(
           sql.contains("select * from users as t1"),
           sql.contains("inner join orders as t2"),
-          sql.contains("""on "t1".id = "t2".userId""")
+          sql.contains("""on "t1".id = "t2".userId"""),
         )
       },
       test("leftJoin generates correct SQL") {
@@ -137,7 +137,7 @@ object QuerySpecs extends ZIOSpecDefault:
         val sql = q.build.sql
         assertTrue(
           sql.contains("inner join orders as t2"),
-          sql.contains("where")
+          sql.contains("where"),
         )
       },
       test("join with limit and offset") {
@@ -151,13 +151,13 @@ object QuerySpecs extends ZIOSpecDefault:
         val sql = q.build.sql
         assertTrue(
           sql.contains("limit 20"),
-          sql.contains("offset 40")
+          sql.contains("offset 40"),
         )
       },
       test("join with seekAfter") {
         AliasGenerator.reset()
         val users = Table[User]
-        val q = Query[User]
+        val q     = Query[User]
           .innerJoin[Order]
           .on(_.id)
           .eq(_.userId)
@@ -166,7 +166,7 @@ object QuerySpecs extends ZIOSpecDefault:
         val sql = q.build.sql
         assertTrue(
           sql.contains("where id > ?"),
-          sql.contains("order by id asc")
+          sql.contains("order by id asc"),
         )
       },
     ),
@@ -185,9 +185,9 @@ object QuerySpecs extends ZIOSpecDefault:
           sql.contains("inner join orders as t2"),
           sql.contains("inner join order_items as t3"),
           sql.contains("""on "t1".id = "t2".userId"""),
-          sql.contains("""on "t2".id = "t3".orderId""")
+          sql.contains("""on "t2".id = "t3".orderId"""),
         )
-      },
+      }
     ),
     suite("ON clause operators")(
       test("neq generates <>") {
@@ -295,7 +295,7 @@ object QuerySpecs extends ZIOSpecDefault:
         val sql      = q.build.sql
         assertTrue(
           sql.contains("IN (select userId from orders as t1 where"),
-          sql.contains("status =")
+          sql.contains("status ="),
         )
       },
       test("NOT IN subquery") {
@@ -352,7 +352,7 @@ object QuerySpecs extends ZIOSpecDefault:
         val sql      = q.build.sql
         assertTrue(
           sql.contains("EXISTS"),
-          sql.contains("userId = id")
+          sql.contains("userId = id"),
         )
       },
     ),
@@ -364,14 +364,15 @@ object QuerySpecs extends ZIOSpecDefault:
         case class OrderSummary(userId: Int, status: String) derives Table
 
         val subquery = Query[Order]
-          .where(_.amount).gt(BigDecimal(100))
+          .where(_.amount)
+          .gt(BigDecimal(100))
           .selectAll[OrderSummary]
 
         // SelectQuery wraps the original query
         val sql = subquery.build.sql
         assertTrue(
           sql.contains("select * from orders as t1"),
-          sql.contains("where")
+          sql.contains("where"),
         )
       },
       test("Query.from creates derived table query") {
@@ -380,14 +381,15 @@ object QuerySpecs extends ZIOSpecDefault:
         case class PaidOrder(userId: Int, amount: BigDecimal, status: String) derives Table
 
         val subquery = Query[Order]
-          .where(_.status).eq("paid")
+          .where(_.status)
+          .eq("paid")
           .selectAll[PaidOrder]
 
         val q   = Query.from(subquery, "paid_summary")
         val sql = q.build.sql
         assertTrue(
           sql.contains("select * from (select * from orders as t1 where"),
-          sql.contains(") as paid_summary")
+          sql.contains(") as paid_summary"),
         )
       },
       test("derived table with where clause") {
@@ -396,17 +398,20 @@ object QuerySpecs extends ZIOSpecDefault:
         case class HighValueOrder(userId: Int, amount: BigDecimal) derives Table
 
         val subquery = Query[Order]
-          .where(_.amount).gt(BigDecimal(1000))
+          .where(_.amount)
+          .gt(BigDecimal(1000))
           .selectAll[HighValueOrder]
 
-        val q = Query.from(subquery, "high_value")
-          .where(_.userId).gt(0)
+        val q = Query
+          .from(subquery, "high_value")
+          .where(_.userId)
+          .gt(0)
 
         val sql = q.build.sql
         assertTrue(
           sql.contains("(select * from orders as t1 where"),
           sql.contains(") as high_value"),
-          sql.contains("\"high_value\".userId >")
+          sql.contains("\"high_value\".userId >"),
         )
       },
       test("derived table with join") {
@@ -415,18 +420,22 @@ object QuerySpecs extends ZIOSpecDefault:
         case class OrderTotal(userId: Int, amount: BigDecimal) derives Table
 
         val subquery = Query[Order]
-          .where(_.status).eq("completed")
+          .where(_.status)
+          .eq("completed")
           .selectAll[OrderTotal]
 
-        val q = Query.from(subquery, "totals")
-          .innerJoin[User].on(_.userId).eq(_.id)
+        val q = Query
+          .from(subquery, "totals")
+          .innerJoin[User]
+          .on(_.userId)
+          .eq(_.id)
 
         val sql = q.build.sql
         assertTrue(
           sql.contains("(select * from orders as t1 where"),
           sql.contains(") as totals"),
           sql.contains("inner join users as t2"),
-          sql.contains(""""totals".userId = "t2".id""")
+          sql.contains(""""totals".userId = "t2".id"""),
         )
       },
     ),

@@ -43,8 +43,8 @@ end AliasGenerator
 
 /** Base trait for all query types (Query1 through Query5).
   *
-  * This allows subqueries to be arbitrarily complex - a subquery can be a simple
-  * single-table query or a multi-table join.
+  * This allows subqueries to be arbitrarily complex - a subquery can be a simple single-table query or a multi-table
+  * join.
   */
 trait QueryBase:
   /** Build the SQL fragment for this query */
@@ -52,8 +52,8 @@ trait QueryBase:
 
 /** A query with a known result type.
   *
-  * Created by calling `.select(_.column)` on a query. The type parameter `T`
-  * tracks the result type for compile-time checking in IN subqueries.
+  * Created by calling `.select(_.column)` on a query. The type parameter `T` tracks the result type for compile-time
+  * checking in IN subqueries.
   *
   * Usage:
   * {{{
@@ -96,8 +96,8 @@ final case class Query1[A <: Product: Table](
     seeks: Vector[Seek[?]] = Vector.empty,
     limitValue: Option[Int] = None,
     offsetValue: Option[Long] = None,
-    selectColumns: Vector[Column[?]] = Vector.empty,  // Empty = select *
-    derivedSource: Option[DerivedSource] = None,      // For derived tables (subquery in FROM)
+    selectColumns: Vector[Column[?]] = Vector.empty, // Empty = select *
+    derivedSource: Option[DerivedSource] = None,     // For derived tables (subquery in FROM)
 ) extends QueryBase:
   // === WHERE Methods ===
 
@@ -197,8 +197,7 @@ final case class Query1[A <: Product: Table](
 
   /** Select a single column (for use in IN subqueries).
     *
-    * Returns a SelectQuery[T] where T is the column type, enabling
-    * compile-time type checking for IN subqueries.
+    * Returns a SelectQuery[T] where T is the column type, enabling compile-time type checking for IN subqueries.
     *
     * Usage:
     * {{{
@@ -223,8 +222,7 @@ final case class Query1[A <: Product: Table](
 
   /** Select all columns with a specified result type (for use in derived tables).
     *
-    * Returns a SelectQuery[R] where R is the result row type, enabling
-    * use as a derived table in FROM clause.
+    * Returns a SelectQuery[R] where R is the result row type, enabling use as a derived table in FROM clause.
     *
     * Usage:
     * {{{
@@ -499,9 +497,9 @@ final case class OnChain1[A <: Product: Table, B <: Product: Table](
 
   // Convenience methods that implicitly finalize
 
-  def orderBy(sort: Sort[?])(using Dialect): Query2[A, B] = done.orderBy(sort)
-  def limit(n: Int)(using Dialect): Query2[A, B]          = done.limit(n)
-  def offset(n: Long)(using Dialect): Query2[A, B]        = done.offset(n)
+  def orderBy(sort: Sort[?])(using Dialect): Query2[A, B]        = done.orderBy(sort)
+  def limit(n: Int)(using Dialect): Query2[A, B]                 = done.limit(n)
+  def offset(n: Long)(using Dialect): Query2[A, B]               = done.offset(n)
   def where(predicate: SqlFragment)(using Dialect): Query2[A, B] = done.where(predicate)
 
   inline def where[T](inline selector: A => T)(using Dialect): WhereBuilder2[A, B, T] =
@@ -717,12 +715,12 @@ final case class WhereBuilder2[A <: Product: Table, B <: Product: Table, T](
     query.copy(wherePredicates = query.wherePredicates :+ whereFrag)
 
   // Literal comparisons
-  def eq(value: T)(using Encoder[T]): Query2[A, B]  = completeLiteral(Operator.Eq, value)
-  def neq(value: T)(using Encoder[T]): Query2[A, B] = completeLiteral(Operator.Neq, value)
-  def lt(value: T)(using Encoder[T]): Query2[A, B]  = completeLiteral(Operator.Lt, value)
-  def lte(value: T)(using Encoder[T]): Query2[A, B] = completeLiteral(Operator.Lte, value)
-  def gt(value: T)(using Encoder[T]): Query2[A, B]  = completeLiteral(Operator.Gt, value)
-  def gte(value: T)(using Encoder[T]): Query2[A, B] = completeLiteral(Operator.Gte, value)
+  def eq(value: T)(using Encoder[T]): Query2[A, B]                     = completeLiteral(Operator.Eq, value)
+  def neq(value: T)(using Encoder[T]): Query2[A, B]                    = completeLiteral(Operator.Neq, value)
+  def lt(value: T)(using Encoder[T]): Query2[A, B]                     = completeLiteral(Operator.Lt, value)
+  def lte(value: T)(using Encoder[T]): Query2[A, B]                    = completeLiteral(Operator.Lte, value)
+  def gt(value: T)(using Encoder[T]): Query2[A, B]                     = completeLiteral(Operator.Gt, value)
+  def gte(value: T)(using Encoder[T]): Query2[A, B]                    = completeLiteral(Operator.Gte, value)
   def op(operator: Operator)(value: T)(using Encoder[T]): Query2[A, B] = completeLiteral(operator, value)
 
   // Column comparisons
@@ -845,11 +843,12 @@ final case class OnChain2[A <: Product: Table, B <: Product: Table, C <: Product
       query.limitValue,
       query.offsetValue,
     )
+  end done
 
-  def build(using Dialect): SqlFragment                    = done.build
-  def orderBy(sort: Sort[?])(using Dialect): Query3[A, B, C] = done.orderBy(sort)
-  def limit(n: Int)(using Dialect): Query3[A, B, C]          = done.limit(n)
-  def offset(n: Long)(using Dialect): Query3[A, B, C]        = done.offset(n)
+  def build(using Dialect): SqlFragment                             = done.build
+  def orderBy(sort: Sort[?])(using Dialect): Query3[A, B, C]        = done.orderBy(sort)
+  def limit(n: Int)(using Dialect): Query3[A, B, C]                 = done.limit(n)
+  def offset(n: Long)(using Dialect): Query3[A, B, C]               = done.offset(n)
   def where(predicate: SqlFragment)(using Dialect): Query3[A, B, C] = done.where(predicate)
 
 end OnChain2
@@ -997,11 +996,12 @@ final case class OnChain3[A <: Product: Table, B <: Product: Table, C <: Product
       query.limitValue,
       query.offsetValue,
     )
+  end done
 
-  def build(using Dialect): SqlFragment                        = done.build
-  def orderBy(sort: Sort[?])(using Dialect): Query4[A, B, C, D] = done.orderBy(sort)
-  def limit(n: Int)(using Dialect): Query4[A, B, C, D]          = done.limit(n)
-  def offset(n: Long)(using Dialect): Query4[A, B, C, D]        = done.offset(n)
+  def build(using Dialect): SqlFragment                                = done.build
+  def orderBy(sort: Sort[?])(using Dialect): Query4[A, B, C, D]        = done.orderBy(sort)
+  def limit(n: Int)(using Dialect): Query4[A, B, C, D]                 = done.limit(n)
+  def offset(n: Long)(using Dialect): Query4[A, B, C, D]               = done.offset(n)
   def where(predicate: SqlFragment)(using Dialect): Query4[A, B, C, D] = done.where(predicate)
 
 end OnChain3
@@ -1131,12 +1131,15 @@ final case class OnBuilder4[
     val fieldName = Macros.extractFieldName[E, T2](selector)
     rightInstance.fieldNamesToColumns(fieldName).label
 
-  inline def eq(inline selector: E => T): OnChain4[A, B, C, D, E]  = complete(Operator.Eq, getRightColumnLabel(selector))
-  inline def neq(inline selector: E => T): OnChain4[A, B, C, D, E] = complete(Operator.Neq, getRightColumnLabel(selector))
-  inline def lt(inline selector: E => T): OnChain4[A, B, C, D, E]  = complete(Operator.Lt, getRightColumnLabel(selector))
-  inline def lte(inline selector: E => T): OnChain4[A, B, C, D, E] = complete(Operator.Lte, getRightColumnLabel(selector))
-  inline def gt(inline selector: E => T): OnChain4[A, B, C, D, E]  = complete(Operator.Gt, getRightColumnLabel(selector))
-  inline def gte(inline selector: E => T): OnChain4[A, B, C, D, E] = complete(Operator.Gte, getRightColumnLabel(selector))
+  inline def eq(inline selector: E => T): OnChain4[A, B, C, D, E] = complete(Operator.Eq, getRightColumnLabel(selector))
+  inline def neq(inline selector: E => T): OnChain4[A, B, C, D, E] =
+    complete(Operator.Neq, getRightColumnLabel(selector))
+  inline def lt(inline selector: E => T): OnChain4[A, B, C, D, E] = complete(Operator.Lt, getRightColumnLabel(selector))
+  inline def lte(inline selector: E => T): OnChain4[A, B, C, D, E] =
+    complete(Operator.Lte, getRightColumnLabel(selector))
+  inline def gt(inline selector: E => T): OnChain4[A, B, C, D, E] = complete(Operator.Gt, getRightColumnLabel(selector))
+  inline def gte(inline selector: E => T): OnChain4[A, B, C, D, E] =
+    complete(Operator.Gte, getRightColumnLabel(selector))
 
 end OnBuilder4
 
@@ -1169,11 +1172,12 @@ final case class OnChain4[
       query.limitValue,
       query.offsetValue,
     )
+  end done
 
-  def build(using Dialect): SqlFragment                           = done.build
-  def orderBy(sort: Sort[?])(using Dialect): Query5[A, B, C, D, E] = done.orderBy(sort)
-  def limit(n: Int)(using Dialect): Query5[A, B, C, D, E]          = done.limit(n)
-  def offset(n: Long)(using Dialect): Query5[A, B, C, D, E]        = done.offset(n)
+  def build(using Dialect): SqlFragment                                   = done.build
+  def orderBy(sort: Sort[?])(using Dialect): Query5[A, B, C, D, E]        = done.orderBy(sort)
+  def limit(n: Int)(using Dialect): Query5[A, B, C, D, E]                 = done.limit(n)
+  def offset(n: Long)(using Dialect): Query5[A, B, C, D, E]               = done.offset(n)
   def where(predicate: SqlFragment)(using Dialect): Query5[A, B, C, D, E] = done.where(predicate)
 
 end OnChain4
@@ -1272,8 +1276,8 @@ object Query:
 
   /** Create a Query from a derived table (subquery in FROM clause).
     *
-    * The result type `A` of the SelectQuery must be a case class that
-    * `derives Table` and matches the shape of the subquery result.
+    * The result type `A` of the SelectQuery must be a case class that `derives Table` and matches the shape of the
+    * subquery result.
     *
     * Usage:
     * {{{
