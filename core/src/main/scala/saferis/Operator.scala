@@ -1,83 +1,83 @@
 package saferis
 
-/** Type-safe comparison operators for joins and where clauses.
+/** Type-safe comparison operators for queries and where clauses.
   *
   * Standard operators work on all databases. Users can extend for custom operators by creating their own case objects
-  * that extend `JoinOperator`.
+  * that extend `Operator`.
   *
   * Example:
   * {{{
   *   // Standard equality join
-  *   JoinSpec[User]
+  *   Query[User]
   *     .innerJoin[Order].on(_.id).eq(_.userId)
   *     .build
   *
   *   // Using generic op() for custom operators
-  *   JoinSpec[User]
-  *     .innerJoin[Order].on(_.name).op(JoinOperator.ILike)(_.pattern)
+  *   Query[User]
+  *     .innerJoin[Order].on(_.name).op(Operator.ILike)(_.pattern)
   *     .build
   * }}}
   */
-sealed trait JoinOperator:
+sealed trait Operator:
   /** The SQL operator string */
   def sql: String
 
-object JoinOperator:
+object Operator:
   // === Standard SQL operators (all dialects) ===
 
   /** Equality operator (=) */
-  case object Eq extends JoinOperator:
+  case object Eq extends Operator:
     def sql = "="
 
   /** Not equal operator (<>) */
-  case object Neq extends JoinOperator:
+  case object Neq extends Operator:
     def sql = "<>"
 
   /** Less than operator (<) */
-  case object Lt extends JoinOperator:
+  case object Lt extends Operator:
     def sql = "<"
 
   /** Less than or equal operator (<=) */
-  case object Lte extends JoinOperator:
+  case object Lte extends Operator:
     def sql = "<="
 
   /** Greater than operator (>) */
-  case object Gt extends JoinOperator:
+  case object Gt extends Operator:
     def sql = ">"
 
   /** Greater than or equal operator (>=) */
-  case object Gte extends JoinOperator:
+  case object Gte extends Operator:
     def sql = ">="
 
   /** LIKE operator for pattern matching */
-  case object Like extends JoinOperator:
+  case object Like extends Operator:
     def sql = "LIKE"
 
   // === PostgreSQL-specific operators ===
 
   /** Case-insensitive LIKE (PostgreSQL only) */
-  case object ILike extends JoinOperator:
+  case object ILike extends Operator:
     def sql = "ILIKE"
 
   /** SQL SIMILAR TO pattern matching (PostgreSQL only) */
-  case object SimilarTo extends JoinOperator:
+  case object SimilarTo extends Operator:
     def sql = "SIMILAR TO"
 
   /** POSIX regex match, case-sensitive (PostgreSQL only) */
-  case object RegexMatch extends JoinOperator:
+  case object RegexMatch extends Operator:
     def sql = "~"
 
   /** POSIX regex match, case-insensitive (PostgreSQL only) */
-  case object RegexMatchCI extends JoinOperator:
+  case object RegexMatchCI extends Operator:
     def sql = "~*"
 
   // === Unary operators (for IS NULL / IS NOT NULL) ===
 
   /** IS NULL - checks if column value is null */
-  case object IsNull extends JoinOperator:
+  case object IsNull extends Operator:
     def sql = "IS NULL"
 
   /** IS NOT NULL - checks if column value is not null */
-  case object IsNotNull extends JoinOperator:
+  case object IsNotNull extends Operator:
     def sql = "IS NOT NULL"
-end JoinOperator
+end Operator

@@ -15,7 +15,7 @@
 - **Resource Safety** - Guaranteed connection and transaction management with ZIO
 - **Label-Based Decoding** - Column-to-field mapping by name, not position
 - **Compile-Time Validation** - Table schemas, column names, and SQL verified at compile time
-- **Type-Safe Pagination** - Efficient offset and cursor-based pagination with PageSpec
+- **Unified Query Builder** - Type-safe joins, subqueries, and pagination in one fluent API
 
 ## Installation
 

@@ -2,9 +2,9 @@ package saferis
 
 /** Internal representation of a condition in ON or WHERE clauses.
   *
-  * These are used internally by the join/where builders and converted to SqlFragment for execution.
+  * These are used internally by the query builders and converted to SqlFragment for execution.
   */
-sealed trait JoinCondition:
+sealed trait Condition:
   /** Generate the SQL string for this condition */
   def toSql(using Dialect): String
 
@@ -15,10 +15,10 @@ sealed trait JoinCondition:
 final case class BinaryCondition(
     leftAlias: String,
     leftColumn: String,
-    operator: JoinOperator,
+    operator: Operator,
     rightAlias: String,
     rightColumn: String,
-) extends JoinCondition:
+) extends Condition:
   def toSql(using d: Dialect): String =
     // Only escape alias, not column name - allows PostgreSQL case folding to work correctly
     s"${d.escapeIdentifier(leftAlias)}.$leftColumn ${operator.sql} ${d.escapeIdentifier(rightAlias)}.$rightColumn"
@@ -30,8 +30,8 @@ end BinaryCondition
 final case class UnaryCondition(
     alias: String,
     column: String,
-    operator: JoinOperator, // IsNull or IsNotNull
-) extends JoinCondition:
+    operator: Operator, // IsNull or IsNotNull
+) extends Condition:
   def toSql(using d: Dialect): String =
     // Only escape alias, not column name - allows PostgreSQL case folding to work correctly
     s"${d.escapeIdentifier(alias)}.$column ${operator.sql}"
@@ -47,9 +47,9 @@ end UnaryCondition
 final case class LiteralCondition(
     alias: String,
     column: String,
-    operator: JoinOperator,
+    operator: Operator,
     write: Write[?],
-) extends JoinCondition:
+) extends Condition:
   def toSql(using d: Dialect): String =
     // Only escape alias, not column name - allows PostgreSQL case folding to work correctly
     s"${d.escapeIdentifier(alias)}.$column ${operator.sql} ?"
@@ -57,9 +57,9 @@ final case class LiteralCondition(
   def writes: Seq[Write[?]] = Seq(write)
 end LiteralCondition
 
-object JoinCondition:
+object Condition:
   /** Convert a sequence of conditions to SQL with AND between them */
-  def toSqlFragment(conditions: Seq[JoinCondition])(using Dialect): SqlFragment =
+  def toSqlFragment(conditions: Seq[Condition])(using Dialect): SqlFragment =
     if conditions.isEmpty then SqlFragment("", Seq.empty)
     else
       val sql    = conditions.map(_.toSql).mkString(" AND ")

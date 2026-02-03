@@ -10,8 +10,8 @@ A comprehensive guide to Saferis - the type-safe, resource-safe SQL client libra
 - [Data Definition Layer (DDL)](#data-definition-layer-ddl)
 - [Foreign Key Support](#foreign-key-support)
 - [Data Manipulation Layer (DML)](#data-manipulation-layer-dml)
-- [Type-Safe Joins](#type-safe-joins)
-- [Pagination](#pagination)
+- [Query Builder](#query-builder)
+- [Subqueries](#subqueries)
 - [Type-Safe Capabilities](#type-safe-capabilities)
 
 ---
@@ -23,7 +23,7 @@ A comprehensive guide to Saferis - the type-safe, resource-safe SQL client libra
 Add Saferis to your `build.sbt`:
 
 ```scala
-libraryDependencies += "io.github.russwyte" %% "saferis" % "0.1.2"
+libraryDependencies += "io.github.russwyte" %% "saferis" % "0.1.2+3-87bcc541"
 ```
 
 Saferis requires ZIO as a provided dependency:
@@ -74,8 +74,8 @@ import saferis.*
 @tableName("products")
 case class Product(
   @generated @key id: Long,      // Auto-generated primary key
-  @indexed name: String,          // Single-column index
-  @uniqueIndex sku: String,       // Unique index
+  name: String,
+  sku: String,
   price: Double,
   inStock: Boolean = true,        // Has default value
   description: Option[String]     // Nullable
@@ -89,13 +89,9 @@ case class Product(
 | `@tableName("name")` | Specifies the SQL table name |
 | `@key` | Marks a primary key column |
 | `@generated` | Marks an auto-generated column (identity/auto-increment) |
-| `@indexed` | Creates a single-column index |
-| `@indexed("name")` | Creates a named index (same name = compound index) |
-| `@indexed("name", "condition")` | Creates a partial index with WHERE clause |
-| `@uniqueIndex` | Creates a unique index |
-| `@uniqueIndex("name", "condition")` | Creates a partial unique index with WHERE clause |
-| `@unique("name")` | Creates a named unique constraint (same name = compound) |
 | `@label("column_name")` | Maps field to a different column name |
+
+For indexes, unique constraints, and foreign keys, use the [Schema DSL](#schema-dsl-for-indexes-and-constraints).
 
 #### Automatic Column Properties
 
@@ -109,6 +105,7 @@ Saferis infers column properties from your Scala types:
 
 ```scala
 import saferis.*
+import saferis.Schema.*
 
 @tableName("products")
 case class Product(
@@ -122,14 +119,8 @@ case class Product(
 
 ```scala
 // See the generated SQL with all column properties
-ddl.createTableSql[Product]()
-// res3: String = """create table if not exists products (
-//   id bigint not null generated always as identity primary key,
-//   product_name varchar(255) not null,
-//   quantity integer not null default 0,
-//   price double precision not null,
-//   notes varchar(255)
-// )"""
+Schema[Product].ddl().sql
+// res3: String = "create table if not exists products (id bigint generated always as identity primary key not null, product_name varchar(255) not null, quantity integer not null default 0, price double precision not null, notes varchar(255))"
 ```
 
 #### Compound Primary Keys
@@ -138,6 +129,7 @@ Use multiple `@key` annotations to create a composite primary key:
 
 ```scala
 import saferis.*
+import saferis.Schema.*
 import saferis.docs.DocTestContainer.{run, transactor as xa}
 
 @tableName("order_items")
@@ -150,13 +142,9 @@ case class OrderItem(
 
 ```scala
 // Show the generated CREATE TABLE SQL with compound primary key
-ddl.createTableSql[OrderItem]()
-// res5: String = """create table if not exists order_items (
-//   orderId bigint not null,
-//   productId bigint not null,
-//   quantity integer not null,
-//   primary key (orderId, productId)
-// )"""
+Schema[OrderItem].ddl().sql
+// res5: String = """create table if not exists order_items (orderId bigint not null, productId bigint not null, quantity integer not null, primary key (orderId, productId));
+// create index if not exists idx_order_items_compound_key on order_items (orderId, productId)"""
 ```
 
 ```scala
@@ -177,24 +165,6 @@ run {
 // )
 ```
 
-#### Compound Indexes and Constraints
-
-Use the same name to group columns:
-
-```scala
-import saferis.*
-
-@tableName("events")
-case class Event(
-  @generated @key id: Long,
-  @indexed("tenant_user_idx") tenantId: String,   // Part of compound index
-  @indexed("tenant_user_idx") userId: Int,        // Part of compound index
-  @unique("natural_key") source: String,          // Part of compound unique
-  @unique("natural_key") externalId: String,      // Part of compound unique
-  createdAt: java.time.Instant
-) derives Table
-```
-
 ### SQL Interpolation
 
 The `sql"..."` interpolator provides SQL injection protection:
@@ -205,8 +175,8 @@ import saferis.*
 @tableName("products")
 case class Product(
   @generated @key id: Long,
-  @indexed name: String,
-  @uniqueIndex sku: String,
+  name: String,
+  sku: String,
   price: Double,
   inStock: Boolean = true,
   description: Option[String]
@@ -222,16 +192,16 @@ val minPrice = 10.0
 val query = sql"SELECT * FROM $products WHERE ${products.price} > $minPrice"
 // query: SqlFragment = SqlFragment(
 //   sql = "SELECT * FROM products WHERE price > ?",
-//   writes = Vector(saferis.Write@17ce8173)
+//   writes = Vector(saferis.Write@46708073)
 // )
 query.show
-// res9: String = "SELECT * FROM products WHERE price > 10.0"
+// res8: String = "SELECT * FROM products WHERE price > 10.0"
 ```
 
 ```scala
 // Table and column references are properly escaped
 sql"SELECT ${products.name}, ${products.price} FROM $products WHERE ${products.inStock} = ${true}".show
-// res10: String = "SELECT name, price FROM products WHERE inStock = true"
+// res9: String = "SELECT name, price FROM products WHERE inStock = true"
 ```
 
 ### The Transactor
@@ -324,35 +294,13 @@ The DDL layer provides type-safe schema management operations.
 
 ```scala
 import saferis.*
-
-@tableName("customers")
-case class Customer(
-  @generated @key id: Long,
-  @indexed name: String,
-  @uniqueIndex email: String,
-  status: String = "active",
-  notes: Option[String]
-) derives Table
-```
-
-```scala
-// Show index creation SQL
-ddl.createIndexesSql[Customer]()
-// res14: String = """create index if not exists idx_customers_name on customers (name)
-// create unique index if not exists idx_customers_email on customers (email)"""
-```
-
-### Running DDL Operations
-
-```scala
-import saferis.*
 import saferis.docs.DocTestContainer.{run, transactor as xa}
 
 @tableName("customers")
 case class Customer(
   @generated @key id: Long,
-  @indexed name: String,
-  @uniqueIndex email: String,
+  name: String,
+  email: String,
   status: String = "active",
   notes: Option[String]
 ) derives Table
@@ -361,7 +309,7 @@ case class Customer(
 ```scala
 // Actually create the table
 run { xa.run(ddl.createTable[Customer]()) }
-// res16: Int = 0
+// res13: Int = 0
 ```
 
 ### Other DDL Operations
@@ -372,8 +320,8 @@ import saferis.*
 @tableName("customers")
 case class Customer(
   @generated @key id: Long,
-  @indexed name: String,
-  @uniqueIndex email: String,
+  name: String,
+  email: String,
   status: String = "active",
   notes: Option[String]
 ) derives Table
@@ -404,7 +352,7 @@ import saferis.*
 @tableName("my_table")
 case class MyTable(@key id: Int, name: String) derives Table
 
-// Default: creates table and all indexes
+// Default: creates table and indexes for compound primary keys
 ddl.createTable[MyTable]()
 
 // Skip table creation if it already exists
@@ -412,39 +360,156 @@ ddl.createTable[MyTable](ifNotExists = true)
 
 // Create table without indexes (create them separately later)
 ddl.createTable[MyTable](createIndexes = false)
-
-// Then create indexes separately
-ddl.createIndexes[MyTable]()
 ```
 
-### Partial Indexes
+### Schema DSL for Indexes and Constraints
 
-Partial indexes only index rows that match a condition, making them smaller and faster for filtered queries.
-
-#### Via Annotation
-
-Use `@indexed("name", "condition")` or `@uniqueIndex("name", "condition")`:
+Use the `Schema` DSL to define indexes, unique constraints, and foreign keys with full DDL generation:
 
 ```scala
 import saferis.*
+import saferis.Schema.*
+import saferis.docs.DocTestContainer.{run, transactor as xa}
 
-@tableName("tasks")
-case class TaskWithIndex(
+@tableName("schema_users")
+case class SchemaUser(
   @generated @key id: Int,
-  status: String,
-  @indexed("idx_pending_tasks", "status = 'pending'") priority: Int
+  name: String,
+  email: String,
+  status: String
 ) derives Table
 ```
 
 ```scala
-// Show the generated index SQL with WHERE clause
-ddl.createIndexesSql[TaskWithIndex]()
-// res20: String = "create index if not exists idx_pending_tasks on tasks (priority) where status = 'pending'"
+// Simple index
+Schema[SchemaUser]
+  .withIndex(_.name)
+  .ddl().sql
+// res17: String = """create table if not exists schema_users (id integer generated always as identity primary key not null, name varchar(255) not null, email varchar(255) not null, status varchar(255) not null);
+// create index "idx_schema_users_name" on "schema_users" ("name")"""
 ```
 
-#### Via Runtime API
+```scala
+// Unique index
+Schema[SchemaUser]
+  .withUniqueIndex(_.email)
+  .ddl().sql
+// res18: String = """create table if not exists schema_users (id integer generated always as identity primary key not null, name varchar(255) not null, email varchar(255) not null, status varchar(255) not null);
+// create unique index "idx_schema_users_email" on "schema_users" ("email")"""
+```
 
-Create partial indexes programmatically:
+```scala
+// Compound index on multiple columns
+Schema[SchemaUser]
+  .withIndex(_.name).and(_.status).named("idx_name_status")
+  .ddl().sql
+// res19: String = """create table if not exists schema_users (id integer generated always as identity primary key not null, name varchar(255) not null, email varchar(255) not null, status varchar(255) not null);
+// create index "idx_name_status" on "schema_users" ("name", "status")"""
+```
+
+```scala
+// Partial index with WHERE clause
+Schema[SchemaUser]
+  .withIndex(_.name).where(_.status).eql("active")
+  .ddl().sql
+// res20: String = """create table if not exists schema_users (id integer generated always as identity primary key not null, name varchar(255) not null, email varchar(255) not null, status varchar(255) not null);
+// create index "idx_schema_users_name" on "schema_users" ("name") where status = 'active'"""
+```
+
+```scala
+// Partial unique index - uniqueness only for active users
+Schema[SchemaUser]
+  .withUniqueIndex(_.email).where(_.status).eql("active")
+  .ddl().sql
+// res21: String = """create table if not exists schema_users (id integer generated always as identity primary key not null, name varchar(255) not null, email varchar(255) not null, status varchar(255) not null);
+// create unique index "idx_schema_users_email" on "schema_users" ("email") where status = 'active'"""
+```
+
+```scala
+// Multiple indexes chained together
+Schema[SchemaUser]
+  .withIndex(_.name)
+  .withUniqueIndex(_.email)
+  .ddl().sql
+// res22: String = """create table if not exists schema_users (id integer generated always as identity primary key not null, name varchar(255) not null, email varchar(255) not null, status varchar(255) not null);
+// create index "idx_schema_users_name" on "schema_users" ("name");
+// create unique index "idx_schema_users_email" on "schema_users" ("email")"""
+```
+
+```scala
+// Compound unique constraint
+Schema[SchemaUser]
+  .withUniqueConstraint(_.name).and(_.status)
+  .ddl().sql
+// res23: String = "create table if not exists schema_users (id integer generated always as identity primary key not null, name varchar(255) not null, email varchar(255) not null, status varchar(255) not null, constraint uq_name_status unique (name, status))"
+```
+
+### Creating Tables with Schema
+
+Use `.build` to get an Instance for `ddl.createTable`:
+
+```scala
+// Build schema with indexes and create table
+val schemaUsers = Schema[SchemaUser]
+  .withIndex(_.name)
+  .withUniqueIndex(_.email)
+  .build
+// schemaUsers: Instance[SchemaUser] = Instance(
+//   tableName = "schema_users",
+//   columns = ArraySeq(
+//     Column(
+//       name = "id",
+//       label = "id",
+//       isKey = true,
+//       isGenerated = true,
+//       isNullable = false,
+//       defaultValue = None,
+//       tableAlias = None
+//     ),
+//     Column(
+//       name = "name",
+//       label = "name",
+//       isKey = false,
+//       isGenerated = false,
+//       isNullable = false,
+//       defaultValue = None,
+//       tableAlias = None
+//     ),
+//     Column(
+//       name = "email",
+//       label = "email",
+//       isKey = false,
+//       isGenerated = false,
+//       isNullable = false,
+//       defaultValue = None,
+//       tableAlias = None
+//     ),
+//     Column(
+//       name = "status",
+//       label = "status",
+//       isKey = false,
+//       isGenerated = false,
+//       isNullable = false,
+//       defaultValue = None,
+//       tableAlias = None
+//     )
+//   ),
+//   alias = None,
+//   foreignKeys = Vector(),
+//   indexes = Vector(
+//     IndexSpec(columns = List("name"), name = None, unique = false, where = None),
+//     IndexSpec(columns = List("email"), name = None, unique = true, where = None)
+//   ),
+//   uniqueConstraints = Vector()
+// )
+
+run { xa.run(ddl.createTable(schemaUsers)) }
+// res24: Int = 0
+```
+
+### Partial Indexes via Runtime API
+
+Create partial indexes programmatically using `ddl.createIndex`:
 
 ```scala
 import saferis.*
@@ -469,47 +534,25 @@ run {
     jobs <- sql"SELECT * FROM ${Table[Job]}".query[Job]
   yield jobs)
 }
-// res22: Seq[Job] = Vector(
-//   Job(id = 1, status = "pending", retryAt = Some(2026-01-19T22:06:16.026170Z)),
+// res26: Seq[Job] = Vector(
+//   Job(id = 1, status = "pending", retryAt = Some(2026-02-03T15:52:05.629826Z)),
 //   Job(id = 2, status = "completed", retryAt = None)
 // )
-```
-
-#### Partial Unique Indexes
-
-Enforce uniqueness only for specific rows:
-
-```scala
-import saferis.*
-
-@tableName("users")
-case class UserWithPartialUnique(
-  @generated @key id: Int,
-  @uniqueIndex("uidx_active_email", "active = true") email: String,
-  active: Boolean
-) derives Table
-```
-
-```scala
-// The unique constraint only applies when active = true
-// Multiple inactive users can have the same email
-ddl.createIndexesSql[UserWithPartialUnique]()
-// res24: String = "create unique index if not exists uidx_active_email on users (email) where active = true"
 ```
 
 ---
 
 ## Foreign Key Support
 
-Saferis provides a type-safe builder API for defining foreign key constraints. The builder uses Scala 3 macros to extract column names at compile time, ensuring type safety and catching errors early.
+Saferis provides a type-safe `Schema` builder for defining foreign key constraints. The builder uses Scala 3 macros to extract column names at compile time, ensuring type safety and catching errors early.
 
 ### Basic Foreign Keys
 
-Define a foreign key using `foreignKey(_.column).references[Table](_.column)`:
+Define a foreign key using `Schema[A].withForeignKey(_.column).references[Table](_.column)`:
 
 ```scala
 import saferis.*
-import saferis.TableAspects.*
+import saferis.Schema.*
 import saferis.docs.DocTestContainer.{run, transactor as xa}
 
 // Parent table
@@ -522,15 +565,19 @@ case class FkOrder(@generated @key id: Int, userId: Int, amount: BigDecimal) der
 ```
 
 ```scala
-// Define the foreign key relationship
-val orders = Table[FkOrder]
-  @@ foreignKey[FkOrder, Int](_.userId).references[FkUser](_.id)
-// orders: [A >: Nothing <: Product] =>> Instance[A] {
-  val id: Column[Int]
-  val userId: Column[Int]
-  val amount: Column[BigDecimal]
-  def getByKey(id: Int): TypedFragment
-} = Instance(
+// Define the foreign key relationship and get DDL
+Schema[FkOrder]
+  .withForeignKey(_.userId).references[FkUser](_.id)
+  .ddl().sql
+// res28: String = "create table if not exists fk_orders (id integer generated always as identity primary key not null, userId integer not null, amount numeric not null, foreign key (userId) references fk_users (id))"
+```
+
+```scala
+// Build the instance for use with ddl.createTable
+val orders = Schema[FkOrder]
+  .withForeignKey(_.userId).references[FkUser](_.id)
+  .build
+// orders: Instance[FkOrder] = Instance(
 //   tableName = "fk_orders",
 //   columns = ArraySeq(
 //     Column(
@@ -538,15 +585,7 @@ val orders = Table[FkOrder]
 //       label = "id",
 //       isKey = true,
 //       isGenerated = true,
-//       isIndexed = false,
-//       isUniqueIndex = false,
-//       isUnique = false,
 //       isNullable = false,
-//       uniqueGroup = None,
-//       indexGroup = None,
-//       uniqueIndexGroup = None,
-//       indexCondition = None,
-//       uniqueIndexCondition = None,
 //       defaultValue = None,
 //       tableAlias = None
 //     ),
@@ -555,15 +594,7 @@ val orders = Table[FkOrder]
 //       label = "userId",
 //       isKey = false,
 //       isGenerated = false,
-//       isIndexed = false,
-//       isUniqueIndex = false,
-//       isUnique = false,
 //       isNullable = false,
-//       uniqueGroup = None,
-//       indexGroup = None,
-//       uniqueIndexGroup = None,
-//       indexCondition = None,
-//       uniqueIndexCondition = None,
 //       defaultValue = None,
 //       tableAlias = None
 //     ),
@@ -572,26 +603,26 @@ val orders = Table[FkOrder]
 //       label = "amount",
 //       isKey = false,
 //       isGenerated = false,
-//       isIndexed = false,
-//       isUniqueIndex = false,
-//       isUnique = false,
 //       isNullable = false,
-//       uniqueGroup = None,
-//       indexGroup = None,
-//       uniqueIndexGroup = None,
-// ...
+//       defaultValue = None,
+//       tableAlias = None
+//     )
+//   ),
+//   alias = None,
+//   foreignKeys = Vector(
+//     ForeignKeySpec(
+//       fromColumns = List("userId"),
+//       toTable = "fk_users",
+//       toColumns = List("id"),
+//       onDelete = NoAction,
+//       onUpdate = NoAction,
+//       constraintName = None
+//     )
+//   ),
+//   indexes = Vector(),
+//   uniqueConstraints = Vector()
+// )
 
-// See the generated SQL
-ddl.createTableSql(orders)
-// res26: String = """create table if not exists fk_orders (
-//   id integer not null generated always as identity primary key,
-//   userId integer not null,
-//   amount numeric not null,
-//   foreign key (userId) references fk_users (id)
-// )"""
-```
-
-```scala
 // Create tables with foreign key constraint
 run {
   xa.run(for
@@ -602,7 +633,7 @@ run {
     result <- sql"SELECT * FROM ${Table[FkOrder]}".query[FkOrder]
   yield result)
 }
-// res27: Seq[FkOrder] = Vector(FkOrder(id = 1, userId = 1, amount = 99.99))
+// res29: Seq[FkOrder] = Vector(FkOrder(id = 1, userId = 1, amount = 99.99))
 ```
 
 ### ON DELETE and ON UPDATE Actions
@@ -611,7 +642,7 @@ Specify what happens when a referenced row is deleted or updated:
 
 ```scala
 import saferis.*
-import saferis.TableAspects.*
+import saferis.Schema.*
 
 @tableName("action_users")
 case class ActionUser(@generated @key id: Int, name: String) derives Table
@@ -622,150 +653,32 @@ case class ActionOrder(@generated @key id: Int, userId: Int) derives Table
 
 ```scala
 // CASCADE: Deleting a user deletes their orders
-val cascadeOrders = Table[ActionOrder]
-  @@ foreignKey[ActionOrder, Int](_.userId).references[ActionUser](_.id)
-      .onDelete(ForeignKeyAction.Cascade)
-// cascadeOrders: [A >: Nothing <: Product] =>> Instance[A] {
-  val id: Column[Int]
-  val userId: Column[Int]
-  def getByKey(id: Int): TypedFragment
-} = Instance(
-//   tableName = "action_orders",
-//   columns = ArraySeq(
-//     Column(
-//       name = "id",
-//       label = "id",
-//       isKey = true,
-//       isGenerated = true,
-//       isIndexed = false,
-//       isUniqueIndex = false,
-//       isUnique = false,
-//       isNullable = false,
-//       uniqueGroup = None,
-//       indexGroup = None,
-//       uniqueIndexGroup = None,
-//       indexCondition = None,
-//       uniqueIndexCondition = None,
-//       defaultValue = None,
-//       tableAlias = None
-//     ),
-//     Column(
-//       name = "userId",
-//       label = "userId",
-//       isKey = false,
-//       isGenerated = false,
-//       isIndexed = false,
-//       isUniqueIndex = false,
-//       isUnique = false,
-//       isNullable = false,
-//       uniqueGroup = None,
-//       indexGroup = None,
-//       uniqueIndexGroup = None,
-//       indexCondition = None,
-//       uniqueIndexCondition = None,
-//       defaultValue = None,
-//       tableAlias = None
-//     )
-//   ),
-//   alias = None,
-//   foreignKeys = Vector(
-//     ForeignKeySpec(
-//       fromColumns = List("userId"),
-//       toTable = "action_users",
-//       toColumns = List("id"),
-//       onDelete = Cascade,
-//       onUpdate = NoAction,
-//       constraintName = None
-//     )
-//   )
-// )
-
-ddl.createTableSql(cascadeOrders)
-// res29: String = """create table if not exists action_orders (
-//   id integer not null generated always as identity primary key,
-//   userId integer not null,
-//   foreign key (userId) references action_users (id) on delete cascade
-// )"""
+Schema[ActionOrder]
+  .withForeignKey(_.userId).references[ActionUser](_.id)
+  .onDelete(Cascade)
+  .ddl().sql
+// res31: String = "create table if not exists action_orders (id integer generated always as identity primary key not null, userId integer not null, foreign key (userId) references action_users (id) on delete cascade)"
 ```
 
 ```scala
 // SET NULL: Sets FK column to NULL when parent is deleted
 // Note: The FK column should be nullable (Option[T]) for SET NULL to work properly at runtime
-val setNullOrders = Table[ActionOrder]
-  @@ foreignKey[ActionOrder, Int](_.userId).references[ActionUser](_.id)
-      .onDelete(ForeignKeyAction.SetNull)
-// setNullOrders: [A >: Nothing <: Product] =>> Instance[A] {
-  val id: Column[Int]
-  val userId: Column[Int]
-  def getByKey(id: Int): TypedFragment
-} = Instance(
-//   tableName = "action_orders",
-//   columns = ArraySeq(
-//     Column(
-//       name = "id",
-//       label = "id",
-//       isKey = true,
-//       isGenerated = true,
-//       isIndexed = false,
-//       isUniqueIndex = false,
-//       isUnique = false,
-//       isNullable = false,
-//       uniqueGroup = None,
-//       indexGroup = None,
-//       uniqueIndexGroup = None,
-//       indexCondition = None,
-//       uniqueIndexCondition = None,
-//       defaultValue = None,
-//       tableAlias = None
-//     ),
-//     Column(
-//       name = "userId",
-//       label = "userId",
-//       isKey = false,
-//       isGenerated = false,
-//       isIndexed = false,
-//       isUniqueIndex = false,
-//       isUnique = false,
-//       isNullable = false,
-//       uniqueGroup = None,
-//       indexGroup = None,
-//       uniqueIndexGroup = None,
-//       indexCondition = None,
-//       uniqueIndexCondition = None,
-//       defaultValue = None,
-//       tableAlias = None
-//     )
-//   ),
-//   alias = None,
-//   foreignKeys = Vector(
-//     ForeignKeySpec(
-//       fromColumns = List("userId"),
-//       toTable = "action_users",
-//       toColumns = List("id"),
-//       onDelete = SetNull,
-//       onUpdate = NoAction,
-//       constraintName = None
-//     )
-//   )
-// )
-
-ddl.createTableSql(setNullOrders)
-// res30: String = """create table if not exists action_orders (
-//   id integer not null generated always as identity primary key,
-//   userId integer not null,
-//   foreign key (userId) references action_users (id) on delete set null
-// )"""
+Schema[ActionOrder]
+  .withForeignKey(_.userId).references[ActionUser](_.id)
+  .onDelete(SetNull)
+  .ddl().sql
+// res32: String = "create table if not exists action_orders (id integer generated always as identity primary key not null, userId integer not null, foreign key (userId) references action_users (id) on delete set null)"
 ```
 
-Available actions:
+Available actions (import `saferis.Schema.*` to use short names):
 
 | Action | Description |
 |--------|-------------|
-| `ForeignKeyAction.NoAction` | Fail if referenced row is deleted/updated (default) |
-| `ForeignKeyAction.Cascade` | Delete/update child rows when parent is deleted/updated |
-| `ForeignKeyAction.SetNull` | Set the FK column to NULL |
-| `ForeignKeyAction.SetDefault` | Set the FK column to its default value |
-| `ForeignKeyAction.Restrict` | Fail immediately (same as NoAction but checked immediately) |
+| `NoAction` | Fail if referenced row is deleted/updated (default) |
+| `Cascade` | Delete/update child rows when parent is deleted/updated |
+| `SetNull` | Set the FK column to NULL |
+| `SetDefault` | Set the FK column to its default value |
+| `Restrict` | Fail immediately (same as NoAction but checked immediately) |
 
 ### Named Constraints
 
@@ -773,7 +686,7 @@ Give your foreign key constraint a custom name:
 
 ```scala
 import saferis.*
-import saferis.TableAspects.*
+import saferis.Schema.*
 
 @tableName("named_users")
 case class NamedUser(@generated @key id: Int, name: String) derives Table
@@ -783,80 +696,21 @@ case class NamedOrder(@generated @key id: Int, userId: Int) derives Table
 ```
 
 ```scala
-val namedOrders = Table[NamedOrder]
-  @@ foreignKey[NamedOrder, Int](_.userId).references[NamedUser](_.id)
-      .onDelete(ForeignKeyAction.Cascade)
-      .named("fk_order_user")
-// namedOrders: [A >: Nothing <: Product] =>> Instance[A] {
-  val id: Column[Int]
-  val userId: Column[Int]
-  def getByKey(id: Int): TypedFragment
-} = Instance(
-//   tableName = "named_orders",
-//   columns = ArraySeq(
-//     Column(
-//       name = "id",
-//       label = "id",
-//       isKey = true,
-//       isGenerated = true,
-//       isIndexed = false,
-//       isUniqueIndex = false,
-//       isUnique = false,
-//       isNullable = false,
-//       uniqueGroup = None,
-//       indexGroup = None,
-//       uniqueIndexGroup = None,
-//       indexCondition = None,
-//       uniqueIndexCondition = None,
-//       defaultValue = None,
-//       tableAlias = None
-//     ),
-//     Column(
-//       name = "userId",
-//       label = "userId",
-//       isKey = false,
-//       isGenerated = false,
-//       isIndexed = false,
-//       isUniqueIndex = false,
-//       isUnique = false,
-//       isNullable = false,
-//       uniqueGroup = None,
-//       indexGroup = None,
-//       uniqueIndexGroup = None,
-//       indexCondition = None,
-//       uniqueIndexCondition = None,
-//       defaultValue = None,
-//       tableAlias = None
-//     )
-//   ),
-//   alias = None,
-//   foreignKeys = Vector(
-//     ForeignKeySpec(
-//       fromColumns = List("userId"),
-//       toTable = "named_users",
-//       toColumns = List("id"),
-//       onDelete = Cascade,
-//       onUpdate = NoAction,
-//       constraintName = Some("fk_order_user")
-//     )
-//   )
-// )
-
-ddl.createTableSql(namedOrders)
-// res32: String = """create table if not exists named_orders (
-//   id integer not null generated always as identity primary key,
-//   userId integer not null,
-//   constraint fk_order_user foreign key (userId) references named_users (id) on delete cascade
-// )"""
+Schema[NamedOrder]
+  .withForeignKey(_.userId).references[NamedUser](_.id)
+  .onDelete(Cascade)
+  .named("fk_order_user")
+  .ddl().sql
+// res34: String = "create table if not exists named_orders (id integer generated always as identity primary key not null, userId integer not null, constraint fk_order_user foreign key (userId) references named_users (id) on delete cascade)"
 ```
 
 ### Compound Foreign Keys
 
-Reference a composite primary key with multiple columns:
+Reference a composite primary key with multiple columns using `.and()`:
 
 ```scala
 import saferis.*
-import saferis.TableAspects.*
+import saferis.Schema.*
 import saferis.docs.DocTestContainer.{run, transactor as xa}
 
 // Parent with compound primary key
@@ -874,18 +728,23 @@ case class CompoundInventory(
 ```
 
 ```scala
-// Reference multiple columns
-val inventory = Table[CompoundInventory]
-  @@ foreignKey[CompoundInventory, String, String](_.tenantId, _.productSku)
-      .references[CompoundProduct](_.tenantId, _.sku)
-      .onDelete(ForeignKeyAction.Cascade)
-// inventory: [A >: Nothing <: Product] =>> Instance[A] {
-  val id: Column[Int]
-  val tenantId: Column[String]
-  val productSku: Column[String]
-  val quantity: Column[Int]
-  def getByKey(id: Int): TypedFragment
-} = Instance(
+// Reference multiple columns using .and()
+Schema[CompoundInventory]
+  .withForeignKey(_.tenantId).and(_.productSku)
+  .references[CompoundProduct](_.tenantId).and(_.sku)
+  .onDelete(Cascade)
+  .ddl().sql
+// res36: String = "create table if not exists compound_inventory (id integer generated always as identity primary key not null, tenantId varchar(255) not null, productSku varchar(255) not null, quantity integer not null, foreign key (tenantId, productSku) references compound_products (tenantId, sku) on delete cascade)"
+```
+
+```scala
+// Build and create tables with compound FK
+val inventory = Schema[CompoundInventory]
+  .withForeignKey(_.tenantId).and(_.productSku)
+  .references[CompoundProduct](_.tenantId).and(_.sku)
+  .onDelete(Cascade)
+  .build
+// inventory: Instance[CompoundInventory] = Instance(
 //   tableName = "compound_inventory",
 //   columns = ArraySeq(
 //     Column(
@@ -893,15 +752,7 @@ val inventory = Table[CompoundInventory]
 //       label = "id",
 //       isKey = true,
 //       isGenerated = true,
-//       isIndexed = false,
-//       isUniqueIndex = false,
-//       isUnique = false,
 //       isNullable = false,
-//       uniqueGroup = None,
-//       indexGroup = None,
-//       uniqueIndexGroup = None,
-//       indexCondition = None,
-//       uniqueIndexCondition = None,
 //       defaultValue = None,
 //       tableAlias = None
 //     ),
@@ -910,15 +761,7 @@ val inventory = Table[CompoundInventory]
 //       label = "tenantId",
 //       isKey = false,
 //       isGenerated = false,
-//       isIndexed = false,
-//       isUniqueIndex = false,
-//       isUnique = false,
 //       isNullable = false,
-//       uniqueGroup = None,
-//       indexGroup = None,
-//       uniqueIndexGroup = None,
-//       indexCondition = None,
-//       uniqueIndexCondition = None,
 //       defaultValue = None,
 //       tableAlias = None
 //     ),
@@ -927,27 +770,31 @@ val inventory = Table[CompoundInventory]
 //       label = "productSku",
 //       isKey = false,
 //       isGenerated = false,
-//       isIndexed = false,
-//       isUniqueIndex = false,
-//       isUnique = false,
 //       isNullable = false,
-//       uniqueGroup = None,
-//       indexGroup = None,
-//       uniqueIndexGroup = None,
+//       defaultValue = None,
+//       tableAlias = None
+//     ),
+//     Column(
+//       name = "quantity",
+//       label = "quantity",
+//       isKey = false,
+//       isGenerated = false,
+//       isNullable = false,
+//       defaultValue = None,
+//       tableAlias = None
+//     )
+//   ),
+//   alias = None,
+//   foreignKeys = Vector(
+//     ForeignKeySpec(
+//       fromColumns = List("tenantId", "productSku"),
+//       toTable = "compound_products",
+//       toColumns = List("tenantId", "sku"),
+//       onDelete = Cascade,
+//       onUpdate = NoAction,
+//       constraintName = None
 // ...
 
-ddl.createTableSql(inventory)
-// res34: String = """create table if not exists compound_inventory (
-//   id integer not null generated always as identity primary key,
-//   tenantId varchar(255) not null,
-//   productSku varchar(255) not null,
-//   quantity integer not null,
-//   foreign key (tenantId, productSku) references compound_products (tenantId, sku) on delete cascade
-// )"""
-```
-
-```scala
-// Create and use tables with compound FK
 run {
   xa.run(for
     _ <- ddl.createTable[CompoundProduct]()
@@ -957,7 +804,7 @@ run {
     result <- sql"SELECT * FROM ${Table[CompoundInventory]}".query[CompoundInventory]
   yield result)
 }
-// res35: Seq[CompoundInventory] = Vector(
+// res37: Seq[CompoundInventory] = Vector(
 //   CompoundInventory(
 //     id = 1,
 //     tenantId = "tenant1",
@@ -969,11 +816,11 @@ run {
 
 ### Multiple Foreign Keys
 
-Chain multiple foreign keys using the `@@` operator:
+Chain multiple foreign keys using `.withForeignKey()`:
 
 ```scala
 import saferis.*
-import saferis.TableAspects.*
+import saferis.Schema.*
 
 @tableName("multi_users")
 case class MultiUser(@generated @key id: Int, name: String) derives Table
@@ -992,75 +839,11 @@ case class MultiOrderItem(
 
 ```scala
 // Multiple foreign keys on one table
-val orderItems = Table[MultiOrderItem]
-  @@ foreignKey[MultiOrderItem, Int](_.userId).references[MultiUser](_.id).onDelete(ForeignKeyAction.Cascade)
-  @@ foreignKey[MultiOrderItem, Int](_.productId).references[MultiProduct](_.id).onDelete(ForeignKeyAction.Restrict)
-// orderItems: [A >: Nothing <: Product] =>> Instance[A] {
-  val id: Column[Int]
-  val userId: Column[Int]
-  val productId: Column[Int]
-  val quantity: Column[Int]
-  def getByKey(id: Int): TypedFragment
-} = Instance(
-//   tableName = "multi_order_items",
-//   columns = ArraySeq(
-//     Column(
-//       name = "id",
-//       label = "id",
-//       isKey = true,
-//       isGenerated = true,
-//       isIndexed = false,
-//       isUniqueIndex = false,
-//       isUnique = false,
-//       isNullable = false,
-//       uniqueGroup = None,
-//       indexGroup = None,
-//       uniqueIndexGroup = None,
-//       indexCondition = None,
-//       uniqueIndexCondition = None,
-//       defaultValue = None,
-//       tableAlias = None
-//     ),
-//     Column(
-//       name = "userId",
-//       label = "userId",
-//       isKey = false,
-//       isGenerated = false,
-//       isIndexed = false,
-//       isUniqueIndex = false,
-//       isUnique = false,
-//       isNullable = false,
-//       uniqueGroup = None,
-//       indexGroup = None,
-//       uniqueIndexGroup = None,
-//       indexCondition = None,
-//       uniqueIndexCondition = None,
-//       defaultValue = None,
-//       tableAlias = None
-//     ),
-//     Column(
-//       name = "productId",
-//       label = "productId",
-//       isKey = false,
-//       isGenerated = false,
-//       isIndexed = false,
-//       isUniqueIndex = false,
-//       isUnique = false,
-//       isNullable = false,
-//       uniqueGroup = None,
-//       indexGroup = None,
-//       uniqueIndexGroup = None,
-// ...
-
-ddl.createTableSql(orderItems)
-// res37: String = """create table if not exists multi_order_items (
-//   id integer not null generated always as identity primary key,
-//   userId integer not null,
-//   productId integer not null,
-//   quantity integer not null,
-//   foreign key (userId) references multi_users (id) on delete cascade,
-//   foreign key (productId) references multi_products (id) on delete restrict
-// )"""
+Schema[MultiOrderItem]
+  .withForeignKey(_.userId).references[MultiUser](_.id).onDelete(Cascade)
+  .withForeignKey(_.productId).references[MultiProduct](_.id).onDelete(Restrict)
+  .ddl().sql
+// res39: String = "create table if not exists multi_order_items (id integer generated always as identity primary key not null, userId integer not null, productId integer not null, quantity integer not null, foreign key (userId) references multi_users (id) on delete cascade, foreign key (productId) references multi_products (id) on delete restrict)"
 ```
 
 ### Type Safety
@@ -1069,7 +852,7 @@ The foreign key builder provides compile-time type safety. The column types must
 
 ```scala
 import saferis.*
-import saferis.TableAspects.*
+import saferis.Schema.*
 
 @tableName("type_users")
 case class TypeUser(@generated @key id: Int, name: String) derives Table
@@ -1078,10 +861,12 @@ case class TypeUser(@generated @key id: Int, name: String) derives Table
 case class TypeOrder(@generated @key id: Int, userId: Int, userName: String) derives Table
 
 // This compiles - Int matches Int
-val valid = foreignKey[TypeOrder, Int](_.userId).references[TypeUser](_.id)
+val valid = Schema[TypeOrder]
+  .withForeignKey(_.userId).references[TypeUser](_.id)
 
 // This would NOT compile - String doesn't match Int
-// val invalid = foreignKey[TypeOrder, String](_.userName).references[TypeUser](_.id)
+// val invalid = Schema[TypeOrder]
+//   .withForeignKey(_.userName).references[TypeUser](_.id)
 ```
 
 ---
@@ -1104,13 +889,13 @@ val tasks = Table[Task]
 ```scala
 // SELECT query
 sql"SELECT * FROM $tasks WHERE ${tasks.done} = ${false}".show
-// res40: String = "SELECT * FROM tasks WHERE done = false"
+// res42: String = "SELECT * FROM tasks WHERE done = false"
 ```
 
 ```scala
 // SELECT with multiple conditions
 sql"SELECT * FROM $tasks WHERE ${tasks.title} LIKE ${"Learn%"} AND ${tasks.done} = ${false}".show
-// res41: String = "SELECT * FROM tasks WHERE title LIKE 'Learn%' AND done = false"
+// res43: String = "SELECT * FROM tasks WHERE title LIKE 'Learn%' AND done = false"
 ```
 
 ### Running DML Operations
@@ -1137,7 +922,7 @@ run {
     done <- sql"SELECT * FROM $tasks WHERE ${tasks.done} = ${true}".query[Task]
   yield (all, done))
 }
-// res43: Tuple2[Seq[Task], Seq[Task]] = (
+// res45: Tuple2[Seq[Task], Seq[Task]] = (
 //   Vector(
 //     Task(id = 1, title = "Task 1", done = false),
 //     Task(id = 2, title = "Task 2", done = false),
@@ -1153,7 +938,7 @@ For databases that support it (PostgreSQL, SQLite), get the inserted row back:
 
 ```scala
 run { xa.run(dml.insertReturning(Task(-1, "New Task", false))) }
-// res44: Task = Task(id = 4, title = "New Task", done = false)
+// res46: Task = Task(id = 4, title = "New Task", done = false)
 ```
 
 ### Custom Queries
@@ -1163,7 +948,7 @@ Use the `sql` interpolator for any query:
 ```scala
 // Query with ordering
 run { xa.run(sql"SELECT * FROM $tasks ORDER BY ${tasks.title}".query[Task]) }
-// res45: Seq[Task] = Vector(
+// res47: Seq[Task] = Vector(
 //   Task(id = 4, title = "New Task", done = false),
 //   Task(id = 1, title = "Task 1", done = false),
 //   Task(id = 2, title = "Task 2", done = false),
@@ -1200,7 +985,7 @@ run {
     result <- sql"SELECT * FROM $items WHERE ${items.id} = ${inserted.id}".queryOne[Item]
   yield (updated, result))
 }
-// res47: Tuple2[Item, Option[Item]] = (
+// res49: Tuple2[Item, Option[Item]] = (
 //   Item(id = 1, name = "Super Widget", quantity = 20),
 //   Some(Item(id = 1, name = "Super Widget", quantity = 20))
 // )
@@ -1223,7 +1008,7 @@ run {
     all <- sql"SELECT * FROM $items".query[Item]
   yield (rowsUpdated, all))
 }
-// res48: Tuple2[Int, Seq[Item]] = (
+// res50: Tuple2[Int, Seq[Item]] = (
 //   2,
 //   Vector(
 //     Item(id = 1, name = "Super Widget", quantity = 20),
@@ -1263,7 +1048,7 @@ run {
     remaining <- sql"SELECT * FROM $logs".query[LogEntry]
   yield (deleted, remaining))
 }
-// res50: Tuple2[LogEntry, Seq[LogEntry]] = (
+// res52: Tuple2[LogEntry, Seq[LogEntry]] = (
 //   LogEntry(id = 1, level = "INFO", message = "Application started"),
 //   Vector(LogEntry(id = 3, level = "ERROR", message = "Something failed"))
 // )
@@ -1287,7 +1072,7 @@ run {
     remaining <- sql"SELECT * FROM $logs".query[LogEntry]
   yield (rowsDeleted, deletedEntries, remaining))
 }
-// res51: Tuple3[Int, Seq[LogEntry], Seq[LogEntry]] = (
+// res53: Tuple3[Int, Seq[LogEntry], Seq[LogEntry]] = (
 //   2,
 //   Vector(LogEntry(id = 3, level = "ERROR", message = "Something failed")),
 //   Vector(LogEntry(id = 6, level = "INFO", message = "Important info"))
@@ -1296,368 +1081,426 @@ run {
 
 ---
 
-## Type-Safe Joins
+## Query Builder
 
-Saferis provides a fluent, type-safe API for building SQL JOIN queries. The API uses compile-time macros to extract column names from selectors like `_.userId`, ensuring type safety and catching errors at compile time rather than runtime.
+Saferis provides a unified, type-safe `Query` builder for constructing SQL queries. It supports single-table queries, multi-table joins (up to 5 tables), WHERE clauses, pagination, and subqueries - all with compile-time type safety.
 
-### Basic Inner Join
+### Basic Queries
 
-The simplest join connects two tables with an equality condition:
+Start with `Query[A]` for single-table queries:
 
 ```scala
 import saferis.*
 import saferis.postgres.given
 import saferis.docs.DocTestContainer.{run, transactor as xa}
 
-@tableName("join_demo_users")
-case class JoinUser(@generated @key id: Int, name: String, email: String) derives Table
+@tableName("query_users")
+case class QueryUser(@generated @key id: Int, name: String, email: String, age: Int) derives Table
 
-@tableName("join_demo_orders")
+val users = Table[QueryUser]
+```
+
+```scala
+// Simple query with type-safe WHERE
+Query[QueryUser]
+  .where(_.name).eq("Alice")
+  .build.sql
+// res55: String = "select * from query_users as t1 where \"t1\".name = ?"
+```
+
+```scala
+// Query with ordering and pagination
+Query[QueryUser]
+  .where(_.age).gt(18)
+  .orderBy(users.name.asc)
+  .limit(10)
+  .offset(20)
+  .build.sql
+// res56: String = "select * from query_users as t2 where \"t2\".age > ? order by name asc limit 10 offset 20"
+```
+
+### Type-Safe WHERE Clauses
+
+Use selector syntax for type-safe column references:
+
+```scala
+// Equality
+Query[QueryUser].where(_.name).eq("Alice").build.sql
+// res57: String = "select * from query_users as t3 where \"t3\".name = ?"
+```
+
+```scala
+// Comparison operators
+Query[QueryUser].where(_.age).gt(21).build.sql
+// res58: String = "select * from query_users as t4 where \"t4\".age > ?"
+```
+
+```scala
+// IS NULL / IS NOT NULL
+Query[QueryUser].where(_.email).isNotNull().build.sql
+// res59: String = "select * from query_users as t5 where \"t5\".email IS NOT NULL"
+```
+
+You can also use raw `SqlFragment` for complex conditions:
+
+```scala
+// Raw SQL fragment
+Query[QueryUser]
+  .where(sql"${users.age} BETWEEN 18 AND 65")
+  .build.sql
+// res60: String = "select * from query_users as t6 where age BETWEEN 18 AND 65"
+```
+
+### Joins
+
+Chain joins with the fluent API. The `on()` method uses type-safe selectors:
+
+```scala
+import saferis.*
+import saferis.postgres.given
+import saferis.docs.DocTestContainer.{run, transactor as xa}
+
+@tableName("join_users")
+case class JoinUser(@generated @key id: Int, name: String) derives Table
+
+@tableName("join_orders")
 case class JoinOrder(@generated @key id: Int, userId: Int, amount: BigDecimal) derives Table
+
+@tableName("join_items")
+case class JoinItem(@key orderId: Int, @key productId: Int, quantity: Int) derives Table
 ```
 
 ```scala
-// Build a simple inner join
-val joinQuery = JoinSpec[JoinUser]
+// Inner join
+Query[JoinUser]
   .innerJoin[JoinOrder].on(_.id).eq(_.userId)
-  .build
-// joinQuery: SqlFragment = SqlFragment(
-//   sql = "select * from join_demo_users as t1 inner join join_demo_orders as t2 on \"t1\".id = \"t2\".userId",
-//   writes = List()
-// )
-
-joinQuery.sql
-// res53: String = "select * from join_demo_users as t1 inner join join_demo_orders as t2 on \"t1\".id = \"t2\".userId"
+  .build.sql
+// res62: String = "select * from join_users as t7 inner join join_orders as t8 on \"t7\".id = \"t8\".userId"
 ```
 
 ```scala
-// Execute the join
+// Left join
+Query[JoinUser]
+  .leftJoin[JoinOrder].on(_.id).eq(_.userId)
+  .build.sql
+// res63: String = "select * from join_users as t9 left join join_orders as t10 on \"t9\".id = \"t10\".userId"
+```
+
+```scala
+// Right join
+Query[JoinUser]
+  .rightJoin[JoinOrder].on(_.id).eq(_.userId)
+  .build.sql
+// res64: String = "select * from join_users as t11 right join join_orders as t12 on \"t11\".id = \"t12\".userId"
+```
+
+```scala
+// Full join
+Query[JoinUser]
+  .fullJoin[JoinOrder].on(_.id).eq(_.userId)
+  .build.sql
+// res65: String = "select * from join_users as t13 full join join_orders as t14 on \"t13\".id = \"t14\".userId"
+```
+
+### Multi-Table Joins
+
+Chain up to 5 tables. Use `onPrev()` to reference the previously joined table:
+
+```scala
+// Three-table join
+Query[JoinUser]
+  .innerJoin[JoinOrder].on(_.id).eq(_.userId)
+  .innerJoin[JoinItem].onPrev(_.id).eq(_.orderId)
+  .build.sql
+// res66: String = "select * from join_users as t15 inner join join_orders as t16 on \"t15\".id = \"t16\".userId inner join join_items as t17 on \"t16\".id = \"t17\".orderId"
+```
+
+### WHERE on Joined Queries
+
+After joining, use `where()` for the first table or `whereFrom()` for joined tables:
+
+```scala
+// WHERE on first table
+Query[JoinUser]
+  .innerJoin[JoinOrder].on(_.id).eq(_.userId)
+  .where(_.name).eq("Alice")
+  .build.sql
+// res67: String = "select * from join_users as t18 inner join join_orders as t19 on \"t18\".id = \"t19\".userId where \"t18\".name = ?"
+```
+
+```scala
+// WHERE on joined table
+Query[JoinUser]
+  .innerJoin[JoinOrder].on(_.id).eq(_.userId)
+  .whereFrom(_.amount).gt(BigDecimal(100))
+  .build.sql
+// res68: String = "select * from join_users as t20 inner join join_orders as t21 on \"t20\".id = \"t21\".userId where \"t21\".amount > ?"
+```
+
+### ON Clause Operators
+
+All comparison operators are available in the ON clause:
+
+| Method | SQL | Description |
+|--------|-----|-------------|
+| `eq()` | `=` | Equality |
+| `neq()` | `<>` | Not equal |
+| `lt()` | `<` | Less than |
+| `lte()` | `<=` | Less than or equal |
+| `gt()` | `>` | Greater than |
+| `gte()` | `>=` | Greater than or equal |
+| `isNull()` | `IS NULL` | Null check |
+| `isNotNull()` | `IS NOT NULL` | Non-null check |
+| `op(Operator.X)` | Custom | Any operator |
+
+### Pagination
+
+#### Offset-Based Pagination
+
+Traditional LIMIT/OFFSET pagination:
+
+```scala
+import saferis.*
+import saferis.postgres.given
+
+@tableName("page_articles")
+case class Article(@generated @key id: Long, title: String, views: Int, published: Boolean) derives Table
+
+val articles = Table[Article]
+```
+
+```scala
+// Page 3 with 10 items per page
+Query[Article]
+  .where(_.published).eq(true)
+  .orderBy(articles.views.desc)
+  .limit(10)
+  .offset(20)
+  .build.sql
+// res70: String = "select * from page_articles as t22 where \"t22\".published = ? order by views desc limit 10 offset 20"
+```
+
+#### Cursor/Seek Pagination
+
+More efficient for large datasets - uses indexed lookups:
+
+```scala
+// Get next page after ID 100
+Query[Article]
+  .seekAfter(articles.id, 100L)
+  .limit(10)
+  .build.sql
+// res71: String = "select * from page_articles as t23 where id > ? order by id asc limit 10"
+```
+
+```scala
+// Get previous page before ID 50
+Query[Article]
+  .seekBefore(articles.id, 50L)
+  .limit(10)
+  .build.sql
+// res72: String = "select * from page_articles as t24 where id < ? order by id desc limit 10"
+```
+
+### Sorting
+
+Use column extensions for concise sorting:
+
+```scala
+Query[Article]
+  .orderBy(articles.views.desc)
+  .orderBy(articles.title.asc)
+  .build.sql
+// res73: String = "select * from page_articles as t25 order by views desc, title asc"
+```
+
+Control NULL ordering:
+
+```scala
+Query[Article]
+  .orderBy(articles.views.descNullsLast)
+  .build.sql
+// res74: String = "select * from page_articles as t26 order by views desc nulls last"
+```
+
+Available sorting extensions:
+- `.asc` / `.desc` - basic ordering
+- `.ascNullsFirst` / `.ascNullsLast`
+- `.descNullsFirst` / `.descNullsLast`
+
+### Executing Queries
+
+Use `.query[R]` to execute and decode results:
+
+```scala
+import saferis.*
+import saferis.postgres.given
+import saferis.docs.DocTestContainer.{run, transactor as xa}
+
+@tableName("exec_users")
+case class ExecUser(@generated @key id: Int, name: String) derives Table
+
+@tableName("exec_orders")
+case class ExecOrder(@generated @key id: Int, userId: Int, amount: BigDecimal) derives Table
+
+val users = Table[ExecUser]
+```
+
+```scala
 run {
   xa.run(for
-    _ <- ddl.createTable[JoinUser]()
-    _ <- ddl.createTable[JoinOrder]()
-    _ <- dml.insert(JoinUser(-1, "Alice", "alice@test.com"))
-    _ <- dml.insert(JoinUser(-1, "Bob", "bob@test.com"))
-    _ <- dml.insert(JoinOrder(-1, 1, BigDecimal(100)))
-    _ <- dml.insert(JoinOrder(-1, 1, BigDecimal(200)))
-    _ <- dml.insert(JoinOrder(-1, 2, BigDecimal(150)))
-    result <- sql"${JoinSpec[JoinUser].innerJoin[JoinOrder].on(_.id).eq(_.userId).build}".query[JoinUser]
+    _ <- ddl.createTable[ExecUser]()
+    _ <- ddl.createTable[ExecOrder]()
+    _ <- dml.insert(ExecUser(-1, "Alice"))
+    _ <- dml.insert(ExecUser(-1, "Bob"))
+    _ <- dml.insert(ExecOrder(-1, 1, BigDecimal(100)))
+    _ <- dml.insert(ExecOrder(-1, 1, BigDecimal(200)))
+    result <- Query[ExecUser]
+      .innerJoin[ExecOrder].on(_.id).eq(_.userId)
+      .where(_.name).eq("Alice")
+      .limit(10)
+      .query[ExecUser]
   yield result)
 }
-// res54: Seq[JoinUser] = Vector(
-//   JoinUser(id = 1, name = "Alice", email = "alice@test.com"),
-//   JoinUser(id = 1, name = "Alice", email = "alice@test.com"),
-//   JoinUser(id = 2, name = "Bob", email = "bob@test.com")
+// res76: Seq[ExecUser] = Vector(
+//   ExecUser(id = 1, name = "Alice"),
+//   ExecUser(id = 1, name = "Alice")
 // )
 ```
 
-### Join Types
+---
 
-All standard SQL join types are supported:
+## Subqueries
 
-```scala
-import saferis.*
-import saferis.postgres.given
+The Query builder supports type-safe subqueries for IN, NOT IN, EXISTS, and derived tables.
 
-@tableName("jt_users")
-case class JtUser(@generated @key id: Int, name: String) derives Table
+### IN Subqueries
 
-@tableName("jt_orders")
-case class JtOrder(@generated @key id: Int, userId: Int) derives Table
-```
-
-```scala
-// Inner Join - only matching rows
-JoinSpec[JtUser].innerJoin[JtOrder].on(_.id).eq(_.userId).build.sql
-// res56: String = "select * from jt_users as t7 inner join jt_orders as t8 on \"t7\".id = \"t8\".userId"
-```
-
-```scala
-// Left Join - all from left, matching from right
-JoinSpec[JtUser].leftJoin[JtOrder].on(_.id).eq(_.userId).build.sql
-// res57: String = "select * from jt_users as t9 left join jt_orders as t10 on \"t9\".id = \"t10\".userId"
-```
-
-```scala
-// Right Join - all from right, matching from left
-JoinSpec[JtUser].rightJoin[JtOrder].on(_.id).eq(_.userId).build.sql
-// res58: String = "select * from jt_users as t11 right join jt_orders as t12 on \"t11\".id = \"t12\".userId"
-```
-
-```scala
-// Full Join - all rows from both tables
-JoinSpec[JtUser].fullJoin[JtOrder].on(_.id).eq(_.userId).build.sql
-// res59: String = "select * from jt_users as t13 full join jt_orders as t14 on \"t13\".id = \"t14\".userId"
-```
-
-### Comparison Operators in ON Clause
-
-Beyond equality, you can use various comparison operators:
-
-```scala
-import saferis.*
-import saferis.postgres.given
-
-@tableName("op_users")
-case class OpUser(@generated @key id: Int, maxBudget: Int) derives Table
-
-@tableName("op_orders")
-case class OpOrder(@generated @key id: Int, userId: Int, amount: Int) derives Table
-```
-
-```scala
-// Not equal
-JoinSpec[OpUser].innerJoin[OpOrder].on(_.id).neq(_.userId).build.sql
-// res61: String = "select * from op_users as t15 inner join op_orders as t16 on \"t15\".id <> \"t16\".userId"
-```
-
-```scala
-// Less than
-JoinSpec[OpUser].innerJoin[OpOrder].on(_.maxBudget).lt(_.amount).build.sql
-// res62: String = "select * from op_users as t17 inner join op_orders as t18 on \"t17\".maxBudget < \"t18\".amount"
-```
-
-```scala
-// Less than or equal
-JoinSpec[OpUser].innerJoin[OpOrder].on(_.maxBudget).lte(_.amount).build.sql
-// res63: String = "select * from op_users as t19 inner join op_orders as t20 on \"t19\".maxBudget <= \"t20\".amount"
-```
-
-```scala
-// Greater than
-JoinSpec[OpUser].innerJoin[OpOrder].on(_.maxBudget).gt(_.amount).build.sql
-// res64: String = "select * from op_users as t21 inner join op_orders as t22 on \"t21\".maxBudget > \"t22\".amount"
-```
-
-```scala
-// Greater than or equal
-JoinSpec[OpUser].innerJoin[OpOrder].on(_.maxBudget).gte(_.amount).build.sql
-// res65: String = "select * from op_users as t23 inner join op_orders as t24 on \"t23\".maxBudget >= \"t24\".amount"
-```
-
-```scala
-// Custom operator
-JoinSpec[OpUser].innerJoin[OpOrder].on(_.id).op(JoinOperator.Gte)(_.userId).build.sql
-// res66: String = "select * from op_users as t25 inner join op_orders as t26 on \"t25\".id >= \"t26\".userId"
-```
-
-### IS NULL and IS NOT NULL in ON Clause
-
-Check for null values in the ON condition:
-
-```scala
-import saferis.*
-import saferis.postgres.given
-
-@tableName("null_users")
-case class NullUser(@generated @key id: Int, name: String) derives Table
-
-@tableName("null_orders")
-case class NullOrder(@generated @key id: Int, userId: Int, deletedAt: Option[java.time.Instant]) derives Table
-```
-
-```scala
-// IS NULL check
-JoinSpec[NullUser]
-  .innerJoin[NullOrder].on(_.id).eq(_.userId)
-  .andRight(_.deletedAt).isNull()
-  .build.sql
-// res68: String = "select * from null_users as t27 inner join null_orders as t28 on \"t27\".id = \"t28\".userId AND \"t28\".deletedAt IS NULL"
-```
-
-```scala
-// IS NOT NULL check
-JoinSpec[NullUser]
-  .innerJoin[NullOrder].on(_.id).eq(_.userId)
-  .andRight(_.deletedAt).isNotNull()
-  .build.sql
-// res69: String = "select * from null_users as t29 inner join null_orders as t30 on \"t29\".id = \"t30\".userId AND \"t30\".deletedAt IS NOT NULL"
-```
-
-### Chaining ON Conditions
-
-Add multiple conditions to the ON clause with `and()`:
-
-```scala
-import saferis.*
-import saferis.postgres.given
-
-@tableName("chain_users")
-case class ChainUser(@generated @key id: Int, tenantId: String, name: String) derives Table
-
-@tableName("chain_orders")
-case class ChainOrder(@generated @key id: Int, userId: Int, tenantId: String) derives Table
-```
-
-```scala
-// Multiple ON conditions
-JoinSpec[ChainUser]
-  .innerJoin[ChainOrder].on(_.id).eq(_.userId)
-  .and(_.tenantId).eq(_.tenantId)
-  .build.sql
-// res71: String = "select * from chain_users as t31 inner join chain_orders as t32 on \"t31\".id = \"t32\".userId AND \"t31\".tenantId = \"t32\".tenantId"
-```
-
-Use `andRight()` to add conditions starting from the right (joined) table:
-
-```scala
-JoinSpec[ChainUser]
-  .innerJoin[ChainOrder].on(_.id).eq(_.userId)
-  .andRight(_.tenantId).eq(_.tenantId)
-  .build.sql
-// res72: String = "select * from chain_users as t33 inner join chain_orders as t34 on \"t33\".id = \"t34\".userId AND \"t34\".tenantId = \"t34\".tenantId"
-```
-
-### Type-Safe WHERE Clause
-
-Add WHERE conditions with type-safe column references and parameterized values:
+Use `.select(_.column)` to create a typed subquery, then pass it to `.in()`:
 
 ```scala
 import saferis.*
 import saferis.postgres.given
 import saferis.docs.DocTestContainer.{run, transactor as xa}
 
-@tableName("where_users")
-case class WhereUser(@generated @key id: Int, name: String, email: String) derives Table
+@tableName("sub_users")
+case class SubUser(@generated @key id: Int, name: String) derives Table
 
-@tableName("where_orders")
-case class WhereOrder(@generated @key id: Int, userId: Int, amount: BigDecimal) derives Table
+@tableName("sub_orders")
+case class SubOrder(@generated @key id: Int, userId: Int, status: String) derives Table
 ```
 
 ```scala
-// WHERE with literal value (bound as prepared statement parameter)
-val whereQuery = JoinSpec[WhereUser]
-  .innerJoin[WhereOrder].on(_.id).eq(_.userId)
-  .where(_.name).eq("Alice")
-  .build
-// whereQuery: SqlFragment = SqlFragment(
-//   sql = "select * from where_users as t35 inner join where_orders as t36 on \"t35\".id = \"t36\".userId where \"t35\".name = ?",
-//   writes = List(saferis.Write@691884f)
-// )
-
-// SQL uses ? placeholder - value is safely bound, not interpolated
-whereQuery.sql
-// res74: String = "select * from where_users as t35 inner join where_orders as t36 on \"t35\".id = \"t36\".userId where \"t35\".name = ?"
-```
-
-```scala
-// WHERE on the joined table
-JoinSpec[WhereUser]
-  .innerJoin[WhereOrder].on(_.id).eq(_.userId)
-  .whereFrom(_.amount).gte(BigDecimal(100))
-  .build.sql
-// res75: String = "select * from where_users as t37 inner join where_orders as t38 on \"t37\".id = \"t38\".userId where \"t38\".amount >= ?"
-```
-
-### WHERE with IS NULL Pattern
-
-A common pattern with LEFT JOIN is to find rows without matches:
-
-```scala
-import saferis.*
-import saferis.postgres.given
-import saferis.docs.DocTestContainer.{run, transactor as xa}
-
-@tableName("isnull_users")
-case class IsNullUser(@generated @key id: Int, name: String) derives Table
-
-@tableName("isnull_orders")
-case class IsNullOrder(@generated @key id: Int, userId: Int) derives Table
-```
-
-```scala
-// Find users without any orders
-JoinSpec[IsNullUser]
-  .leftJoin[IsNullOrder].on(_.id).eq(_.userId)
-  .whereIsNullFrom(_.id)  // Order.id IS NULL means no matching order
-  .build.sql
-// res77: String = "select * from isnull_users as t39 left join isnull_orders as t40 on \"t39\".id = \"t40\".userId where \"t40\".id IS NULL"
-```
-
-```scala
-// Execute to find users without orders
-run {
-  xa.run(for
-    _ <- ddl.createTable[IsNullUser]()
-    _ <- ddl.createTable[IsNullOrder]()
-    _ <- dml.insert(IsNullUser(-1, "Alice"))  // Has order
-    _ <- dml.insert(IsNullUser(-1, "Bob"))    // Has order
-    _ <- dml.insert(IsNullUser(-1, "Charlie")) // No orders
-    _ <- dml.insert(IsNullOrder(-1, 1))
-    _ <- dml.insert(IsNullOrder(-1, 2))
-    usersWithoutOrders <- sql"${JoinSpec[IsNullUser].leftJoin[IsNullOrder].on(_.id).eq(_.userId).whereIsNullFrom(_.id).build}".query[IsNullUser]
-  yield usersWithoutOrders)
-}
-// res78: Seq[IsNullUser] = Vector(IsNullUser(id = 3, name = "Charlie"))
-```
-
-### Chaining WHERE Conditions
-
-Combine multiple WHERE conditions:
-
-```scala
-import saferis.*
-import saferis.postgres.given
-
-@tableName("chainwhere_users")
-case class ChainWhereUser(@generated @key id: Int, name: String, status: String) derives Table
-
-@tableName("chainwhere_orders")
-case class ChainWhereOrder(@generated @key id: Int, userId: Int, amount: BigDecimal) derives Table
-```
-
-```scala
-// Multiple WHERE conditions
-JoinSpec[ChainWhereUser]
-  .innerJoin[ChainWhereOrder].on(_.id).eq(_.userId)
+// Type-safe IN subquery - column types must match
+val activeUserIds = Query[SubOrder]
   .where(_.status).eq("active")
-  .and(_.name).isNotNull()
-  .andFrom(_.amount).gt(BigDecimal(50))
+  .select(_.userId)  // Returns SelectQuery[Int]
+// activeUserIds: SelectQuery[Int] = SelectQuery(
+//   Query1(
+//     baseInstance = Instance(
+//       tableName = "sub_orders",
+//       columns = ArraySeq(
+//         Column(
+//           name = "id",
+//           label = "id",
+//           isKey = true,
+//           isGenerated = true,
+//           isNullable = false,
+//           defaultValue = None,
+//           tableAlias = Some("t29")
+//         ),
+//         Column(
+//           name = "userId",
+//           label = "userId",
+//           isKey = false,
+//           isGenerated = false,
+//           isNullable = false,
+//           defaultValue = None,
+//           tableAlias = Some("t29")
+//         ),
+//         Column(
+//           name = "status",
+//           label = "status",
+//           isKey = false,
+//           isGenerated = false,
+//           isNullable = false,
+//           defaultValue = None,
+//           tableAlias = Some("t29")
+//         )
+//       ),
+//       alias = Some("t29"),
+//       foreignKeys = Vector(),
+//       indexes = Vector(),
+//       uniqueConstraints = Vector()
+//     ),
+//     wherePredicates = Vector(
+//       SqlFragment(
+//         sql = "\"t29\".status = ?",
+//         writes = Vector(saferis.Write@3e1e699c)
+//       )
+//     ),
+//     sorts = Vector(),
+//     seeks = Vector(),
+//     limitValue = None,
+//     offsetValue = None,
+//     selectColumns = Vector(
+// ...
+
+Query[SubUser]
+  .where(_.id).in(activeUserIds)  // Compiles: both are Int
   .build.sql
-// res80: String = "select * from chainwhere_users as t45 inner join chainwhere_orders as t46 on \"t45\".id = \"t46\".userId where \"t45\".status = ? and \"t45\".name IS NOT NULL and \"t46\".amount > ?"
-```
-
-### Complete Query with ORDER BY, LIMIT, OFFSET
-
-Build complete queries with sorting and pagination:
-
-```scala
-import saferis.*
-import saferis.postgres.given
-import saferis.docs.DocTestContainer.{run, transactor as xa}
-
-@tableName("complete_users")
-case class CompleteUser(@generated @key id: Int, name: String, email: String) derives Table
-
-@tableName("complete_orders")
-case class CompleteOrder(@generated @key id: Int, userId: Int, amount: BigDecimal) derives Table
+// res78: String = "select * from sub_users as t30 where \"t30\".id IN (select userId from sub_orders as t29 where \"t29\".status = ?)"
 ```
 
 ```scala
-// Full query with all clauses
-val users = Table[CompleteUser]
+// NOT IN subquery
+Query[SubUser]
+  .where(_.id).notIn(activeUserIds)
+  .build.sql
+// res79: String = "select * from sub_users as t31 where \"t31\".id NOT IN (select userId from sub_orders as t29 where \"t29\".status = ?)"
+```
+
+The type safety is enforced at compile time - if the column types don't match, it won't compile.
+
+### EXISTS Subqueries
+
+Use `whereExists()` or `whereNotExists()`:
+
+```scala
+// EXISTS - find users who have orders
+Query[SubUser]
+  .whereExists(Query[SubOrder])
+  .build.sql
+// res80: String = "select * from sub_users as t32 where EXISTS (select * from sub_orders as t33)"
+```
+
+```scala
+// NOT EXISTS - find users without orders
+Query[SubUser]
+  .whereNotExists(Query[SubOrder].where(_.status).eq("cancelled"))
+  .build.sql
+// res81: String = "select * from sub_users as t34 where NOT EXISTS (select * from sub_orders as t35 where \"t35\".status = ?)"
+```
+
+### Correlated Subqueries
+
+For correlated subqueries, use `sql"..."` to reference outer table columns:
+
+```scala
+val users = Table[SubUser]
 // users: [A >: Nothing <: Product] =>> Instance[A] {
   val id: Column[Int]
   val name: Column[String]
-  val email: Column[String]
   def getByKey(id: Int): TypedFragment
 } = Instance(
-//   tableName = "complete_users",
+//   tableName = "sub_users",
 //   columns = ArraySeq(
 //     Column(
 //       name = "id",
 //       label = "id",
 //       isKey = true,
 //       isGenerated = true,
-//       isIndexed = false,
-//       isUniqueIndex = false,
-//       isUnique = false,
 //       isNullable = false,
-//       uniqueGroup = None,
-//       indexGroup = None,
-//       uniqueIndexGroup = None,
-//       indexCondition = None,
-//       uniqueIndexCondition = None,
 //       defaultValue = None,
 //       tableAlias = None
 //     ),
@@ -1666,79 +1509,253 @@ val users = Table[CompleteUser]
 //       label = "name",
 //       isKey = false,
 //       isGenerated = false,
-//       isIndexed = false,
-//       isUniqueIndex = false,
-//       isUnique = false,
 //       isNullable = false,
-//       uniqueGroup = None,
-//       indexGroup = None,
-//       uniqueIndexGroup = None,
-//       indexCondition = None,
-//       uniqueIndexCondition = None,
 //       defaultValue = None,
 //       tableAlias = None
-//     ),
-//     Column(
-//       name = "email",
-//       label = "email",
-//       isKey = false,
-//       isGenerated = false,
-//       isIndexed = false,
-//       isUniqueIndex = false,
-//       isUnique = false,
-//       isNullable = false,
-//       uniqueGroup = None,
-//       indexGroup = None,
-//       uniqueIndexGroup = None,
-// ...
-JoinSpec[CompleteUser]
-  .innerJoin[CompleteOrder].on(_.id).eq(_.userId)
-  .where(_.name).eq("Alice")
-  .andFrom(_.amount).gt(BigDecimal(100))
-  .orderBy(users.name.asc)
-  .limit(10)
-  .offset(20)
+//     )
+//   ),
+//   alias = None,
+//   foreignKeys = Vector(),
+//   indexes = Vector(),
+//   uniqueConstraints = Vector()
+// )
+
+// Correlated EXISTS - find users who have at least one order
+Query[SubUser]
+  .whereExists(
+    Query[SubOrder].where(sql"userId = ${users.id}")
+  )
   .build.sql
-// res82: String = "select * from complete_users as t47 inner join complete_orders as t48 on \"t47\".id = \"t48\".userId where \"t47\".name = ? and \"t48\".amount > ? order by name asc limit 10 offset 20"
+// res82: String = "select * from sub_users as t36 where EXISTS (select * from sub_orders as t37 where userId = id)"
+```
+
+### Derived Tables
+
+Use subqueries in the FROM clause with `Query.from()`:
+
+```scala
+import saferis.*
+import saferis.postgres.given
+import saferis.docs.DocTestContainer.{run, transactor as xa}
+
+@tableName("derived_orders")
+case class DerivedOrder(@generated @key id: Int, userId: Int, amount: BigDecimal, status: String) derives Table
+
+@tableName("derived_users")
+case class DerivedUser(@generated @key id: Int, name: String) derives Table
+
+// Virtual type for the subquery result
+@tableName("order_summary")
+case class OrderSummary(userId: Int, amount: BigDecimal) derives Table
 ```
 
 ```scala
-// Execute a complete query
-run {
-  xa.run(for
-    _ <- ddl.createTable[CompleteUser]()
-    _ <- ddl.createTable[CompleteOrder]()
-    _ <- dml.insert(CompleteUser(-1, "Alice", "alice@test.com"))
-    _ <- dml.insert(CompleteUser(-1, "Bob", "bob@test.com"))
-    _ <- dml.insert(CompleteOrder(-1, 1, BigDecimal(150)))
-    _ <- dml.insert(CompleteOrder(-1, 1, BigDecimal(200)))
-    _ <- dml.insert(CompleteOrder(-1, 2, BigDecimal(50)))
-    result <- sql"${JoinSpec[CompleteUser].innerJoin[CompleteOrder].on(_.id).eq(_.userId).whereFrom(_.amount).gte(BigDecimal(100)).limit(5).build}".query[CompleteUser]
-  yield result)
-}
-// res83: Seq[CompleteUser] = Vector(
-//   CompleteUser(id = 1, name = "Alice", email = "alice@test.com"),
-//   CompleteUser(id = 1, name = "Alice", email = "alice@test.com")
-// )
+// Create a typed subquery
+val highValueOrders = Query[DerivedOrder]
+  .where(_.amount).gt(BigDecimal(100))
+  .selectAll[OrderSummary]  // Returns SelectQuery[OrderSummary]
+// highValueOrders: SelectQuery[OrderSummary] = SelectQuery(
+//   Query1(
+//     baseInstance = Instance(
+//       tableName = "derived_orders",
+//       columns = ArraySeq(
+//         Column(
+//           name = "id",
+//           label = "id",
+//           isKey = true,
+//           isGenerated = true,
+//           isNullable = false,
+//           defaultValue = None,
+//           tableAlias = Some("t38")
+//         ),
+//         Column(
+//           name = "userId",
+//           label = "userId",
+//           isKey = false,
+//           isGenerated = false,
+//           isNullable = false,
+//           defaultValue = None,
+//           tableAlias = Some("t38")
+//         ),
+//         Column(
+//           name = "amount",
+//           label = "amount",
+//           isKey = false,
+//           isGenerated = false,
+//           isNullable = false,
+//           defaultValue = None,
+//           tableAlias = Some("t38")
+//         ),
+//         Column(
+//           name = "status",
+//           label = "status",
+//           isKey = false,
+//           isGenerated = false,
+//           isNullable = false,
+//           defaultValue = None,
+//           tableAlias = Some("t38")
+//         )
+//       ),
+//       alias = Some("t38"),
+//       foreignKeys = Vector(),
+//       indexes = Vector(),
+//       uniqueConstraints = Vector()
+//     ),
+//     wherePredicates = Vector(
+//       SqlFragment(
+// ...
+
+// Use as derived table with explicit alias
+Query.from(highValueOrders, "high_value")
+  .where(_.userId).gt(0)
+  .build.sql
+// res84: String = "select * from (select * from derived_orders as t38 where \"t38\".amount > ?) as high_value where \"high_value\".userId > ?"
 ```
 
-### Available Operators
+```scala
+// Derived table with join
+Query.from(highValueOrders, "summary")
+  .innerJoin[DerivedUser].on(_.userId).eq(_.id)
+  .build.sql
+// res85: String = "select * from (select * from derived_orders as t38 where \"t38\".amount > ?) as summary inner join derived_users as t39 on \"summary\".userId = \"t39\".id"
+```
 
-| Method | SQL Operator | Description |
-|--------|-------------|-------------|
-| `eq()` | `=` | Equality |
-| `neq()` | `<>` | Not equal |
-| `lt()` | `<` | Less than |
-| `lte()` | `<=` | Less than or equal |
-| `gt()` | `>` | Greater than |
-| `gte()` | `>=` | Greater than or equal |
-| `op(JoinOperator.X)` | Custom | Any JoinOperator |
-| `isNull()` | `IS NULL` | Check for NULL |
-| `isNotNull()` | `IS NOT NULL` | Check for non-NULL |
+### Complex Nested Subqueries
 
-### JoinOperator Reference
+Subqueries can be arbitrarily complex - they support joins, nested subqueries, and all Query features:
 
-All available operators in `JoinOperator`:
+```scala
+import saferis.*
+import saferis.postgres.given
+
+@tableName("complex_users")
+case class ComplexUser(@generated @key id: Int, name: String) derives Table
+
+@tableName("complex_orders")
+case class ComplexOrder(@generated @key id: Int, userId: Int, productId: Int) derives Table
+
+@tableName("complex_products")
+case class ComplexProduct(@generated @key id: Int, category: String) derives Table
+```
+
+```scala
+// Nested subquery: find users who ordered electronics
+val electronicProductIds = Query[ComplexProduct]
+  .where(_.category).eq("electronics")
+  .select(_.id)
+// electronicProductIds: SelectQuery[Int] = SelectQuery(
+//   Query1(
+//     baseInstance = Instance(
+//       tableName = "complex_products",
+//       columns = ArraySeq(
+//         Column(
+//           name = "id",
+//           label = "id",
+//           isKey = true,
+//           isGenerated = true,
+//           isNullable = false,
+//           defaultValue = None,
+//           tableAlias = Some("t40")
+//         ),
+//         Column(
+//           name = "category",
+//           label = "category",
+//           isKey = false,
+//           isGenerated = false,
+//           isNullable = false,
+//           defaultValue = None,
+//           tableAlias = Some("t40")
+//         )
+//       ),
+//       alias = Some("t40"),
+//       foreignKeys = Vector(),
+//       indexes = Vector(),
+//       uniqueConstraints = Vector()
+//     ),
+//     wherePredicates = Vector(
+//       SqlFragment(
+//         sql = "\"t40\".category = ?",
+//         writes = Vector(saferis.Write@288394b5)
+//       )
+//     ),
+//     sorts = Vector(),
+//     seeks = Vector(),
+//     limitValue = None,
+//     offsetValue = None,
+//     selectColumns = Vector(
+//       Column(
+//         name = "id",
+//         label = "id",
+//         isKey = true,
+//         isGenerated = true,
+//         isNullable = false,
+//         defaultValue = None,
+//         tableAlias = Some("t40")
+//       )
+// ...
+
+val usersWithElectronics = Query[ComplexOrder]
+  .where(_.productId).in(electronicProductIds)
+  .select(_.userId)
+// usersWithElectronics: SelectQuery[Int] = SelectQuery(
+//   Query1(
+//     baseInstance = Instance(
+//       tableName = "complex_orders",
+//       columns = ArraySeq(
+//         Column(
+//           name = "id",
+//           label = "id",
+//           isKey = true,
+//           isGenerated = true,
+//           isNullable = false,
+//           defaultValue = None,
+//           tableAlias = Some("t41")
+//         ),
+//         Column(
+//           name = "userId",
+//           label = "userId",
+//           isKey = false,
+//           isGenerated = false,
+//           isNullable = false,
+//           defaultValue = None,
+//           tableAlias = Some("t41")
+//         ),
+//         Column(
+//           name = "productId",
+//           label = "productId",
+//           isKey = false,
+//           isGenerated = false,
+//           isNullable = false,
+//           defaultValue = None,
+//           tableAlias = Some("t41")
+//         )
+//       ),
+//       alias = Some("t41"),
+//       foreignKeys = Vector(),
+//       indexes = Vector(),
+//       uniqueConstraints = Vector()
+//     ),
+//     wherePredicates = Vector(
+//       SqlFragment(
+//         sql = "\"t41\".productId IN (select id from complex_products as t40 where \"t40\".category = ?)",
+//         writes = List(saferis.Write@288394b5)
+//       )
+//     ),
+//     sorts = Vector(),
+//     seeks = Vector(),
+//     limitValue = None,
+//     offsetValue = None,
+// ...
+
+Query[ComplexUser]
+  .where(_.id).in(usersWithElectronics)
+  .build.sql
+// res87: String = "select * from complex_users as t42 where \"t42\".id IN (select userId from complex_orders as t41 where \"t41\".productId IN (select id from complex_products as t40 where \"t40\".category = ?))"
+```
+
+### Operator Reference
+
+All available operators in `Operator`:
 
 | Operator | SQL | Notes |
 |----------|-----|-------|
@@ -1755,200 +1772,6 @@ All available operators in `JoinOperator`:
 | `RegexMatchCI` | `~*` | Case-insensitive regex (PostgreSQL) |
 | `IsNull` | `IS NULL` | Null check |
 | `IsNotNull` | `IS NOT NULL` | Non-null check |
-
----
-
-## Pagination
-
-Saferis provides type-safe pagination through `PageSpec`, supporting both offset-based and cursor-based (seek) pagination.
-
-```scala
-import saferis.*
-
-@tableName("articles")
-case class Article(@generated @key id: Long, title: String, views: Int, published: Boolean) derives Table
-
-val articles = Table[Article]
-```
-
-### Offset Pagination
-
-Traditional pagination with LIMIT and OFFSET:
-
-```scala
-// Page 3 with 10 items per page
-PageSpec[Article]
-  .where(sql"${articles.published} = ${true}")
-  .orderBy(articles.views, SortOrder.Desc)
-  .limit(10)
-  .offset(20)
-  .build
-  .show
-// res85: String = "select * from articles where published = true order by views desc limit 10 offset 20"
-```
-
-### Cursor/Seek Pagination
-
-More efficient for large datasets - uses indexed lookups instead of scanning:
-
-```scala
-// Get next page after a known ID
-PageSpec[Article]
-  .seekAfter(articles.id, 100L)
-  .limit(10)
-  .build
-  .show
-// res86: String = "select * from articles where id > 100 order by id asc limit 10"
-```
-
-```scala
-// Get previous page before a known ID
-PageSpec[Article]
-  .seekBefore(articles.id, 50L)
-  .limit(10)
-  .build
-  .show
-// res87: String = "select * from articles where id < 50 order by id desc limit 10"
-```
-
-### Combined Filters and Sorting
-
-```scala
-PageSpec[Article]
-  .where(sql"${articles.published} = ${true}")
-  .where(sql"${articles.views} > ${100}")
-  .orderBy(articles.views, SortOrder.Desc)
-  .orderBy(articles.id, SortOrder.Asc)
-  .limit(20)
-  .build
-  .show
-// res88: String = "select * from articles where published = true and views > 100 order by views desc, id asc limit 20"
-```
-
-### Running Paginated Queries
-
-```scala
-import saferis.*
-import saferis.docs.DocTestContainer.{run, transactor as xa}
-
-@tableName("articles")
-case class Article(@generated @key id: Long, title: String, views: Int, published: Boolean) derives Table
-
-val articles = Table[Article]
-```
-
-```scala
-// Setup test data and run pagination
-run {
-  xa.run(for
-    _ <- ddl.createTable[Article]()
-    _ <- dml.insert(Article(-1, "First Post", 100, true))
-    _ <- dml.insert(Article(-1, "Second Post", 250, true))
-    _ <- dml.insert(Article(-1, "Draft", 0, false))
-    _ <- dml.insert(Article(-1, "Popular", 1000, true))
-    page <- PageSpec[Article]
-      .where(sql"${articles.published} = ${true}")
-      .orderBy(articles.views, SortOrder.Desc)
-      .limit(2)
-      .query[Article]
-  yield page)
-}
-// res90: Seq[Article] = Vector(
-//   Article(id = 4L, title = "Popular", views = 1000, published = true),
-//   Article(id = 2L, title = "Second Post", views = 250, published = true)
-// )
-```
-
-### Null Handling in Sort Order
-
-Control how NULL values are sorted using `NullOrder`:
-
-```scala
-// NullOrder.First - NULLs appear first
-PageSpec[Article]
-  .orderBy(articles.views, SortOrder.Asc, NullOrder.First)
-  .build
-  .show
-// res91: String = "select * from articles order by views asc nulls first"
-```
-
-```scala
-// NullOrder.Last - NULLs appear last
-PageSpec[Article]
-  .orderBy(articles.views, SortOrder.Desc, NullOrder.Last)
-  .build
-  .show
-// res92: String = "select * from articles order by views desc nulls last"
-```
-
-```scala
-// NullOrder.Default - database default behavior (no NULLS clause)
-PageSpec[Article]
-  .orderBy(articles.views, SortOrder.Asc, NullOrder.Default)
-  .build
-  .show
-// res93: String = "select * from articles order by views asc"
-```
-
-### Column Extensions
-
-For more concise syntax, use column extension methods:
-
-#### Sorting Extensions
-
-```scala
-// .asc and .desc for simple sorting
-PageSpec[Article]
-  .orderBy(articles.views.desc)
-  .orderBy(articles.title.asc)
-  .build
-  .show
-// res94: String = "select * from articles order by views desc, title asc"
-```
-
-```scala
-// Combined with null handling
-PageSpec[Article]
-  .orderBy(articles.views.descNullsLast)
-  .orderBy(articles.title.ascNullsFirst)
-  .build
-  .show
-// res95: String = "select * from articles order by views desc nulls last, title asc nulls first"
-```
-
-Available sorting extensions:
-- `.asc` - ascending order
-- `.desc` - descending order
-- `.ascNullsFirst` - ascending, NULLs first
-- `.ascNullsLast` - ascending, NULLs last
-- `.descNullsFirst` - descending, NULLs first
-- `.descNullsLast` - descending, NULLs last
-
-#### Comparison Extensions for Seek Pagination
-
-```scala
-// Use .gt (greater than) for seek-after
-PageSpec[Article]
-  .seek(articles.id.gt(100L))
-  .limit(10)
-  .build
-  .show
-// res96: String = "select * from articles where id > 100 order by id asc limit 10"
-```
-
-```scala
-// Use .lt (less than) for seek-before
-PageSpec[Article]
-  .seek(articles.id.lt(50L))
-  .limit(10)
-  .build
-  .show
-// res97: String = "select * from articles where id < 50 order by id asc limit 10"
-```
-
-Available comparison extensions:
-- `.gt(value)` - greater than (for forward pagination)
-- `.lt(value)` - less than (for backward pagination)
 
 ---
 
@@ -1990,7 +1813,7 @@ run {
     all <- sql"SELECT * FROM ${Table[SpecializedItem]}".query[SpecializedItem]
   yield (inserted, all))
 }
-// res99: Tuple2[SpecializedItem, Seq[SpecializedItem]] = (
+// res89: Tuple2[SpecializedItem, Seq[SpecializedItem]] = (
 //   SpecializedItem(id = 1, name = "Widget", category = "hardware"),
 //   Vector(
 //     SpecializedItem(id = 1, name = "Widget", category = "hardware"),
@@ -2008,7 +1831,7 @@ The `SpecializedDML` object provides operations that require specific dialect ca
 run {
   xa.run(sql"SELECT * FROM ${Table[SpecializedItem]} ORDER BY ${Table[SpecializedItem].id}".query[SpecializedItem])
 }
-// res100: Seq[SpecializedItem] = Vector(
+// res90: Seq[SpecializedItem] = Vector(
 //   SpecializedItem(id = 1, name = "Widget", category = "hardware"),
 //   SpecializedItem(id = 2, name = "Gadget", category = "electronics")
 // )
@@ -2045,7 +1868,7 @@ Write functions that require specific capabilities using intersection types:
 run {
   xa.run(dml.insertReturning(SpecializedItem(-1, "Capability Demo", "demo")))
 }
-// res101: SpecializedItem = SpecializedItem(
+// res91: SpecializedItem = SpecializedItem(
 //   id = 3,
 //   name = "Capability Demo",
 //   category = "demo"
@@ -2097,20 +1920,20 @@ run {
     all <- sql"SELECT * FROM $events".query[Event]
   yield all)
 }
-// res103: Seq[Event] = Vector(
+// res93: Seq[Event] = Vector(
 //   Event(
 //     id = 1,
 //     name = "Conference",
-//     occurredAt = 2026-01-19T22:06:16.464884Z,
-//     scheduledFor = Some(2026-01-26T16:06:16.464937),
-//     eventDate = 2026-01-19
+//     occurredAt = 2026-02-03T15:52:05.924117Z,
+//     scheduledFor = Some(2026-02-10T09:52:05.924149),
+//     eventDate = 2026-02-03
 //   ),
 //   Event(
 //     id = 2,
 //     name = "Meeting",
-//     occurredAt = 2026-01-19T22:06:16.469834Z,
+//     occurredAt = 2026-02-03T15:52:05.928099Z,
 //     scheduledFor = None,
-//     eventDate = 2026-01-20
+//     eventDate = 2026-02-04
 //   )
 // )
 ```
@@ -2140,8 +1963,8 @@ run {
     found <- sql"SELECT * FROM $entities WHERE ${entities.id} = $id1".queryOne[Entity]
   yield found)
 }
-// res105: Option[Entity] = Some(
-//   Entity(id = 037e368e-c2b9-421d-8e28-3d481165fbac, name = "First Entity")
+// res95: Option[Entity] = Some(
+//   Entity(id = f97246a9-9108-4d80-b36e-8eb7f1e79988, name = "First Entity")
 // )
 ```
 

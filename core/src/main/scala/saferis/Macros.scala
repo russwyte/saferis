@@ -343,7 +343,7 @@ object Macros:
 
   /** Extract field name from a selector function like `_.fieldName`.
     *
-    * This is used by JoinSpec for type-safe ON and WHERE conditions, and by ForeignKey for type-safe references.
+    * This is used by Query for type-safe ON and WHERE conditions, and by ForeignKey for type-safe references.
     *
     * @param selector
     *   A lambda like `(a: A) => a.fieldName` or `_.fieldName`
