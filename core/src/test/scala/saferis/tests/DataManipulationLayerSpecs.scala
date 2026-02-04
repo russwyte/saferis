@@ -2,9 +2,9 @@ package saferis.tests
 
 import saferis.*
 import saferis.dml.*
+import saferis.tests.PostgresTestContainer.DataSourceProvider
 import zio.*
 import zio.test.*
-import PostgresTestContainer.DataSourceProvider
 
 object DataManipulationLayerSpecs extends ZIOSpecDefault:
   val xaLayer = DataSourceProvider.default >>> Transactor.default
@@ -14,7 +14,7 @@ object DataManipulationLayerSpecs extends ZIOSpecDefault:
     // Insert operations
     test("insert basic record"):
       @tableName("test_dml_insert_basic")
-      case class TestTable(@key id: Int, name: String, age: Option[Int]) derives Table
+      final case class TestTable(@key id: Int, name: String, age: Option[Int]) derives Table
 
       for
         xa <- ZIO.service[Transactor]
@@ -39,7 +39,7 @@ object DataManipulationLayerSpecs extends ZIOSpecDefault:
 
     test("insert with generated primary key"):
       @tableName("test_dml_insert_generated")
-      case class GeneratedTable(@generated @key id: Int, name: String) derives Table
+      final case class GeneratedTable(@generated @key id: Int, name: String) derives Table
 
       for
         xa <- ZIO.service[Transactor]
@@ -59,7 +59,7 @@ object DataManipulationLayerSpecs extends ZIOSpecDefault:
 
     test("insert with optional fields"):
       @tableName("test_dml_insert_optional")
-      case class OptionalTable(@key id: Int, name: String, email: Option[String]) derives Table
+      final case class OptionalTable(@key id: Int, name: String, email: Option[String]) derives Table
 
       for
         xa <- ZIO.service[Transactor]
@@ -90,7 +90,7 @@ object DataManipulationLayerSpecs extends ZIOSpecDefault:
     // Update operations
     test("update by key"):
       @tableName("test_dml_update_key")
-      case class UpdateTable(@key id: Int, name: String, age: Int) derives Table
+      final case class UpdateTable(@key id: Int, name: String, age: Int) derives Table
 
       for
         xa <- ZIO.service[Transactor]
@@ -117,7 +117,7 @@ object DataManipulationLayerSpecs extends ZIOSpecDefault:
 
     test("update with custom where clause"):
       @tableName("test_dml_update_where")
-      case class UpdateWhereTable(@key id: Int, name: String, category: String) derives Table
+      final case class UpdateWhereTable(@key id: Int, name: String, category: String) derives Table
 
       for
         xa <- ZIO.service[Transactor]
@@ -152,7 +152,7 @@ object DataManipulationLayerSpecs extends ZIOSpecDefault:
 
     test("update returning"):
       @tableName("test_dml_update_returning")
-      case class UpdateReturningTable(@key id: Int, name: String, version: Int) derives Table
+      final case class UpdateReturningTable(@key id: Int, name: String, version: Int) derives Table
 
       for
         xa <- ZIO.service[Transactor]
@@ -176,7 +176,7 @@ object DataManipulationLayerSpecs extends ZIOSpecDefault:
     // Delete operations
     test("delete by key"):
       @tableName("test_dml_delete_key")
-      case class DeleteTable(@key id: Int, name: String) derives Table
+      final case class DeleteTable(@key id: Int, name: String) derives Table
 
       for
         xa <- ZIO.service[Transactor]
@@ -202,7 +202,7 @@ object DataManipulationLayerSpecs extends ZIOSpecDefault:
 
     test("delete with custom where clause"):
       @tableName("test_dml_delete_where")
-      case class DeleteWhereTable(@key id: Int, name: String, status: String) derives Table
+      final case class DeleteWhereTable(@key id: Int, name: String, status: String) derives Table
 
       for
         xa <- ZIO.service[Transactor]
@@ -233,7 +233,7 @@ object DataManipulationLayerSpecs extends ZIOSpecDefault:
 
     test("delete returning"):
       @tableName("test_dml_delete_returning")
-      case class DeleteReturningTable(@key id: Int, name: String, value: Int) derives Table
+      final case class DeleteReturningTable(@key id: Int, name: String, value: Int) derives Table
 
       for
         xa <- ZIO.service[Transactor]
@@ -258,7 +258,7 @@ object DataManipulationLayerSpecs extends ZIOSpecDefault:
 
     test("delete where returning multiple records"):
       @tableName("test_dml_delete_where_returning")
-      case class DeleteWhereReturningTable(@key id: Int, name: String, category: String) derives Table
+      final case class DeleteWhereReturningTable(@key id: Int, name: String, category: String) derives Table
 
       for
         xa <- ZIO.service[Transactor]
@@ -286,7 +286,7 @@ object DataManipulationLayerSpecs extends ZIOSpecDefault:
     // Compound key operations
     test("operations with compound keys"):
       @tableName("test_dml_compound_key")
-      case class CompoundKeyTable(@key userId: Int, @key roleId: Int, grantedAt: String) derives Table
+      final case class CompoundKeyTable(@key userId: Int, @key roleId: Int, grantedAt: String) derives Table
 
       for
         xa <- ZIO.service[Transactor]
@@ -324,7 +324,7 @@ object DataManipulationLayerSpecs extends ZIOSpecDefault:
         assertTrue(countResult.map(_.count).contains(1))
       end for
 
-  case class CountResult(count: Int) derives Table
+  final case class CountResult(count: Int) derives Table
 
   val spec = suite("DML Operations")(dmlTests).provideShared(xaLayer) @@ TestAspect.sequential
 end DataManipulationLayerSpecs

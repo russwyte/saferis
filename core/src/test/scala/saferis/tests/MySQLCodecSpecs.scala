@@ -2,6 +2,7 @@ package saferis.tests
 
 import saferis.*
 import zio.test.*
+
 import java.util.UUID
 
 object MySQLCodecSpecs extends ZIOSpecDefault:
@@ -40,7 +41,7 @@ object MySQLCodecSpecs extends ZIOSpecDefault:
       import saferis.mysql.given
 
       @tableName("mysql_users")
-      case class User(@key id: UUID, name: String) derives Table
+      final case class User(@key id: UUID, name: String) derives Table
 
       val table    = Table[User]
       val idColumn = table.id
@@ -54,7 +55,7 @@ object MySQLCodecSpecs extends ZIOSpecDefault:
       // No MySQL import - uses default PostgreSQL dialect
 
       @tableName("pg_users")
-      case class User(@key id: UUID, name: String) derives Table
+      final case class User(@key id: UUID, name: String) derives Table
 
       val table    = Table[User]
       val idColumn = table.id

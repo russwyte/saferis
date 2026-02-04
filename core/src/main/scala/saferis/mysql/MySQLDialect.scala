@@ -1,6 +1,7 @@
 package saferis.mysql
 
 import saferis.*
+
 import java.sql.Types
 
 given Dialect = MySQLDialect

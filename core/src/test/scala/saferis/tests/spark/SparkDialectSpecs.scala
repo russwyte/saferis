@@ -3,6 +3,7 @@ package saferis.tests.spark
 import saferis.*
 import saferis.spark.given
 import zio.test.*
+
 import java.sql.Types
 
 object SparkDialectSpecs extends ZIOSpecDefault:

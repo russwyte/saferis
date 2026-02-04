@@ -1,6 +1,7 @@
 package saferis.postgres
 
 import saferis.*
+
 import java.sql.Types
 
 given Dialect = PostgresDialect

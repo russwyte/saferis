@@ -16,7 +16,7 @@ object SchemaSpecs extends ZIOSpecDefault:
   // === Test case classes ===
 
   @tableName("schema_test_users")
-  case class User(
+  final case class User(
       @generated @key id: Int,
       name: String,
       email: String,
@@ -26,31 +26,31 @@ object SchemaSpecs extends ZIOSpecDefault:
   ) derives Table
 
   @tableName("schema_test_products")
-  case class Product(@generated @key id: Int, name: String, price: BigDecimal) derives Table
+  final case class Product(@generated @key id: Int, name: String, price: BigDecimal) derives Table
 
   @tableName("schema_test_orders")
-  case class Order(@generated @key id: Int, userId: Int, productId: Int, amount: BigDecimal) derives Table
+  final case class Order(@generated @key id: Int, userId: Int, productId: Int, amount: BigDecimal) derives Table
 
   // Compound key tables
   @tableName("schema_test_order_details")
-  case class OrderDetail(@key orderId: Int, @key lineNum: Int, sku: String, quantity: Int) derives Table
+  final case class OrderDetail(@key orderId: Int, @key lineNum: Int, sku: String, quantity: Int) derives Table
 
   @tableName("schema_test_order_items")
-  case class OrderItem(@key id: Int, orderId: Int, lineNum: Int, price: BigDecimal) derives Table
+  final case class OrderItem(@key id: Int, orderId: Int, lineNum: Int, price: BigDecimal) derives Table
 
   // JSON data types
-  case class UserData(email: String, verified: Boolean) derives JsonCodec
-  case class Metadata(tags: List[String], version: Int) derives JsonCodec
+  final case class UserData(email: String, verified: Boolean) derives JsonCodec
+  final case class Metadata(tags: List[String], version: Int) derives JsonCodec
 
   @tableName("schema_test_profiles")
-  case class Profile(
+  final case class Profile(
       @generated @key id: Int,
       name: String,
       data: Json[UserData],
   ) derives Table
 
   @tableName("schema_test_events")
-  case class Event(
+  final case class Event(
       @generated @key id: Int,
       name: String,
       metadata: Json[Metadata],

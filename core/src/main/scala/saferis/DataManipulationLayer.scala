@@ -1,8 +1,8 @@
 package saferis
 
 import zio.Scope
-import zio.ZIO
 import zio.Trace
+import zio.ZIO
 
 val dml = DataManipulationLayer
 

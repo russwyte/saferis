@@ -1,16 +1,17 @@
 package saferis.tests
 import saferis.*
 import saferis.dml.*
+import saferis.tests.PostgresTestContainer.DataSourceProvider
 import zio.*
 import zio.test.*
-import PostgresTestContainer.DataSourceProvider
 
 object TableQuerySpecs extends ZIOSpecDefault:
   val xaLayer = DataSourceProvider.default >>> Transactor.default
   val queries = suiteAll("should run queries"):
     test("a select all query"):
       @tableName("test_table_primary_key_generated")
-      case class Generated(@generated id: Int, name: String, age: Option[Int], email: Option[String]) derives Table
+      final case class Generated(@generated id: Int, name: String, age: Option[Int], email: Option[String])
+          derives Table
       for
         xa <- ZIO.service[Transactor]
         a  <- xa.run:

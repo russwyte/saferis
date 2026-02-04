@@ -1,6 +1,7 @@
 package saferis
 //import saferis.Instance.*
 import zio.Trace
+
 import scala.annotation.unused
 
 /** Provides table column access and DDL information.

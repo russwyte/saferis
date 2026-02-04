@@ -1,7 +1,9 @@
 package saferis
 
 import zio.*
-import java.sql.{PreparedStatement, ResultSet}
+
+import java.sql.PreparedStatement
+import java.sql.ResultSet
 
 /** An opaque type for unbounded text columns (maps to TEXT in PostgreSQL, LONGTEXT in MySQL, etc.)
   *

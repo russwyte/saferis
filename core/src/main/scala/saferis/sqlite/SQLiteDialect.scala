@@ -1,6 +1,7 @@
 package saferis.sqlite
 
 import saferis.*
+
 import java.sql.Types
 
 /** SQLite dialect implementation providing SQLite-specific type mappings and SQL generation.

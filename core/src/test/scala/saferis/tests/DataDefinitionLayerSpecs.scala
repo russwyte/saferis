@@ -4,9 +4,10 @@ import saferis.*
 import saferis.ddl.*
 import saferis.dml.*
 import saferis.postgres.given
+import saferis.tests.PostgresTestContainer.DataSourceProvider
 import zio.*
 import zio.test.*
-import PostgresTestContainer.DataSourceProvider
+
 import java.util.UUID
 
 object DataDefinitionLayerSpecs extends ZIOSpecDefault:
@@ -14,7 +15,7 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
 
   // Case classes for Schema-based index tests (must be at object level for inline macros)
   @tableName("test_ddl_compound_index")
-  case class CompoundIndexTable(
+  final case class CompoundIndexTable(
       @key id: Int,
       singleCol: String,
       tenantId: Int,
@@ -25,14 +26,14 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
   ) derives Table
 
   @tableName("test_ddl_partial_index_aspect")
-  case class PartialIndexTable(
+  final case class PartialIndexTable(
       @key id: Int,
       @label("nextretryat") nextRetryAt: Option[java.time.Instant],
       status: String,
   ) derives Table
 
   @tableName("test_ddl_partial_unique_aspect")
-  case class PartialUniqueTable(
+  final case class PartialUniqueTable(
       @key id: Int,
       email: String,
       active: Boolean,
@@ -41,7 +42,7 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
   val ddlTests = suiteAll("should handle DDL operations"):
     test("create table"):
       @tableName("test_ddl_create")
-      case class TestTable(@key id: Int, name: String, age: Option[Int]) derives Table
+      final case class TestTable(@key id: Int, name: String, age: Option[Int]) derives Table
 
       for
         xa <- ZIO.service[Transactor]
@@ -61,7 +62,7 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
 
     test("create table with generated primary key"):
       @tableName("test_ddl_generated")
-      case class GeneratedTable(@generated @key id: Int, name: String) derives Table
+      final case class GeneratedTable(@generated @key id: Int, name: String) derives Table
 
       for
         xa <- ZIO.service[Transactor]
@@ -79,7 +80,7 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
 
     test("drop table"):
       @tableName("test_ddl_drop")
-      case class DropTable(@key id: Int, name: String) derives Table
+      final case class DropTable(@key id: Int, name: String) derives Table
 
       for
         xa <- ZIO.service[Transactor]
@@ -103,7 +104,7 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
 
     test("truncate table"):
       @tableName("test_ddl_truncate")
-      case class TruncateTable(@key id: Int, name: String) derives Table
+      final case class TruncateTable(@key id: Int, name: String) derives Table
 
       for
         xa <- ZIO.service[Transactor]
@@ -132,7 +133,7 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
 
     test("add column with string type"):
       @tableName("test_ddl_alter_string")
-      case class AlterTableString(@key id: Int, name: String) derives Table
+      final case class AlterTableString(@key id: Int, name: String) derives Table
 
       for
         xa <- ZIO.service[Transactor]
@@ -159,8 +160,8 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
 
     test("add column with encoder - integer type"):
       @tableName("test_ddl_alter_int")
-      case class AlterTableInt(@key id: Int, name: String) derives Table
-      case class ScoreResult(score: Int) derives Table
+      final case class AlterTableInt(@key id: Int, name: String) derives Table
+      final case class ScoreResult(score: Int) derives Table
 
       for
         xa <- ZIO.service[Transactor]
@@ -191,8 +192,8 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
 
     test("add column with encoder - boolean type"):
       @tableName("test_ddl_alter_bool")
-      case class AlterTableBool(@key id: Int, name: String) derives Table
-      case class ActiveResult(is_active: Boolean) derives Table
+      final case class AlterTableBool(@key id: Int, name: String) derives Table
+      final case class ActiveResult(is_active: Boolean) derives Table
 
       for
         xa <- ZIO.service[Transactor]
@@ -224,8 +225,8 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
 
     test("add column with encoder - double type"):
       @tableName("test_ddl_alter_double")
-      case class AlterTableDouble(@key id: Int, name: String) derives Table
-      case class PriceResult(price: Double) derives Table
+      final case class AlterTableDouble(@key id: Int, name: String) derives Table
+      final case class PriceResult(price: Double) derives Table
 
       for
         xa <- ZIO.service[Transactor]
@@ -252,8 +253,8 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
 
     test("add column with encoder - optional type"):
       @tableName("test_ddl_alter_optional")
-      case class AlterTableOptional(@key id: Int, name: String) derives Table
-      case class AgeResult(age: Option[Int]) derives Table
+      final case class AlterTableOptional(@key id: Int, name: String) derives Table
+      final case class AgeResult(age: Option[Int]) derives Table
 
       for
         xa <- ZIO.service[Transactor]
@@ -285,7 +286,7 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
 
     test("create and drop index"):
       @tableName("test_ddl_index")
-      case class IndexTable(@key id: Int, name: String, email: String) derives Table
+      final case class IndexTable(@key id: Int, name: String, email: String) derives Table
 
       for
         xa <- ZIO.service[Transactor]
@@ -321,7 +322,7 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
 
     test("create table with compound keys"):
       @tableName("test_ddl_compound_key")
-      case class CompoundKeyTable(@key userId: Int, @key roleId: Int, grantedAt: String) derives Table
+      final case class CompoundKeyTable(@key userId: Int, @key roleId: Int, grantedAt: String) derives Table
 
       for
         xa <- ZIO.service[Transactor]
@@ -349,7 +350,7 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
 
     test("create table with indexes via createIndex"):
       @tableName("test_ddl_indexed_cols")
-      case class IndexedTable(
+      final case class IndexedTable(
           @key id: Int,
           name: String,
           email: String,
@@ -383,7 +384,7 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
 
     test("create table without indexes"):
       @tableName("test_ddl_no_indexes")
-      case class NoIndexTable(@key id: Int, name: String) derives Table
+      final case class NoIndexTable(@key id: Int, name: String) derives Table
 
       for
         xa <- ZIO.service[Transactor]
@@ -402,7 +403,7 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
 
     test("createIndexes function for compound keys"):
       @tableName("test_ddl_create_indexes")
-      case class CreateIndexesTable(
+      final case class CreateIndexesTable(
           @key userId: Int,
           @key roleId: Int,
           name: String,
@@ -429,7 +430,7 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
 
     test("createIndexesSql function for compound keys"):
       @tableName("test_ddl_indexes_sql")
-      case class IndexesSqlTable(
+      final case class IndexesSqlTable(
           @key userId: Int,
           @key roleId: Int,
           name: String,
@@ -461,7 +462,7 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
 
     test("table with compound key and generated column"):
       @tableName("test_ddl_compound_generated")
-      case class CompoundGeneratedTable(
+      final case class CompoundGeneratedTable(
           @generated @key id: Int,
           @key categoryId: Int,
           name: String,
@@ -492,7 +493,7 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
 
     test("create table with unique constraint columns"):
       @tableName("test_ddl_unique_constraints")
-      case class UniqueConstraintTable(
+      final case class UniqueConstraintTable(
           @key id: Int,
           name: String,
           email: String,
@@ -536,7 +537,7 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
 
     test("verify encoder method infers correct PostgreSQL types"):
       @tableName("test_ddl_encoder_types")
-      case class EncoderTestTable(@key id: Int, name: String) derives Table
+      final case class EncoderTestTable(@key id: Int, name: String) derives Table
 
       for
         xa <- ZIO.service[Transactor]
@@ -567,7 +568,7 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
 
     test("create table with UUID primary key"):
       @tableName("test_ddl_uuid_key")
-      case class UuidKeyTable(@key id: UUID, name: String) derives Table
+      final case class UuidKeyTable(@key id: UUID, name: String) derives Table
 
       for
         xa <- ZIO.service[Transactor]
@@ -590,7 +591,7 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
 
     test("compound unique constraints with named groups"):
       @tableName("test_ddl_compound_unique")
-      case class CompoundUniqueTable(
+      final case class CompoundUniqueTable(
           @key id: Int,
           tenantId: Int,
           eventId: Long,
@@ -636,7 +637,7 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
 
     test("default values from case class constructor are used in DDL"):
       @tableName("test_ddl_defaults")
-      case class DefaultsTable(
+      final case class DefaultsTable(
           @key id: Int,
           name: String,
           status: String = "pending",
@@ -645,9 +646,9 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
       ) derives Table
 
       // Helper case classes to query individual columns without defaults
-      case class StatusResult(status: String) derives Table
-      case class RetryCountResult(@label("retrycount") retryCount: Int) derives Table
-      case class IsActiveResult(@label("isactive") isActive: Boolean) derives Table
+      final case class StatusResult(status: String) derives Table
+      final case class RetryCountResult(@label("retrycount") retryCount: Int) derives Table
+      final case class IsActiveResult(@label("isactive") isActive: Boolean) derives Table
 
       // Verify column metadata - extract values to avoid path-dependent type issues with ZIO's macro
       val table               = Table[DefaultsTable]
@@ -694,7 +695,7 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
 
     test("partial indexes with WHERE clause"):
       @tableName("test_ddl_partial_index")
-      case class PartialIndexTable(
+      final case class PartialIndexTable(
           @key id: Int,
           status: String,
           @label("nextretryat") nextRetryAt: Option[java.time.Instant],
@@ -764,7 +765,7 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
 
     test("non-Option fields are NOT NULL, Option fields are nullable"):
       @tableName("test_ddl_not_null")
-      case class NotNullTable(
+      final case class NotNullTable(
           @key id: Int,
           name: String,                // NOT NULL
           email: String,               // NOT NULL
@@ -877,7 +878,7 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
         assertTrue(duplicateActiveAttempt.isLeft)     // Should fail due to partial unique constraint
       end for
 
-  case class CountResult(count: Int) derives Table
+  final case class CountResult(count: Int) derives Table
 
   val spec = suite("DDL Operations")(ddlTests).provideShared(xaLayer) @@ TestAspect.sequential
 end DataDefinitionLayerSpecs
