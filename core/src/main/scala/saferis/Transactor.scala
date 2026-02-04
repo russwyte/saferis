@@ -13,8 +13,8 @@ type Configurator = Connection => Unit
   * @param configurator
   *   configuration function (mutation) to apply to the connection before it is used
   * @param semaphore
-  *   optional concurrency limiter. Use for SQLite/embedded databases or direct JDBC without pooling.
-  *   Avoid with connection pools like HikariCP - they handle queuing more efficiently.
+  *   optional concurrency limiter. Use for SQLite/embedded databases or direct JDBC without pooling. Avoid with
+  *   connection pools like HikariCP - they handle queuing more efficiently.
   */
 final class Transactor(
     connectionProvider: ConnectionProvider,
@@ -82,16 +82,15 @@ object Transactor:
     * @param maxConcurrency
     *   Application-level concurrency limit using a ZIO Semaphore. Default is no limit (-1L).
     *
-    *   '''When to use:'''
+    * '''When to use:'''
     *   - SQLite or other embedded databases without connection pooling
     *   - Direct JDBC connections without a pool
     *   - When you need concurrency limits below pool size for backpressure
     *
-    *   '''When NOT to use:'''
-    *   - With HikariCP or similar connection pools. The pool handles queuing more efficiently
-    *     and HikariCP specifically recommends letting threads wait on the pool rather than
-    *     limiting concurrency externally. Using a semaphore with a pool creates double-queuing
-    *     and adds overhead in high-contention scenarios.
+    * '''When NOT to use:'''
+    *   - With HikariCP or similar connection pools. The pool handles queuing more efficiently and HikariCP specifically
+    *     recommends letting threads wait on the pool rather than limiting concurrency externally. Using a semaphore
+    *     with a pool creates double-queuing and adds overhead in high-contention scenarios.
     * @return
     */
   def layer(
