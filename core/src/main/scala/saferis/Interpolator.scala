@@ -77,6 +77,16 @@ object Interpolator:
       Quotes
   ): Expr[Vector[Placeholder]] =
     all match
+      // Special handling for Instance - compute SQL from internal fields, not .sql method
+      // This avoids collision when Instance has a field named "sql"
+      case '{ $arg: Instance[a] } +: rest =>
+        val ph = '{
+          val inst = $arg
+          // Compute table SQL directly from internal fields
+          Placeholder.raw(inst.alias.fold(inst.tableName)(a => s"${inst.tableName} as ${a.value}"))
+        }
+        val acc = '{ $builder.addOne($ph) }
+        getPlaceHoldersExpr(rest, acc)
       case '{ $arg: Placeholder } +: rest =>
         val acc = '{ $builder.addOne($arg) }
         getPlaceHoldersExpr(rest, acc)

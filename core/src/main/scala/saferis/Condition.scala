@@ -13,28 +13,26 @@ sealed trait Condition:
 
 /** Binary condition: column op column (e.g., t1.id = t2.user_id) */
 final case class BinaryCondition(
-    leftAlias: String,
-    leftColumn: String,
+    leftAlias: Alias,
+    leftColumn: Column[?],
     operator: Operator,
-    rightAlias: String,
-    rightColumn: String,
+    rightAlias: Alias,
+    rightColumn: Column[?],
 ) extends Condition:
   def toSql(using d: Dialect): String =
-    // Only escape alias, not column name - allows PostgreSQL case folding to work correctly
-    s"${d.escapeIdentifier(leftAlias)}.$leftColumn ${operator.sql} ${d.escapeIdentifier(rightAlias)}.$rightColumn"
+    s"${leftAlias.toSql}.${leftColumn.label} ${operator.sql} ${rightAlias.toSql}.${rightColumn.label}"
 
   def writes: Seq[Write[?]] = Seq.empty
 end BinaryCondition
 
 /** Unary condition: column IS NULL / IS NOT NULL */
 final case class UnaryCondition(
-    alias: String,
-    column: String,
+    alias: Alias,
+    column: Column[?],
     operator: Operator, // IsNull or IsNotNull
 ) extends Condition:
   def toSql(using d: Dialect): String =
-    // Only escape alias, not column name - allows PostgreSQL case folding to work correctly
-    s"${d.escapeIdentifier(alias)}.$column ${operator.sql}"
+    s"${alias.toSql}.${column.label} ${operator.sql}"
 
   def writes: Seq[Write[?]] = Seq.empty
 end UnaryCondition
@@ -45,14 +43,13 @@ end UnaryCondition
   * sql"..." interpolator.
   */
 final case class LiteralCondition(
-    alias: String,
-    column: String,
+    alias: Alias,
+    column: Column[?],
     operator: Operator,
     write: Write[?],
 ) extends Condition:
   def toSql(using d: Dialect): String =
-    // Only escape alias, not column name - allows PostgreSQL case folding to work correctly
-    s"${d.escapeIdentifier(alias)}.$column ${operator.sql} ?"
+    s"${alias.toSql}.${column.label} ${operator.sql} ?"
 
   def writes: Seq[Write[?]] = Seq(write)
 end LiteralCondition

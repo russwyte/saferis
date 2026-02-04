@@ -90,9 +90,9 @@ final case class UpdateBuilder[A <: Product: Table](
 
   /** Start a type-safe WHERE condition by selecting a column */
   inline def where[T](inline selector: A => T): UpdateWhereBuilder[A, T] =
-    val fieldName   = Macros.extractFieldName[A, T](selector)
-    val columnLabel = fieldNamesToColumns(fieldName).label
-    UpdateWhereBuilder(this, tableName, columnLabel)
+    val fieldName = Macros.extractFieldName[A, T](selector)
+    val col       = fieldNamesToColumns(fieldName).asInstanceOf[Column[T]]
+    UpdateWhereBuilder(this, Alias.User(tableName), col)
 
   /** Add a WHERE predicate using SqlFragment */
   def where(predicate: SqlFragment): UpdateReady[A] =
@@ -123,9 +123,9 @@ final case class UpdateReady[A <: Product: Table](
 ):
   /** Chain another type-safe WHERE condition */
   inline def where[T](inline selector: A => T): UpdateReadyWhereBuilder[A, T] =
-    val fieldName   = Macros.extractFieldName[A, T](selector)
-    val columnLabel = fieldNamesToColumns(fieldName).label
-    UpdateReadyWhereBuilder(this, tableName, columnLabel)
+    val fieldName = Macros.extractFieldName[A, T](selector)
+    val col       = fieldNamesToColumns(fieldName).asInstanceOf[Column[T]]
+    UpdateReadyWhereBuilder(this, Alias.User(tableName), col)
 
   /** Add a WHERE predicate using SqlFragment */
   def where(predicate: SqlFragment): UpdateReady[A] =
@@ -168,11 +168,11 @@ object Update:
   */
 final case class UpdateWhereBuilder[A <: Product: Table, T](
     builder: UpdateBuilder[A],
-    fromAlias: String,
-    fromColumn: String,
+    fromAlias: Alias,
+    fromColumn: Column[T],
 ) extends WhereBuilderOps[UpdateReady[A], T]:
-  protected def whereAlias: String                                   = fromAlias
-  protected def whereColumn: String                                  = fromColumn
+  protected def whereAlias: Alias                                    = fromAlias
+  protected def whereColumn: Column[T]                               = fromColumn
   protected def addPredicate(predicate: SqlFragment): UpdateReady[A] =
     UpdateReady(builder.tableName, builder.fieldNamesToColumns, builder.setClauses, Vector(predicate))
 
@@ -188,11 +188,11 @@ end UpdateWhereBuilder
   */
 final case class UpdateReadyWhereBuilder[A <: Product: Table, T](
     ready: UpdateReady[A],
-    fromAlias: String,
-    fromColumn: String,
+    fromAlias: Alias,
+    fromColumn: Column[T],
 ) extends WhereBuilderOps[UpdateReady[A], T]:
-  protected def whereAlias: String                                   = fromAlias
-  protected def whereColumn: String                                  = fromColumn
+  protected def whereAlias: Alias                                    = fromAlias
+  protected def whereColumn: Column[T]                               = fromColumn
   protected def addPredicate(predicate: SqlFragment): UpdateReady[A] =
     ready.copy(wherePredicates = ready.wherePredicates :+ predicate)
 
@@ -221,9 +221,9 @@ final case class DeleteBuilder[A <: Product: Table](
 ):
   /** Start a type-safe WHERE condition by selecting a column */
   inline def where[T](inline selector: A => T): DeleteWhereBuilder[A, T] =
-    val fieldName   = Macros.extractFieldName[A, T](selector)
-    val columnLabel = fieldNamesToColumns(fieldName).label
-    DeleteWhereBuilder(this, tableName, columnLabel)
+    val fieldName = Macros.extractFieldName[A, T](selector)
+    val col       = fieldNamesToColumns(fieldName).asInstanceOf[Column[T]]
+    DeleteWhereBuilder(this, Alias.User(tableName), col)
 
   /** Add a WHERE predicate using SqlFragment */
   def where(predicate: SqlFragment): DeleteReady[A] =
@@ -253,9 +253,9 @@ final case class DeleteReady[A <: Product: Table](
 ):
   /** Chain another type-safe WHERE condition */
   inline def where[T](inline selector: A => T): DeleteReadyWhereBuilder[A, T] =
-    val fieldName   = Macros.extractFieldName[A, T](selector)
-    val columnLabel = fieldNamesToColumns(fieldName).label
-    DeleteReadyWhereBuilder(this, tableName, columnLabel)
+    val fieldName = Macros.extractFieldName[A, T](selector)
+    val col       = fieldNamesToColumns(fieldName).asInstanceOf[Column[T]]
+    DeleteReadyWhereBuilder(this, Alias.User(tableName), col)
 
   /** Add a WHERE predicate using SqlFragment */
   def where(predicate: SqlFragment): DeleteReady[A] =
@@ -293,11 +293,11 @@ object Delete:
   */
 final case class DeleteWhereBuilder[A <: Product: Table, T](
     builder: DeleteBuilder[A],
-    fromAlias: String,
-    fromColumn: String,
+    fromAlias: Alias,
+    fromColumn: Column[T],
 ) extends WhereBuilderOps[DeleteReady[A], T]:
-  protected def whereAlias: String                                   = fromAlias
-  protected def whereColumn: String                                  = fromColumn
+  protected def whereAlias: Alias                                    = fromAlias
+  protected def whereColumn: Column[T]                               = fromColumn
   protected def addPredicate(predicate: SqlFragment): DeleteReady[A] =
     DeleteReady(builder.tableName, builder.fieldNamesToColumns, Vector(predicate))
 
@@ -313,11 +313,11 @@ end DeleteWhereBuilder
   */
 final case class DeleteReadyWhereBuilder[A <: Product: Table, T](
     ready: DeleteReady[A],
-    fromAlias: String,
-    fromColumn: String,
+    fromAlias: Alias,
+    fromColumn: Column[T],
 ) extends WhereBuilderOps[DeleteReady[A], T]:
-  protected def whereAlias: String                                   = fromAlias
-  protected def whereColumn: String                                  = fromColumn
+  protected def whereAlias: Alias                                    = fromAlias
+  protected def whereColumn: Column[T]                               = fromColumn
   protected def addPredicate(predicate: SqlFragment): DeleteReady[A] =
     ready.copy(wherePredicates = ready.wherePredicates :+ predicate)
 

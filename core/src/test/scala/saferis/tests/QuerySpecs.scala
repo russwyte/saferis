@@ -92,7 +92,7 @@ object QuerySpecs extends ZIOSpecDefault:
         assertTrue(
           sql.contains("select * from users as t1"),
           sql.contains("inner join orders as t2"),
-          sql.contains("""on "t1".id = "t2".userId"""),
+          sql.contains("on t1.id = t2.userId"),
         )
       },
       test("leftJoin generates correct SQL") {
@@ -194,8 +194,8 @@ object QuerySpecs extends ZIOSpecDefault:
         assertTrue(
           sql.contains("inner join orders as t2"),
           sql.contains("inner join order_items as t3"),
-          sql.contains("""on "t1".id = "t2".userId"""),
-          sql.contains("""on "t2".id = "t3".orderId"""),
+          sql.contains("on t1.id = t2.userId"),
+          sql.contains("on t2.id = t3.orderId"),
         )
       }
     ),
@@ -210,7 +210,7 @@ object QuerySpecs extends ZIOSpecDefault:
           .all
         val sql = q.build.sql
         assertTrue(
-          sql.contains("""on "t1".id <> "t2".userId""")
+          sql.contains("on t1.id <> t2.userId")
         )
       },
       test("lt generates <") {
@@ -223,7 +223,7 @@ object QuerySpecs extends ZIOSpecDefault:
           .all
         val sql = q.build.sql
         assertTrue(
-          sql.contains("""on "t1".id < "t2".userId""")
+          sql.contains("on t1.id < t2.userId")
         )
       },
       test("lte generates <=") {
@@ -236,7 +236,7 @@ object QuerySpecs extends ZIOSpecDefault:
           .all
         val sql = q.build.sql
         assertTrue(
-          sql.contains("""on "t1".id <= "t2".userId""")
+          sql.contains("on t1.id <= t2.userId")
         )
       },
       test("gt generates >") {
@@ -249,7 +249,7 @@ object QuerySpecs extends ZIOSpecDefault:
           .all
         val sql = q.build.sql
         assertTrue(
-          sql.contains("""on "t1".id > "t2".userId""")
+          sql.contains("on t1.id > t2.userId")
         )
       },
       test("gte generates >=") {
@@ -262,7 +262,7 @@ object QuerySpecs extends ZIOSpecDefault:
           .all
         val sql = q.build.sql
         assertTrue(
-          sql.contains("""on "t1".id >= "t2".userId""")
+          sql.contains("on t1.id >= t2.userId")
         )
       },
     ),
@@ -457,7 +457,7 @@ object QuerySpecs extends ZIOSpecDefault:
           sql.contains("(select * from orders as t1 where"),
           sql.contains(") as totals"),
           sql.contains("inner join users as t2"),
-          sql.contains(""""totals".userId = "t2".id"""),
+          sql.contains(""""totals".userId = t2.id"""),
         )
       },
     ),

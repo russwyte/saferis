@@ -14,7 +14,7 @@ import scala.annotation.unused
 final case class Instance[A <: Product: Table as table](
     private[saferis] val tableName: String,
     private[saferis] val columns: Seq[Column[?]],
-    private[saferis] val alias: Option[String],
+    private[saferis] val alias: Option[Alias],
     private[saferis] val foreignKeys: Vector[ForeignKeySpec[A, ?]] = Vector.empty,
     private[saferis] val indexes: Vector[IndexSpec[?]] = Vector.empty,
     private[saferis] val uniqueConstraints: Vector[UniqueConstraintSpec[?]] = Vector.empty,
@@ -41,10 +41,23 @@ final case class Instance[A <: Product: Table as table](
     TypedFragment(sql"select * from $this $whereClause")
   end applyDynamic
 
-  override def sql: String                            = alias.fold(tableName)(a => s"$tableName as $a")
+  override def sql: String                            = alias.fold(tableName)(a => s"$tableName as ${a.value}")
   override private[saferis] def writes: Seq[Write[?]] = Seq.empty
 
+  /** Set a user-provided alias on this instance. The alias will be escaped in SQL. */
   transparent inline def withAlias(alias: String) =
+    val userAlias  = Alias.User(alias)
+    val newColumns = columns.map(_.withTableAlias(Some(userAlias)))
+    copy(
+      alias = Some(userAlias),
+      columns = newColumns,
+      foreignKeys = foreignKeys,
+      indexes = indexes,
+      uniqueConstraints = uniqueConstraints,
+    ).asInstanceOf[this.type]
+
+  /** Internal method to set a generated alias on this instance. */
+  private[saferis] transparent inline def withGeneratedAlias(alias: Alias.Generated) =
     val newColumns = columns.map(_.withTableAlias(Some(alias)))
     copy(
       alias = Some(alias),
@@ -63,6 +76,14 @@ final case class Instance[A <: Product: Table as table](
       indexes = indexes,
       uniqueConstraints = uniqueConstraints,
     ).asInstanceOf[this.type]
+
+  /** Extract a typed column using a field selector.
+    *
+    * This is private[saferis] to avoid collision with user-defined fields named "column".
+    * Used internally by Query.where and other builder methods.
+    */
+  private[saferis] inline def column[T](inline selector: A => T): Column[T] =
+    Macros.extractColumn(this, selector)
 
   final private[saferis] class TypedFragment(val fragment: SqlFragment):
     def sql                                                  = fragment.sql

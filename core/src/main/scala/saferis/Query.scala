@@ -17,7 +17,7 @@ enum JoinType:
 /** Internal representation of a join clause */
 final case class JoinClause(
     tableName: String,
-    alias: String,
+    alias: Alias,
     joinType: JoinType,
     condition: SqlFragment,
 )
@@ -26,13 +26,13 @@ final case class JoinClause(
 private[saferis] object AliasGenerator:
   private val counter = AtomicInteger(0)
 
-  def next(): String = s"t${counter.incrementAndGet()}"
+  def next(): Alias.Generated = Alias.Generated(s"t${counter.incrementAndGet()}")
 
   /** Reset counter (useful for testing) */
   def reset(): Unit = counter.set(0)
 
-  /** Create an aliased Instance from a Table */
-  def aliasedInstance[A <: Product](alias: String)(using table: Table[A]): Instance[A] =
+  /** Create an aliased Instance from a Table with a generated alias */
+  def aliasedInstance[A <: Product](alias: Alias.Generated)(using table: Table[A]): Instance[A] =
     val columns = table.columns.map(_.withTableAlias(Some(alias)))
     Instance[A](table.name, columns, Some(alias), Vector.empty)
 end AliasGenerator
@@ -75,7 +75,7 @@ final case class SelectQuery[T](query: QueryBase) extends QueryBase:
 // ============================================================================
 
 /** Derived table source - subquery with user-provided alias */
-final case class DerivedSource(subquery: SelectQuery[?], alias: String)
+final case class DerivedSource(subquery: SelectQuery[?], alias: Alias.User)
 
 /** Query builder for a single table - the starting point for building queries.
   *
@@ -154,10 +154,9 @@ final case class Query1Builder[A <: Product: Table](
 
   /** Start a type-safe WHERE condition - transitions to Ready via WhereBuilder1 */
   inline def where[T](inline selector: A => T): WhereBuilder1[A, T] =
-    val fieldName   = Macros.extractFieldName[A, T](selector)
-    val columnLabel = baseInstance.fieldNamesToColumns(fieldName).label
-    val alias       = baseInstance.alias.getOrElse(baseInstance.tableName)
-    WhereBuilder1(this, alias, columnLabel)
+    val col   = baseInstance.column(selector)
+    val alias = baseInstance.alias.getOrElse(Alias.User(baseInstance.tableName))
+    WhereBuilder1(this, alias, col)
 
   /** EXISTS subquery */
   def whereExists(subquery: QueryBase): Query1Ready[A] =
@@ -244,10 +243,9 @@ final case class Query1Ready[A <: Product: Table](
 
   /** Start a type-safe WHERE condition */
   inline def where[T](inline selector: A => T): WhereBuilder1Ready[A, T] =
-    val fieldName   = Macros.extractFieldName[A, T](selector)
-    val columnLabel = baseInstance.fieldNamesToColumns(fieldName).label
-    val alias       = baseInstance.alias.getOrElse(baseInstance.tableName)
-    WhereBuilder1Ready(this, alias, columnLabel)
+    val col   = baseInstance.column(selector)
+    val alias = baseInstance.alias.getOrElse(Alias.User(baseInstance.tableName))
+    WhereBuilder1Ready(this, alias, col)
 
   /** EXISTS subquery */
   def whereExists(subquery: QueryBase): Query1Ready[A] =
@@ -330,7 +328,7 @@ final case class Query1Ready[A <: Product: Table](
     val (fromSql, fromWrites) = derivedSource match
       case Some(derived) =>
         val subSql = derived.subquery.build
-        (s"(${subSql.sql}) as ${derived.alias}", subSql.writes)
+        (s"(${subSql.sql}) as ${derived.alias.value}", subSql.writes)
       case None =>
         (baseInstance.sql, Seq.empty)
 
@@ -376,11 +374,11 @@ end Query1Ready
   */
 final case class WhereBuilder1[A <: Product: Table, T](
     builder: Query1Builder[A],
-    fromAlias: String,
-    fromColumn: String,
+    fromAlias: Alias,
+    fromColumn: Column[T],
 ) extends WhereBuilderOps[Query1Ready[A], T]:
-  protected def whereAlias: String                                   = fromAlias
-  protected def whereColumn: String                                  = fromColumn
+  protected def whereAlias: Alias                                    = fromAlias
+  protected def whereColumn: Column[T]                               = fromColumn
   protected def addPredicate(predicate: SqlFragment): Query1Ready[A] =
     Query1Ready(
       builder.baseInstance,
@@ -402,11 +400,11 @@ end WhereBuilder1
 /** Builder for chaining additional WHERE conditions on Query1Ready. */
 final case class WhereBuilder1Ready[A <: Product: Table, T](
     ready: Query1Ready[A],
-    fromAlias: String,
-    fromColumn: String,
+    fromAlias: Alias,
+    fromColumn: Column[T],
 ) extends WhereBuilderOps[Query1Ready[A], T]:
-  protected def whereAlias: String                                   = fromAlias
-  protected def whereColumn: String                                  = fromColumn
+  protected def whereAlias: Alias                                    = fromAlias
+  protected def whereColumn: Column[T]                               = fromColumn
   protected def addPredicate(predicate: SqlFragment): Query1Ready[A] =
     ready.copy(wherePredicates = ready.wherePredicates :+ predicate)
 
@@ -422,12 +420,11 @@ final case class JoinBuilder1[A <: Product: Table, B <: Product: Table](
 ):
   /** Start a type-safe ON condition by selecting a column from the left table (A). */
   inline def on[T](inline selector: A => T): OnBuilder1[A, B, T] =
-    val alias          = AliasGenerator.next()
-    val bInstance      = AliasGenerator.aliasedInstance[B](alias)
-    val leftFieldName  = Macros.extractFieldName[A, T](selector)
-    val leftColumnName = query.baseInstance.fieldNamesToColumns(leftFieldName).label
-    val leftAlias      = query.baseInstance.alias.getOrElse(query.baseInstance.tableName)
-    OnBuilder1(query, joinType, leftAlias, leftColumnName, alias, bInstance)
+    val alias     = AliasGenerator.next()
+    val bInstance = AliasGenerator.aliasedInstance[B](alias)
+    val leftCol   = query.baseInstance.column(selector)
+    val leftAlias = query.baseInstance.alias.getOrElse(Alias.User(query.baseInstance.tableName))
+    OnBuilder1(query, joinType, leftAlias, leftCol, alias, bInstance)
 end JoinBuilder1
 
 // ============================================================================
@@ -438,46 +435,42 @@ end JoinBuilder1
 final case class OnBuilder1[A <: Product: Table, B <: Product: Table, T](
     query: Query1Builder[A],
     joinType: JoinType,
-    leftAlias: String,
-    leftColumn: String,
-    rightAlias: String,
+    leftAlias: Alias,
+    leftColumn: Column[T],
+    rightAlias: Alias.Generated,
     rightInstance: Instance[B],
 ):
-  private def complete(operator: Operator, rightColumnLabel: String): OnChain1[A, B] =
-    val condition = BinaryCondition(leftAlias, leftColumn, operator, rightAlias, rightColumnLabel)
+  private def complete(operator: Operator, rightCol: Column[?]): OnChain1[A, B] =
+    val condition = BinaryCondition(leftAlias, leftColumn, operator, rightAlias, rightCol)
     OnChain1(query, joinType, leftAlias, rightAlias, rightInstance, Vector(condition))
-
-  private inline def getRightColumnLabel[T2](inline selector: B => T2): String =
-    val fieldName = Macros.extractFieldName[B, T2](selector)
-    rightInstance.fieldNamesToColumns(fieldName).label
 
   /** Complete with equality (=) */
   inline def eq(inline selector: B => T): OnChain1[A, B] =
-    complete(Operator.Eq, getRightColumnLabel(selector))
+    complete(Operator.Eq, rightInstance.column(selector))
 
   /** Complete with not equal (<>) */
   inline def neq(inline selector: B => T): OnChain1[A, B] =
-    complete(Operator.Neq, getRightColumnLabel(selector))
+    complete(Operator.Neq, rightInstance.column(selector))
 
   /** Complete with less than (<) */
   inline def lt(inline selector: B => T): OnChain1[A, B] =
-    complete(Operator.Lt, getRightColumnLabel(selector))
+    complete(Operator.Lt, rightInstance.column(selector))
 
   /** Complete with less than or equal (<=) */
   inline def lte(inline selector: B => T): OnChain1[A, B] =
-    complete(Operator.Lte, getRightColumnLabel(selector))
+    complete(Operator.Lte, rightInstance.column(selector))
 
   /** Complete with greater than (>) */
   inline def gt(inline selector: B => T): OnChain1[A, B] =
-    complete(Operator.Gt, getRightColumnLabel(selector))
+    complete(Operator.Gt, rightInstance.column(selector))
 
   /** Complete with greater than or equal (>=) */
   inline def gte(inline selector: B => T): OnChain1[A, B] =
-    complete(Operator.Gte, getRightColumnLabel(selector))
+    complete(Operator.Gte, rightInstance.column(selector))
 
   /** Complete with custom operator */
   inline def op(operator: Operator)(inline selector: B => T): OnChain1[A, B] =
-    complete(operator, getRightColumnLabel(selector))
+    complete(operator, rightInstance.column(selector))
 
   /** Complete with IS NULL (unary) */
   def isNull(): OnChain1[A, B] =
@@ -499,22 +492,20 @@ end OnBuilder1
 final case class OnChain1[A <: Product: Table, B <: Product: Table](
     query: Query1Builder[A],
     joinType: JoinType,
-    leftAlias: String,
-    rightAlias: String,
+    leftAlias: Alias,
+    rightAlias: Alias.Generated,
     rightInstance: Instance[B],
     conditions: Vector[Condition],
 ):
   /** Add another ON condition from the left table (A) */
   inline def and[T2](inline selector: A => T2): OnAndBuilder1[A, B, T2, A] =
-    val fieldName   = Macros.extractFieldName[A, T2](selector)
-    val columnLabel = query.baseInstance.fieldNamesToColumns(fieldName).label
-    OnAndBuilder1(this, leftAlias, columnLabel)
+    val col = query.baseInstance.column(selector)
+    OnAndBuilder1(this, leftAlias, col)
 
   /** Add another ON condition from the right table (B) */
   inline def andRight[T2](inline selector: B => T2): OnAndBuilder1[A, B, T2, B] =
-    val fieldName   = Macros.extractFieldName[B, T2](selector)
-    val columnLabel = rightInstance.fieldNamesToColumns(fieldName).label
-    OnAndBuilder1(this, rightAlias, columnLabel)
+    val col = rightInstance.column(selector)
+    OnAndBuilder1(this, rightAlias, col)
 
   /** Finalize the JOIN and create Query2Builder */
   def endJoin(using Dialect): Query2Builder[A, B] =
@@ -538,16 +529,14 @@ final case class OnChain1[A <: Product: Table, B <: Product: Table](
   def all(using Dialect): Query2Ready[A, B]                           = endJoin.all
 
   inline def where[T](inline selector: A => T)(using Dialect): WhereBuilder2[A, B, T] =
-    val alias       = query.baseInstance.alias.getOrElse(query.baseInstance.tableName)
-    val fieldName   = Macros.extractFieldName[A, T](selector)
-    val columnLabel = query.baseInstance.fieldNamesToColumns(fieldName).label
-    WhereBuilder2(endJoin, alias, columnLabel)
+    val alias = query.baseInstance.alias.getOrElse(Alias.User(query.baseInstance.tableName))
+    val col   = query.baseInstance.column(selector)
+    WhereBuilder2(endJoin, alias, col)
 
   inline def whereFrom[T](inline selector: B => T)(using Dialect): WhereBuilder2[A, B, T] =
-    val alias       = rightInstance.alias.getOrElse(rightInstance.tableName)
-    val fieldName   = Macros.extractFieldName[B, T](selector)
-    val columnLabel = rightInstance.fieldNamesToColumns(fieldName).label
-    WhereBuilder2(endJoin, alias, columnLabel)
+    val alias = rightInstance.alias.getOrElse(Alias.User(rightInstance.tableName))
+    val col   = rightInstance.column(selector)
+    WhereBuilder2(endJoin, alias, col)
 
   def innerJoin[C <: Product: Table](using Dialect): JoinBuilder2[A, B, C] = endJoin.innerJoin[C]
   def leftJoin[C <: Product: Table](using Dialect): JoinBuilder2[A, B, C]  = endJoin.leftJoin[C]
@@ -562,43 +551,35 @@ end OnChain1
 
 final case class OnAndBuilder1[A <: Product: Table, B <: Product: Table, T, From <: Product](
     chain: OnChain1[A, B],
-    fromAlias: String,
-    fromColumn: String,
+    fromAlias: Alias,
+    fromColumn: Column[T],
 ):
-  private def completeWith(operator: Operator, toAlias: String, toColumnLabel: String): OnChain1[A, B] =
-    val condition = BinaryCondition(fromAlias, fromColumn, operator, toAlias, toColumnLabel)
+  private def completeWith(operator: Operator, toAlias: Alias, toCol: Column[?]): OnChain1[A, B] =
+    val condition = BinaryCondition(fromAlias, fromColumn, operator, toAlias, toCol)
     chain.copy(conditions = chain.conditions :+ condition)
-
-  private inline def getRightColumnLabel[T2](inline selector: B => T2): String =
-    val fieldName = Macros.extractFieldName[B, T2](selector)
-    chain.rightInstance.fieldNamesToColumns(fieldName).label
-
-  private inline def getLeftColumnLabel[T2](inline selector: A => T2): String =
-    val fieldName = Macros.extractFieldName[A, T2](selector)
-    chain.query.baseInstance.fieldNamesToColumns(fieldName).label
 
   /** Complete comparing to right table */
   inline def eq(inline selector: B => T): OnChain1[A, B] =
-    completeWith(Operator.Eq, chain.rightAlias, getRightColumnLabel(selector))
+    completeWith(Operator.Eq, chain.rightAlias, chain.rightInstance.column(selector))
 
   inline def neq(inline selector: B => T): OnChain1[A, B] =
-    completeWith(Operator.Neq, chain.rightAlias, getRightColumnLabel(selector))
+    completeWith(Operator.Neq, chain.rightAlias, chain.rightInstance.column(selector))
 
   inline def lt(inline selector: B => T): OnChain1[A, B] =
-    completeWith(Operator.Lt, chain.rightAlias, getRightColumnLabel(selector))
+    completeWith(Operator.Lt, chain.rightAlias, chain.rightInstance.column(selector))
 
   inline def lte(inline selector: B => T): OnChain1[A, B] =
-    completeWith(Operator.Lte, chain.rightAlias, getRightColumnLabel(selector))
+    completeWith(Operator.Lte, chain.rightAlias, chain.rightInstance.column(selector))
 
   inline def gt(inline selector: B => T): OnChain1[A, B] =
-    completeWith(Operator.Gt, chain.rightAlias, getRightColumnLabel(selector))
+    completeWith(Operator.Gt, chain.rightAlias, chain.rightInstance.column(selector))
 
   inline def gte(inline selector: B => T): OnChain1[A, B] =
-    completeWith(Operator.Gte, chain.rightAlias, getRightColumnLabel(selector))
+    completeWith(Operator.Gte, chain.rightAlias, chain.rightInstance.column(selector))
 
   /** Complete comparing to left table */
   inline def eqLeft(inline selector: A => T): OnChain1[A, B] =
-    completeWith(Operator.Eq, chain.leftAlias, getLeftColumnLabel(selector))
+    completeWith(Operator.Eq, chain.leftAlias, chain.query.baseInstance.column(selector))
 
   def isNull(): OnChain1[A, B] =
     val condition = UnaryCondition(fromAlias, fromColumn, Operator.IsNull)
@@ -646,16 +627,14 @@ final case class Query2Builder[A <: Product: Table, B <: Product: Table](
     Query2Ready(t1, t2, joins, Vector(predicate), sorts, Vector.empty, None, None, derivedSource)
 
   inline def where[T](inline selector: A => T): WhereBuilder2[A, B, T] =
-    val alias       = t1.alias.getOrElse(t1.tableName)
-    val fieldName   = Macros.extractFieldName[A, T](selector)
-    val columnLabel = t1.fieldNamesToColumns(fieldName).label
-    WhereBuilder2(this, alias, columnLabel)
+    val alias = t1.alias.getOrElse(Alias.User(t1.tableName))
+    val col   = t1.column(selector)
+    WhereBuilder2(this, alias, col)
 
   inline def whereFrom[T](inline selector: B => T): WhereBuilder2[A, B, T] =
-    val alias       = t2.alias.getOrElse(t2.tableName)
-    val fieldName   = Macros.extractFieldName[B, T](selector)
-    val columnLabel = t2.fieldNamesToColumns(fieldName).label
-    WhereBuilder2(this, alias, columnLabel)
+    val alias = t2.alias.getOrElse(Alias.User(t2.tableName))
+    val col   = t2.column(selector)
+    WhereBuilder2(this, alias, col)
 
   // === LIMIT/SEEK Methods (transition to Ready) ===
 
@@ -715,16 +694,14 @@ final case class Query2Ready[A <: Product: Table, B <: Product: Table](
     copy(wherePredicates = wherePredicates :+ predicate)
 
   inline def where[T](inline selector: A => T): WhereBuilder2Ready[A, B, T] =
-    val alias       = t1.alias.getOrElse(t1.tableName)
-    val fieldName   = Macros.extractFieldName[A, T](selector)
-    val columnLabel = t1.fieldNamesToColumns(fieldName).label
-    WhereBuilder2Ready(this, alias, columnLabel)
+    val alias = t1.alias.getOrElse(Alias.User(t1.tableName))
+    val col   = t1.column(selector)
+    WhereBuilder2Ready(this, alias, col)
 
   inline def whereFrom[T](inline selector: B => T): WhereBuilder2Ready[A, B, T] =
-    val alias       = t2.alias.getOrElse(t2.tableName)
-    val fieldName   = Macros.extractFieldName[B, T](selector)
-    val columnLabel = t2.fieldNamesToColumns(fieldName).label
-    WhereBuilder2Ready(this, alias, columnLabel)
+    val alias = t2.alias.getOrElse(Alias.User(t2.tableName))
+    val col   = t2.column(selector)
+    WhereBuilder2Ready(this, alias, col)
 
   // === ORDER BY Methods ===
 
@@ -761,13 +738,11 @@ final case class Query2Ready[A <: Product: Table, B <: Product: Table](
   // === BUILD Methods ===
 
   def build: SqlFragment =
-    val alias = t1.alias.getOrElse("derived")
-
     // For derived tables, use (subquery) as alias; otherwise use table as alias
     val (fromSql, fromWrites) = derivedSource match
       case Some(derived) =>
         val subSql = derived.subquery.build
-        (s"(${subSql.sql}) as ${derived.alias}", subSql.writes)
+        (s"(${subSql.sql}) as ${derived.alias.value}", subSql.writes)
       case None =>
         (t1.sql, Seq.empty)
 
@@ -775,7 +750,7 @@ final case class Query2Ready[A <: Product: Table, B <: Product: Table](
 
     // Add joins
     for join <- joins do
-      val joinSql = s" ${join.joinType.toSql} ${join.tableName} as ${join.alias}"
+      val joinSql = s" ${join.joinType.toSql} ${join.tableName} as ${join.alias.value}"
       result = result :+ SqlFragment(joinSql, Seq.empty)
       if join.condition.sql.nonEmpty then result = result :+ SqlFragment(" on ", Seq.empty) :+ join.condition
 
@@ -812,11 +787,11 @@ end Query2Ready
 
 final case class WhereBuilder2[A <: Product: Table, B <: Product: Table, T](
     builder: Query2Builder[A, B],
-    fromAlias: String,
-    fromColumn: String,
+    fromAlias: Alias,
+    fromColumn: Column[T],
 ) extends WhereBuilderOps[Query2Ready[A, B], T]:
-  protected def whereAlias: String                                      = fromAlias
-  protected def whereColumn: String                                     = fromColumn
+  protected def whereAlias: Alias                                       = fromAlias
+  protected def whereColumn: Column[T]                                  = fromColumn
   protected def addPredicate(predicate: SqlFragment): Query2Ready[A, B] =
     Query2Ready(
       builder.t1,
@@ -831,23 +806,19 @@ final case class WhereBuilder2[A <: Product: Table, B <: Product: Table, T](
     )
 
   // Column comparisons (specific to join queries)
-  private def completeColumn(operator: Operator, toAlias: String, toColumn: String): Query2Ready[A, B] =
-    val condition = BinaryCondition(fromAlias, fromColumn, operator, toAlias, toColumn)
+  private def completeColumn(operator: Operator, toAlias: Alias, toCol: Column[?]): Query2Ready[A, B] =
+    val condition = BinaryCondition(fromAlias, fromColumn, operator, toAlias, toCol)
     val whereFrag = Condition.toSqlFragment(Vector(condition))(using saferis.postgres.PostgresDialect)
     addPredicate(whereFrag)
 
-  private inline def getColumnLabel[X <: Product, T2](instance: Instance[X])(inline selector: X => T2): String =
-    val fieldName = Macros.extractFieldName[X, T2](selector)
-    instance.fieldNamesToColumns(fieldName).label
-
   inline def eqCol(inline selector: B => T): Query2Ready[A, B] =
-    val toAlias = builder.t2.alias.getOrElse(builder.t2.tableName)
-    val toCol   = getColumnLabel(builder.t2)(selector)
+    val toAlias = builder.t2.alias.getOrElse(Alias.User(builder.t2.tableName))
+    val toCol   = builder.t2.column(selector)
     completeColumn(Operator.Eq, toAlias, toCol)
 
   inline def neqCol(inline selector: B => T): Query2Ready[A, B] =
-    val toAlias = builder.t2.alias.getOrElse(builder.t2.tableName)
-    val toCol   = getColumnLabel(builder.t2)(selector)
+    val toAlias = builder.t2.alias.getOrElse(Alias.User(builder.t2.tableName))
+    val toCol   = builder.t2.column(selector)
     completeColumn(Operator.Neq, toAlias, toCol)
 
 end WhereBuilder2
@@ -858,32 +829,28 @@ end WhereBuilder2
 
 final case class WhereBuilder2Ready[A <: Product: Table, B <: Product: Table, T](
     ready: Query2Ready[A, B],
-    fromAlias: String,
-    fromColumn: String,
+    fromAlias: Alias,
+    fromColumn: Column[T],
 ) extends WhereBuilderOps[Query2Ready[A, B], T]:
-  protected def whereAlias: String                                      = fromAlias
-  protected def whereColumn: String                                     = fromColumn
+  protected def whereAlias: Alias                                       = fromAlias
+  protected def whereColumn: Column[T]                                  = fromColumn
   protected def addPredicate(predicate: SqlFragment): Query2Ready[A, B] =
     ready.copy(wherePredicates = ready.wherePredicates :+ predicate)
 
   // Column comparisons
-  private def completeColumn(operator: Operator, toAlias: String, toColumn: String): Query2Ready[A, B] =
-    val condition = BinaryCondition(fromAlias, fromColumn, operator, toAlias, toColumn)
+  private def completeColumn(operator: Operator, toAlias: Alias, toCol: Column[?]): Query2Ready[A, B] =
+    val condition = BinaryCondition(fromAlias, fromColumn, operator, toAlias, toCol)
     val whereFrag = Condition.toSqlFragment(Vector(condition))(using saferis.postgres.PostgresDialect)
     addPredicate(whereFrag)
 
-  private inline def getColumnLabel[X <: Product, T2](instance: Instance[X])(inline selector: X => T2): String =
-    val fieldName = Macros.extractFieldName[X, T2](selector)
-    instance.fieldNamesToColumns(fieldName).label
-
   inline def eqCol(inline selector: B => T): Query2Ready[A, B] =
-    val toAlias = ready.t2.alias.getOrElse(ready.t2.tableName)
-    val toCol   = getColumnLabel(ready.t2)(selector)
+    val toAlias = ready.t2.alias.getOrElse(Alias.User(ready.t2.tableName))
+    val toCol   = ready.t2.column(selector)
     completeColumn(Operator.Eq, toAlias, toCol)
 
   inline def neqCol(inline selector: B => T): Query2Ready[A, B] =
-    val toAlias = ready.t2.alias.getOrElse(ready.t2.tableName)
-    val toCol   = getColumnLabel(ready.t2)(selector)
+    val toAlias = ready.t2.alias.getOrElse(Alias.User(ready.t2.tableName))
+    val toCol   = ready.t2.column(selector)
     completeColumn(Operator.Neq, toAlias, toCol)
 
 end WhereBuilder2Ready
@@ -898,21 +865,19 @@ final case class JoinBuilder2[A <: Product: Table, B <: Product: Table, C <: Pro
 ):
   /** ON condition from first table (A) */
   inline def on[T](inline selector: A => T): OnBuilder2[A, B, C, T, A] =
-    val alias          = AliasGenerator.next()
-    val cInstance      = AliasGenerator.aliasedInstance[C](alias)
-    val leftFieldName  = Macros.extractFieldName[A, T](selector)
-    val leftColumnName = query.t1.fieldNamesToColumns(leftFieldName).label
-    val leftAlias      = query.t1.alias.getOrElse(query.t1.tableName)
-    OnBuilder2(query, joinType, leftAlias, leftColumnName, alias, cInstance)
+    val alias     = AliasGenerator.next()
+    val cInstance = AliasGenerator.aliasedInstance[C](alias)
+    val leftCol   = query.t1.column(selector)
+    val leftAlias = query.t1.alias.getOrElse(Alias.User(query.t1.tableName))
+    OnBuilder2(query, joinType, leftAlias, leftCol, alias, cInstance)
 
   /** ON condition from second table (B) - the "previous" table */
   inline def onPrev[T](inline selector: B => T): OnBuilder2[A, B, C, T, B] =
-    val alias          = AliasGenerator.next()
-    val cInstance      = AliasGenerator.aliasedInstance[C](alias)
-    val leftFieldName  = Macros.extractFieldName[B, T](selector)
-    val leftColumnName = query.t2.fieldNamesToColumns(leftFieldName).label
-    val leftAlias      = query.t2.alias.getOrElse(query.t2.tableName)
-    OnBuilder2(query, joinType, leftAlias, leftColumnName, alias, cInstance)
+    val alias     = AliasGenerator.next()
+    val cInstance = AliasGenerator.aliasedInstance[C](alias)
+    val leftCol   = query.t2.column(selector)
+    val leftAlias = query.t2.alias.getOrElse(Alias.User(query.t2.tableName))
+    OnBuilder2(query, joinType, leftAlias, leftCol, alias, cInstance)
 
 end JoinBuilder2
 
@@ -923,27 +888,23 @@ end JoinBuilder2
 final case class OnBuilder2[A <: Product: Table, B <: Product: Table, C <: Product: Table, T, From <: Product](
     query: Query2Builder[A, B],
     joinType: JoinType,
-    leftAlias: String,
-    leftColumn: String,
-    rightAlias: String,
+    leftAlias: Alias,
+    leftColumn: Column[T],
+    rightAlias: Alias.Generated,
     rightInstance: Instance[C],
 ):
-  private def complete(operator: Operator, rightColumnLabel: String): OnChain2[A, B, C] =
-    val condition = BinaryCondition(leftAlias, leftColumn, operator, rightAlias, rightColumnLabel)
+  private def complete(operator: Operator, rightCol: Column[?]): OnChain2[A, B, C] =
+    val condition = BinaryCondition(leftAlias, leftColumn, operator, rightAlias, rightCol)
     OnChain2(query, joinType, rightAlias, rightInstance, Vector(condition))
 
-  private inline def getRightColumnLabel[T2](inline selector: C => T2): String =
-    val fieldName = Macros.extractFieldName[C, T2](selector)
-    rightInstance.fieldNamesToColumns(fieldName).label
-
-  inline def eq(inline selector: C => T): OnChain2[A, B, C]  = complete(Operator.Eq, getRightColumnLabel(selector))
-  inline def neq(inline selector: C => T): OnChain2[A, B, C] = complete(Operator.Neq, getRightColumnLabel(selector))
-  inline def lt(inline selector: C => T): OnChain2[A, B, C]  = complete(Operator.Lt, getRightColumnLabel(selector))
-  inline def lte(inline selector: C => T): OnChain2[A, B, C] = complete(Operator.Lte, getRightColumnLabel(selector))
-  inline def gt(inline selector: C => T): OnChain2[A, B, C]  = complete(Operator.Gt, getRightColumnLabel(selector))
-  inline def gte(inline selector: C => T): OnChain2[A, B, C] = complete(Operator.Gte, getRightColumnLabel(selector))
+  inline def eq(inline selector: C => T): OnChain2[A, B, C]  = complete(Operator.Eq, rightInstance.column(selector))
+  inline def neq(inline selector: C => T): OnChain2[A, B, C] = complete(Operator.Neq, rightInstance.column(selector))
+  inline def lt(inline selector: C => T): OnChain2[A, B, C]  = complete(Operator.Lt, rightInstance.column(selector))
+  inline def lte(inline selector: C => T): OnChain2[A, B, C] = complete(Operator.Lte, rightInstance.column(selector))
+  inline def gt(inline selector: C => T): OnChain2[A, B, C]  = complete(Operator.Gt, rightInstance.column(selector))
+  inline def gte(inline selector: C => T): OnChain2[A, B, C] = complete(Operator.Gte, rightInstance.column(selector))
   inline def op(operator: Operator)(inline selector: C => T): OnChain2[A, B, C] =
-    complete(operator, getRightColumnLabel(selector))
+    complete(operator, rightInstance.column(selector))
 
   def isNull(): OnChain2[A, B, C] =
     val condition = UnaryCondition(leftAlias, leftColumn, Operator.IsNull)
@@ -962,7 +923,7 @@ end OnBuilder2
 final case class OnChain2[A <: Product: Table, B <: Product: Table, C <: Product: Table](
     query: Query2Builder[A, B],
     joinType: JoinType,
-    rightAlias: String,
+    rightAlias: Alias.Generated,
     rightInstance: Instance[C],
     conditions: Vector[Condition],
 ):
@@ -1074,7 +1035,7 @@ final case class Query3Ready[A <: Product: Table, B <: Product: Table, C <: Prod
     var result = SqlFragment(s"select * from ${t1.sql}", Seq.empty)
 
     for join <- joins do
-      val joinSql = s" ${join.joinType.toSql} ${join.tableName} as ${join.alias}"
+      val joinSql = s" ${join.joinType.toSql} ${join.tableName} as ${join.alias.value}"
       result = result :+ SqlFragment(joinSql, Seq.empty)
       if join.condition.sql.nonEmpty then result = result :+ SqlFragment(" on ", Seq.empty) :+ join.condition
 
@@ -1111,52 +1072,46 @@ final case class JoinBuilder3[A <: Product: Table, B <: Product: Table, C <: Pro
     joinType: JoinType,
 ):
   inline def on[T](inline selector: A => T): OnBuilder3[A, B, C, D, T] =
-    val alias          = AliasGenerator.next()
-    val dInstance      = AliasGenerator.aliasedInstance[D](alias)
-    val leftFieldName  = Macros.extractFieldName[A, T](selector)
-    val leftColumnName = query.t1.fieldNamesToColumns(leftFieldName).label
-    val leftAlias      = query.t1.alias.getOrElse(query.t1.tableName)
-    OnBuilder3(query, joinType, leftAlias, leftColumnName, alias, dInstance)
+    val alias     = AliasGenerator.next()
+    val dInstance = AliasGenerator.aliasedInstance[D](alias)
+    val leftCol   = query.t1.column(selector)
+    val leftAlias = query.t1.alias.getOrElse(Alias.User(query.t1.tableName))
+    OnBuilder3(query, joinType, leftAlias, leftCol, alias, dInstance)
 
   inline def onPrev[T](inline selector: C => T): OnBuilder3[A, B, C, D, T] =
-    val alias          = AliasGenerator.next()
-    val dInstance      = AliasGenerator.aliasedInstance[D](alias)
-    val leftFieldName  = Macros.extractFieldName[C, T](selector)
-    val leftColumnName = query.t3.fieldNamesToColumns(leftFieldName).label
-    val leftAlias      = query.t3.alias.getOrElse(query.t3.tableName)
-    OnBuilder3(query, joinType, leftAlias, leftColumnName, alias, dInstance)
+    val alias     = AliasGenerator.next()
+    val dInstance = AliasGenerator.aliasedInstance[D](alias)
+    val leftCol   = query.t3.column(selector)
+    val leftAlias = query.t3.alias.getOrElse(Alias.User(query.t3.tableName))
+    OnBuilder3(query, joinType, leftAlias, leftCol, alias, dInstance)
 
 end JoinBuilder3
 
 final case class OnBuilder3[A <: Product: Table, B <: Product: Table, C <: Product: Table, D <: Product: Table, T](
     query: Query3Builder[A, B, C],
     joinType: JoinType,
-    leftAlias: String,
-    leftColumn: String,
-    rightAlias: String,
+    leftAlias: Alias,
+    leftColumn: Column[T],
+    rightAlias: Alias.Generated,
     rightInstance: Instance[D],
 ):
-  private def complete(operator: Operator, rightColumnLabel: String): OnChain3[A, B, C, D] =
-    val condition = BinaryCondition(leftAlias, leftColumn, operator, rightAlias, rightColumnLabel)
+  private def complete(operator: Operator, rightCol: Column[?]): OnChain3[A, B, C, D] =
+    val condition = BinaryCondition(leftAlias, leftColumn, operator, rightAlias, rightCol)
     OnChain3(query, joinType, rightAlias, rightInstance, Vector(condition))
 
-  private inline def getRightColumnLabel[T2](inline selector: D => T2): String =
-    val fieldName = Macros.extractFieldName[D, T2](selector)
-    rightInstance.fieldNamesToColumns(fieldName).label
-
-  inline def eq(inline selector: D => T): OnChain3[A, B, C, D]  = complete(Operator.Eq, getRightColumnLabel(selector))
-  inline def neq(inline selector: D => T): OnChain3[A, B, C, D] = complete(Operator.Neq, getRightColumnLabel(selector))
-  inline def lt(inline selector: D => T): OnChain3[A, B, C, D]  = complete(Operator.Lt, getRightColumnLabel(selector))
-  inline def lte(inline selector: D => T): OnChain3[A, B, C, D] = complete(Operator.Lte, getRightColumnLabel(selector))
-  inline def gt(inline selector: D => T): OnChain3[A, B, C, D]  = complete(Operator.Gt, getRightColumnLabel(selector))
-  inline def gte(inline selector: D => T): OnChain3[A, B, C, D] = complete(Operator.Gte, getRightColumnLabel(selector))
+  inline def eq(inline selector: D => T): OnChain3[A, B, C, D]  = complete(Operator.Eq, rightInstance.column(selector))
+  inline def neq(inline selector: D => T): OnChain3[A, B, C, D] = complete(Operator.Neq, rightInstance.column(selector))
+  inline def lt(inline selector: D => T): OnChain3[A, B, C, D]  = complete(Operator.Lt, rightInstance.column(selector))
+  inline def lte(inline selector: D => T): OnChain3[A, B, C, D] = complete(Operator.Lte, rightInstance.column(selector))
+  inline def gt(inline selector: D => T): OnChain3[A, B, C, D]  = complete(Operator.Gt, rightInstance.column(selector))
+  inline def gte(inline selector: D => T): OnChain3[A, B, C, D] = complete(Operator.Gte, rightInstance.column(selector))
 
 end OnBuilder3
 
 final case class OnChain3[A <: Product: Table, B <: Product: Table, C <: Product: Table, D <: Product: Table](
     query: Query3Builder[A, B, C],
     joinType: JoinType,
-    rightAlias: String,
+    rightAlias: Alias.Generated,
     rightInstance: Instance[D],
     conditions: Vector[Condition],
 ):
@@ -1279,7 +1234,7 @@ final case class Query4Ready[A <: Product: Table, B <: Product: Table, C <: Prod
     var result = SqlFragment(s"select * from ${t1.sql}", Seq.empty)
 
     for join <- joins do
-      val joinSql = s" ${join.joinType.toSql} ${join.tableName} as ${join.alias}"
+      val joinSql = s" ${join.joinType.toSql} ${join.tableName} as ${join.alias.value}"
       result = result :+ SqlFragment(joinSql, Seq.empty)
       if join.condition.sql.nonEmpty then result = result :+ SqlFragment(" on ", Seq.empty) :+ join.condition
 
@@ -1322,20 +1277,18 @@ final case class JoinBuilder4[
     joinType: JoinType,
 ):
   inline def on[T](inline selector: A => T): OnBuilder4[A, B, C, D, E, T] =
-    val alias          = AliasGenerator.next()
-    val eInstance      = AliasGenerator.aliasedInstance[E](alias)
-    val leftFieldName  = Macros.extractFieldName[A, T](selector)
-    val leftColumnName = query.t1.fieldNamesToColumns(leftFieldName).label
-    val leftAlias      = query.t1.alias.getOrElse(query.t1.tableName)
-    OnBuilder4(query, joinType, leftAlias, leftColumnName, alias, eInstance)
+    val alias     = AliasGenerator.next()
+    val eInstance = AliasGenerator.aliasedInstance[E](alias)
+    val leftCol   = query.t1.column(selector)
+    val leftAlias = query.t1.alias.getOrElse(Alias.User(query.t1.tableName))
+    OnBuilder4(query, joinType, leftAlias, leftCol, alias, eInstance)
 
   inline def onPrev[T](inline selector: D => T): OnBuilder4[A, B, C, D, E, T] =
-    val alias          = AliasGenerator.next()
-    val eInstance      = AliasGenerator.aliasedInstance[E](alias)
-    val leftFieldName  = Macros.extractFieldName[D, T](selector)
-    val leftColumnName = query.t4.fieldNamesToColumns(leftFieldName).label
-    val leftAlias      = query.t4.alias.getOrElse(query.t4.tableName)
-    OnBuilder4(query, joinType, leftAlias, leftColumnName, alias, eInstance)
+    val alias     = AliasGenerator.next()
+    val eInstance = AliasGenerator.aliasedInstance[E](alias)
+    val leftCol   = query.t4.column(selector)
+    val leftAlias = query.t4.alias.getOrElse(Alias.User(query.t4.tableName))
+    OnBuilder4(query, joinType, leftAlias, leftCol, alias, eInstance)
 
 end JoinBuilder4
 
@@ -1349,28 +1302,21 @@ final case class OnBuilder4[
 ](
     query: Query4Builder[A, B, C, D],
     joinType: JoinType,
-    leftAlias: String,
-    leftColumn: String,
-    rightAlias: String,
+    leftAlias: Alias,
+    leftColumn: Column[T],
+    rightAlias: Alias.Generated,
     rightInstance: Instance[E],
 ):
-  private def complete(operator: Operator, rightColumnLabel: String): OnChain4[A, B, C, D, E] =
-    val condition = BinaryCondition(leftAlias, leftColumn, operator, rightAlias, rightColumnLabel)
+  private def complete(operator: Operator, rightCol: Column[?]): OnChain4[A, B, C, D, E] =
+    val condition = BinaryCondition(leftAlias, leftColumn, operator, rightAlias, rightCol)
     OnChain4(query, joinType, rightAlias, rightInstance, Vector(condition))
 
-  private inline def getRightColumnLabel[T2](inline selector: E => T2): String =
-    val fieldName = Macros.extractFieldName[E, T2](selector)
-    rightInstance.fieldNamesToColumns(fieldName).label
-
-  inline def eq(inline selector: E => T): OnChain4[A, B, C, D, E] = complete(Operator.Eq, getRightColumnLabel(selector))
-  inline def neq(inline selector: E => T): OnChain4[A, B, C, D, E] =
-    complete(Operator.Neq, getRightColumnLabel(selector))
-  inline def lt(inline selector: E => T): OnChain4[A, B, C, D, E] = complete(Operator.Lt, getRightColumnLabel(selector))
-  inline def lte(inline selector: E => T): OnChain4[A, B, C, D, E] =
-    complete(Operator.Lte, getRightColumnLabel(selector))
-  inline def gt(inline selector: E => T): OnChain4[A, B, C, D, E] = complete(Operator.Gt, getRightColumnLabel(selector))
-  inline def gte(inline selector: E => T): OnChain4[A, B, C, D, E] =
-    complete(Operator.Gte, getRightColumnLabel(selector))
+  inline def eq(inline selector: E => T): OnChain4[A, B, C, D, E]  = complete(Operator.Eq, rightInstance.column(selector))
+  inline def neq(inline selector: E => T): OnChain4[A, B, C, D, E] = complete(Operator.Neq, rightInstance.column(selector))
+  inline def lt(inline selector: E => T): OnChain4[A, B, C, D, E]  = complete(Operator.Lt, rightInstance.column(selector))
+  inline def lte(inline selector: E => T): OnChain4[A, B, C, D, E] = complete(Operator.Lte, rightInstance.column(selector))
+  inline def gt(inline selector: E => T): OnChain4[A, B, C, D, E]  = complete(Operator.Gt, rightInstance.column(selector))
+  inline def gte(inline selector: E => T): OnChain4[A, B, C, D, E] = complete(Operator.Gte, rightInstance.column(selector))
 
 end OnBuilder4
 
@@ -1383,7 +1329,7 @@ final case class OnChain4[
 ](
     query: Query4Builder[A, B, C, D],
     joinType: JoinType,
-    rightAlias: String,
+    rightAlias: Alias.Generated,
     rightInstance: Instance[E],
     conditions: Vector[Condition],
 ):
@@ -1517,7 +1463,7 @@ final case class Query5Ready[
     var result = SqlFragment(s"select * from ${t1.sql}", Seq.empty)
 
     for join <- joins do
-      val joinSql = s" ${join.joinType.toSql} ${join.tableName} as ${join.alias}"
+      val joinSql = s" ${join.joinType.toSql} ${join.tableName} as ${join.alias.value}"
       result = result :+ SqlFragment(joinSql, Seq.empty)
       if join.condition.sql.nonEmpty then result = result :+ SqlFragment(" on ", Seq.empty) :+ join.condition
 
@@ -1591,7 +1537,10 @@ object Query:
     * }}}
     */
   def from[A <: Product: Table](subquery: SelectQuery[A], alias: String): Query1Builder[A] =
-    val instance = AliasGenerator.aliasedInstance[A](alias)
-    Query1Builder(instance, derivedSource = Some(DerivedSource(subquery, alias)))
+    val userAlias    = Alias.User(alias)
+    val table        = summon[Table[A]]
+    val columns      = table.columns.map(_.withTableAlias(Some(userAlias)))
+    val instance     = Instance[A](table.name, columns, Some(userAlias), Vector.empty)
+    Query1Builder(instance, derivedSource = Some(DerivedSource(subquery, userAlias)))
 
 end Query

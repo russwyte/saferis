@@ -41,17 +41,19 @@ final case class Column[R: Decoder as readable: Encoder as writable](
     isGenerated: Boolean,
     isNullable: Boolean,
     defaultValue: Option[R],
-    tableAlias: Option[String],
+    tableAlias: Option[Alias],
 ) extends Placeholder:
   type ColumnType = R
   val writes = Seq.empty
   // Note: We cannot access dialect here as Column is constructed at compile-time
-  // The label should already be the raw identifier, escaping happens at usage site
-  val sql = tableAlias.fold(label)(a => s"$a.$label")
+  // The label should already be the raw identifier
+  // For generated aliases, we use the value directly (no escaping needed)
+  // For user aliases, escaping will happen at the condition level where Dialect is available
+  val sql = tableAlias.fold(label)(a => s"${a.value}.$label")
 
   private[saferis] def read(rs: ResultSet)(using Trace): Task[(String, R)] =
     readable.decode(rs, label).map(v => name -> v)
-  private[saferis] def withTableAlias(alias: Option[String]) = copy(tableAlias = alias)
+  private[saferis] def withTableAlias(alias: Option[Alias]) = copy(tableAlias = alias)
 
   // Provide SQL type information based on the encoder
   private[saferis] def sqlType: Int                                                          = writable.jdbcType
