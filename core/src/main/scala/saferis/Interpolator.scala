@@ -3,6 +3,7 @@ package saferis
 import scala.collection.mutable as m
 import scala.quoted.*
 import scala.annotation.Annotation
+import scala.reflect.Selectable.reflectiveSelectable
 
 class silent extends Annotation
 
@@ -73,17 +74,41 @@ object Interpolator:
 
   type HoldersBuilder = m.Builder[Placeholder, Vector[Placeholder]]
 
+  // Structural type for table instances - avoids direct Instance reference
+  private type TableInstance = { def tableName: String; def alias: Option[Alias] }
+
   private def getPlaceHoldersExpr(all: Seq[Expr[Any]], builder: Expr[HoldersBuilder])(using
       Quotes
   ): Expr[Vector[Placeholder]] =
+    import quotes.reflect.*
+
+    // Helper to check if type is an Instance
+    def isInstanceType(tpe: TypeRepr): Boolean =
+      tpe.baseClasses.exists(_.fullName == "saferis.Instance")
+
     all match
       case '{ $arg: Placeholder } +: rest =>
         val acc = '{ $builder.addOne($arg) }
         getPlaceHoldersExpr(rest, acc)
-      case '{ $arg: tp } +: rest =>
-        val ph  = summonPlaceholder[tp](arg)
-        val acc = '{ $builder.addOne($ph) }
-        getPlaceHoldersExpr(rest, acc)
+      case expr +: rest =>
+        val argTpe = expr.asTerm.tpe
+        if isInstanceType(argTpe) then
+          // Instance: compute SQL from internal fields
+          // Use structural type to avoid cyclic macro dependency
+          val ph = '{
+            val inst = ${ expr }.asInstanceOf[TableInstance]
+            Placeholder.raw(inst.alias.fold(inst.tableName)(a => s"${inst.tableName} as ${a.value}"))
+          }
+          val acc = '{ $builder.addOne($ph) }
+          getPlaceHoldersExpr(rest, acc)
+        else
+          // Other types: summon Encoder
+          expr match
+            case '{ $arg: tp } =>
+              val ph  = summonPlaceholder[tp](arg)
+              val acc = '{ $builder.addOne($ph) }
+              getPlaceHoldersExpr(rest, acc)
+        end if
       case _ =>
         '{ $builder.result() }
     end match

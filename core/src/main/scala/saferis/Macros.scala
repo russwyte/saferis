@@ -19,10 +19,24 @@ object Macros:
 
   private[saferis] inline def columnsOf[A <: Product]: Seq[Column[?]] = ${ columnsOfImpl[A] }
 
+  // Scala field names that cannot be used because they would shadow Selectable trait methods
+  private val reservedFieldNames = Set("selectDynamic", "applyDynamic")
+
   private def columnsOfImpl[A: Type](using Quotes): Expr[Seq[Column[?]]] =
     import quotes.reflect.*
     val tpe    = TypeRepr.of[A]
     val fields = tpe.typeSymbol.caseFields
+
+    // Validate no reserved Scala field names are used
+    fields.foreach { field =>
+      if reservedFieldNames.contains(field.name) then
+        report.errorAndAbort(
+          s"Scala field name '${field.name}' is reserved and cannot be used in a Table. " +
+            s"These names conflict with Scala's Selectable trait methods. " +
+            s"If your database column is named '${field.name}', use a different Scala field name with @label: " +
+            s"""@label("${field.name}") myField: String"""
+        )
+    }
 
     val columns = fields.map { field =>
       val fieldName = field.name
@@ -70,7 +84,7 @@ object Macros:
     val caseClassFields = tpe.typeSymbol.caseFields
     // Collect both field names and their types for type-safe refinements
     val caseClassFieldNamesAndTypes = caseClassFields.map(f => (f.name, tpe.memberType(f)))
-    val refined                     = refinementForLabels(caseClassFieldNamesAndTypes)
+    val refined                     = refinementForLabels(TypeRepr.of[Instance[A]], caseClassFieldNamesAndTypes)
     val keys                        = elemsWithAnnotation[A, key]
     val x                           = MethodType(MethodTypeKind.Plain)(keys.map((name, _) => name))(
       _ =>
@@ -84,10 +98,12 @@ object Macros:
       case '[t] =>
         '{
           val x = ${ summonTable[A] }
+          // Convert Option[String] to Option[Alias.User] - user-provided aliases need escaping
+          val aliasOpt: Option[Alias] = $alias.map(Alias.User(_))
           new Instance[A](
             $name,
             $columns,
-            $alias,
+            aliasOpt,
             Vector.empty,
             Vector.empty,
             Vector.empty,
@@ -277,13 +293,20 @@ object Macros:
 
   // This method is used to refine the Instance type with the field names/labels
   // Instance is a structural type - we preserve the actual field types for type-safe column access
-  private def refinementForLabels(using q: Quotes)(fieldNamesAndTypes: Seq[(String, q.reflect.TypeRepr)]) =
+  // Important: We take baseType as Instance[A] to preserve the type parameter
+  private def refinementForLabels(using
+      q: Quotes
+  )(
+      baseType: q.reflect.TypeRepr,
+      fieldNamesAndTypes: Seq[(String, q.reflect.TypeRepr)],
+  ) =
     import q.reflect.*
-    fieldNamesAndTypes.foldLeft(TypeRepr.of[Instance]): (t, nt) =>
+    fieldNamesAndTypes.foldLeft(baseType): (t, nt) =>
       val (name, fieldType) = nt
       // Create Column[FieldType] refinement to preserve type information
       val columnType = TypeRepr.of[Column].appliedTo(fieldType)
       Refinement(t, name, columnType)
+  end refinementForLabels
 
   private[saferis] def summonEncoder[T: Type](using Quotes): Expr[Encoder[T]] =
     import quotes.reflect.*
@@ -356,6 +379,27 @@ object Macros:
   private[saferis] def extractFieldNameImpl[A: Type, T: Type](selector: Expr[A => T])(using Quotes): Expr[String] =
     val fieldName = extractFieldNameFromSelector(selector)
     Expr(fieldName)
+
+  /** Extract column from instance using a selector, preserving type information.
+    *
+    * Unlike extractFieldName which returns a String, this returns the actual Column[T] with proper typing. The cast is
+    * internal and safe - the macro verifies at compile time that the selector returns type T.
+    *
+    * Use via extension method: `instance.column(_.fieldName)` for better type inference.
+    */
+  private[saferis] inline def extractColumn[A <: Product, T](
+      inline instance: Instance[A],
+      inline selector: A => T,
+  ): Column[T] = ${ extractColumnImpl[A, T]('instance, 'selector) }
+
+  private def extractColumnImpl[A <: Product: Type, T: Type](
+      instance: Expr[Instance[A]],
+      selector: Expr[A => T],
+  )(using Quotes): Expr[Column[T]] =
+    val fieldName = extractFieldNameFromSelector(selector)
+    '{
+      $instance.selectDynamic(${ Expr(fieldName) }).asInstanceOf[Column[T]]
+    }
 
   /** Internal helper to extract field name from selector - returns String directly for use in other macros */
   private[saferis] def extractFieldNameFromSelector[A: Type, T: Type](selector: Expr[A => T])(using Quotes): String =

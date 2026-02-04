@@ -12,10 +12,10 @@ package saferis
   */
 trait WhereBuilderOps[Parent, T]:
   /** The table alias for column qualification */
-  protected def whereAlias: String
+  protected def whereAlias: Alias
 
-  /** The column name/label being filtered */
-  protected def whereColumn: String
+  /** The column being filtered */
+  protected def whereColumn: Column[T]
 
   /** Add a predicate to the parent and return the updated parent */
   protected def addPredicate(predicate: SqlFragment): Parent
@@ -77,15 +77,17 @@ trait WhereBuilderOps[Parent, T]:
     * Type-safe: the subquery must return the same type T as this column.
     */
   def in(subquery: SelectQuery[T]): Parent =
+    given Dialect   = saferis.postgres.PostgresDialect
     val subquerySql = subquery.build
-    val inSql       = s""""$whereAlias".$whereColumn IN (${subquerySql.sql})"""
+    val inSql       = s"${whereAlias.toSql}.${whereColumn.label} IN (${subquerySql.sql})"
     val whereFrag   = SqlFragment(inSql, subquerySql.writes)
     addPredicate(whereFrag)
 
   /** NOT IN subquery - type-safe variant */
   def notIn(subquery: SelectQuery[T]): Parent =
+    given Dialect   = saferis.postgres.PostgresDialect
     val subquerySql = subquery.build
-    val notInSql    = s""""$whereAlias".$whereColumn NOT IN (${subquerySql.sql})"""
+    val notInSql    = s"${whereAlias.toSql}.${whereColumn.label} NOT IN (${subquerySql.sql})"
     val whereFrag   = SqlFragment(notInSql, subquerySql.writes)
     addPredicate(whereFrag)
 

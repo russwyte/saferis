@@ -44,7 +44,7 @@ import saferis.mysql.{given}     // Override with MySQL
 import saferis.sqlite.{given}    // Override with SQLite
 ```
 
-See the [full documentation](docs/docs/DOCUMENTATION.md) for:
+See the [full documentation](docs/DOCUMENTATION.md) for:
 - Complete API reference
 - Running examples with real database output
 - Dialect system details
