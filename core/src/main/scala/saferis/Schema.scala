@@ -699,79 +699,17 @@ final case class InstanceIndexBuilder[A <: Product](
 end InstanceIndexBuilder
 
 /** Builder for WHERE column selection on Instance indexes.
+  *
+  * Extends SchemaWhereOps to inherit all comparison operators for DDL literal SQL generation.
   */
 final case class InstanceWhereColumnBuilder[A <: Product, T](
     parent: InstanceIndexBuilder[A],
     columnName: String,
     operator: String = "and",
-):
-  /** Equals comparison */
-  def eql(value: T)(using encoder: Encoder[T]): InstanceWhereConditionBuilder[A] =
-    val condition = s"$columnName = ${encoder.literal(value)}"
-    InstanceWhereConditionBuilder(parent, parent.conditions :+ condition, operator)
+) extends SchemaWhereOps[InstanceWhereConditionBuilder[A], T]:
+  protected def schemaColumnName: String = columnName
 
-  /** Not equals comparison */
-  def neql(value: T)(using encoder: Encoder[T]): InstanceWhereConditionBuilder[A] =
-    val condition = s"$columnName <> ${encoder.literal(value)}"
-    InstanceWhereConditionBuilder(parent, parent.conditions :+ condition, operator)
-
-  /** Greater than comparison */
-  def gt(value: T)(using encoder: Encoder[T]): InstanceWhereConditionBuilder[A] =
-    val condition = s"$columnName > ${encoder.literal(value)}"
-    InstanceWhereConditionBuilder(parent, parent.conditions :+ condition, operator)
-
-  /** Greater than or equal comparison */
-  def gte(value: T)(using encoder: Encoder[T]): InstanceWhereConditionBuilder[A] =
-    val condition = s"$columnName >= ${encoder.literal(value)}"
-    InstanceWhereConditionBuilder(parent, parent.conditions :+ condition, operator)
-
-  /** Less than comparison */
-  def lt(value: T)(using encoder: Encoder[T]): InstanceWhereConditionBuilder[A] =
-    val condition = s"$columnName < ${encoder.literal(value)}"
-    InstanceWhereConditionBuilder(parent, parent.conditions :+ condition, operator)
-
-  /** Less than or equal comparison */
-  def lte(value: T)(using encoder: Encoder[T]): InstanceWhereConditionBuilder[A] =
-    val condition = s"$columnName <= ${encoder.literal(value)}"
-    InstanceWhereConditionBuilder(parent, parent.conditions :+ condition, operator)
-
-  /** IS NULL check */
-  def isNull: InstanceWhereConditionBuilder[A] =
-    val condition = s"$columnName is null"
-    InstanceWhereConditionBuilder(parent, parent.conditions :+ condition, operator)
-
-  /** IS NOT NULL check */
-  def isNotNull: InstanceWhereConditionBuilder[A] =
-    val condition = s"$columnName is not null"
-    InstanceWhereConditionBuilder(parent, parent.conditions :+ condition, operator)
-
-  /** LIKE pattern matching (for String columns) */
-  def like(pattern: String)(using ev: T =:= String): InstanceWhereConditionBuilder[A] =
-    val escaped   = pattern.replace("'", "''")
-    val condition = s"$columnName like '$escaped'"
-    InstanceWhereConditionBuilder(parent, parent.conditions :+ condition, operator)
-
-  /** NOT LIKE pattern matching (for String columns) */
-  def notLike(pattern: String)(using ev: T =:= String): InstanceWhereConditionBuilder[A] =
-    val escaped   = pattern.replace("'", "''")
-    val condition = s"$columnName not like '$escaped'"
-    InstanceWhereConditionBuilder(parent, parent.conditions :+ condition, operator)
-
-  /** IN clause */
-  def in(values: Seq[T])(using encoder: Encoder[T]): InstanceWhereConditionBuilder[A] =
-    val literals  = values.map(encoder.literal).mkString(", ")
-    val condition = s"$columnName in ($literals)"
-    InstanceWhereConditionBuilder(parent, parent.conditions :+ condition, operator)
-
-  /** NOT IN clause */
-  def notIn(values: Seq[T])(using encoder: Encoder[T]): InstanceWhereConditionBuilder[A] =
-    val literals  = values.map(encoder.literal).mkString(", ")
-    val condition = s"$columnName not in ($literals)"
-    InstanceWhereConditionBuilder(parent, parent.conditions :+ condition, operator)
-
-  /** BETWEEN clause */
-  def between(low: T, high: T)(using encoder: Encoder[T]): InstanceWhereConditionBuilder[A] =
-    val condition = s"$columnName between ${encoder.literal(low)} and ${encoder.literal(high)}"
+  protected def completeCondition(condition: String): InstanceWhereConditionBuilder[A] =
     InstanceWhereConditionBuilder(parent, parent.conditions :+ condition, operator)
 end InstanceWhereColumnBuilder
 
@@ -1046,71 +984,19 @@ final case class InstanceWhereGroupBuilder[A <: Product](
     Schema.groupWhere(this, selector)
 
 /** Builder for WHERE column selection in a group.
+  *
+  * Extends SchemaWhereOps to inherit all comparison operators for DDL literal SQL generation.
   */
 final case class InstanceWhereGroupColumnBuilder[A <: Product, T](
     instance: Instance[A],
     columnName: String,
     previousConditions: Seq[String],
     operator: String,
-):
-  private def result(condition: String): InstanceWhereGroupResult[A] =
+) extends SchemaWhereOps[InstanceWhereGroupResult[A], T]:
+  protected def schemaColumnName: String = columnName
+
+  protected def completeCondition(condition: String): InstanceWhereGroupResult[A] =
     InstanceWhereGroupResult(instance, previousConditions :+ condition, operator)
-
-  /** Equals comparison */
-  def eql(value: T)(using encoder: Encoder[T]): InstanceWhereGroupResult[A] =
-    result(s"$columnName = ${encoder.literal(value)}")
-
-  /** Not equals comparison */
-  def neql(value: T)(using encoder: Encoder[T]): InstanceWhereGroupResult[A] =
-    result(s"$columnName <> ${encoder.literal(value)}")
-
-  /** Greater than comparison */
-  def gt(value: T)(using encoder: Encoder[T]): InstanceWhereGroupResult[A] =
-    result(s"$columnName > ${encoder.literal(value)}")
-
-  /** Greater than or equal comparison */
-  def gte(value: T)(using encoder: Encoder[T]): InstanceWhereGroupResult[A] =
-    result(s"$columnName >= ${encoder.literal(value)}")
-
-  /** Less than comparison */
-  def lt(value: T)(using encoder: Encoder[T]): InstanceWhereGroupResult[A] =
-    result(s"$columnName < ${encoder.literal(value)}")
-
-  /** Less than or equal comparison */
-  def lte(value: T)(using encoder: Encoder[T]): InstanceWhereGroupResult[A] =
-    result(s"$columnName <= ${encoder.literal(value)}")
-
-  /** IS NULL check */
-  def isNull: InstanceWhereGroupResult[A] =
-    result(s"$columnName is null")
-
-  /** IS NOT NULL check */
-  def isNotNull: InstanceWhereGroupResult[A] =
-    result(s"$columnName is not null")
-
-  /** LIKE pattern matching */
-  def like(pattern: String)(using ev: T =:= String): InstanceWhereGroupResult[A] =
-    val escaped = pattern.replace("'", "''")
-    result(s"$columnName like '$escaped'")
-
-  /** NOT LIKE pattern matching */
-  def notLike(pattern: String)(using ev: T =:= String): InstanceWhereGroupResult[A] =
-    val escaped = pattern.replace("'", "''")
-    result(s"$columnName not like '$escaped'")
-
-  /** IN clause */
-  def in(values: Seq[T])(using encoder: Encoder[T]): InstanceWhereGroupResult[A] =
-    val literals = values.map(encoder.literal).mkString(", ")
-    result(s"$columnName in ($literals)")
-
-  /** NOT IN clause */
-  def notIn(values: Seq[T])(using encoder: Encoder[T]): InstanceWhereGroupResult[A] =
-    val literals = values.map(encoder.literal).mkString(", ")
-    result(s"$columnName not in ($literals)")
-
-  /** BETWEEN clause */
-  def between(low: T, high: T)(using encoder: Encoder[T]): InstanceWhereGroupResult[A] =
-    result(s"$columnName between ${encoder.literal(low)} and ${encoder.literal(high)}")
 end InstanceWhereGroupColumnBuilder
 
 /** Result of a grouped WHERE condition, can be chained with and/or.

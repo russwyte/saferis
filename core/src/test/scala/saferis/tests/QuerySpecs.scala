@@ -27,7 +27,7 @@ object QuerySpecs extends ZIOSpecDefault:
     suite("Query1 - Single table")(
       test("Query[A] creates aliased table query") {
         AliasGenerator.reset()
-        val q   = Query[User]
+        val q   = Query[User].all
         val sql = q.build.sql
         assertTrue(
           sql.contains("select * from users as t1")
@@ -53,7 +53,7 @@ object QuerySpecs extends ZIOSpecDefault:
       test("orderBy adds sort clause") {
         AliasGenerator.reset()
         val users = Table[User]
-        val q     = Query[User].orderBy(users.name.asc)
+        val q     = Query[User].orderBy(users.name.asc).all
         val sql   = q.build.sql
         assertTrue(
           sql.contains("order by name asc")
@@ -86,6 +86,8 @@ object QuerySpecs extends ZIOSpecDefault:
           .innerJoin[Order]
           .on(_.id)
           .eq(_.userId)
+          .endJoin
+          .all
         val sql = q.build.sql
         assertTrue(
           sql.contains("select * from users as t1"),
@@ -99,6 +101,8 @@ object QuerySpecs extends ZIOSpecDefault:
           .leftJoin[Order]
           .on(_.id)
           .eq(_.userId)
+          .endJoin
+          .all
         val sql = q.build.sql
         assertTrue(
           sql.contains("left join orders as t2")
@@ -110,6 +114,8 @@ object QuerySpecs extends ZIOSpecDefault:
           .rightJoin[Order]
           .on(_.id)
           .eq(_.userId)
+          .endJoin
+          .all
         val sql = q.build.sql
         assertTrue(
           sql.contains("right join orders as t2")
@@ -121,6 +127,8 @@ object QuerySpecs extends ZIOSpecDefault:
           .fullJoin[Order]
           .on(_.id)
           .eq(_.userId)
+          .endJoin
+          .all
         val sql = q.build.sql
         assertTrue(
           sql.contains("full join orders as t2")
@@ -161,7 +169,7 @@ object QuerySpecs extends ZIOSpecDefault:
           .innerJoin[Order]
           .on(_.id)
           .eq(_.userId)
-          .done
+          .endJoin
           .seekAfter(users.id, 100)
         val sql = q.build.sql
         assertTrue(
@@ -180,6 +188,8 @@ object QuerySpecs extends ZIOSpecDefault:
           .innerJoin[OrderItem]
           .onPrev(_.id)
           .eq(_.orderId)
+          .endJoin
+          .all
         val sql = q.build.sql
         assertTrue(
           sql.contains("inner join orders as t2"),
@@ -196,6 +206,8 @@ object QuerySpecs extends ZIOSpecDefault:
           .innerJoin[Order]
           .on(_.id)
           .neq(_.userId)
+          .endJoin
+          .all
         val sql = q.build.sql
         assertTrue(
           sql.contains("""on "t1".id <> "t2".userId""")
@@ -207,6 +219,8 @@ object QuerySpecs extends ZIOSpecDefault:
           .innerJoin[Order]
           .on(_.id)
           .lt(_.userId)
+          .endJoin
+          .all
         val sql = q.build.sql
         assertTrue(
           sql.contains("""on "t1".id < "t2".userId""")
@@ -218,6 +232,8 @@ object QuerySpecs extends ZIOSpecDefault:
           .innerJoin[Order]
           .on(_.id)
           .lte(_.userId)
+          .endJoin
+          .all
         val sql = q.build.sql
         assertTrue(
           sql.contains("""on "t1".id <= "t2".userId""")
@@ -229,6 +245,8 @@ object QuerySpecs extends ZIOSpecDefault:
           .innerJoin[Order]
           .on(_.id)
           .gt(_.userId)
+          .endJoin
+          .all
         val sql = q.build.sql
         assertTrue(
           sql.contains("""on "t1".id > "t2".userId""")
@@ -240,6 +258,8 @@ object QuerySpecs extends ZIOSpecDefault:
           .innerJoin[Order]
           .on(_.id)
           .gte(_.userId)
+          .endJoin
+          .all
         val sql = q.build.sql
         assertTrue(
           sql.contains("""on "t1".id >= "t2".userId""")
@@ -319,7 +339,7 @@ object QuerySpecs extends ZIOSpecDefault:
     suite("EXISTS Subqueries")(
       test("simple EXISTS subquery") {
         AliasGenerator.reset()
-        val subquery = Query[Order]
+        val subquery = Query[Order].all
         val q        = Query[User].whereExists(subquery)
         val sql      = q.build.sql
         assertTrue(
@@ -337,7 +357,7 @@ object QuerySpecs extends ZIOSpecDefault:
       },
       test("NOT EXISTS subquery") {
         AliasGenerator.reset()
-        val subquery = Query[Order]
+        val subquery = Query[Order].all
         val q        = Query[User].whereNotExists(subquery)
         val sql      = q.build.sql
         assertTrue(
@@ -385,7 +405,7 @@ object QuerySpecs extends ZIOSpecDefault:
           .eq("paid")
           .selectAll[PaidOrder]
 
-        val q   = Query.from(subquery, "paid_summary")
+        val q   = Query.from(subquery, "paid_summary").all
         val sql = q.build.sql
         assertTrue(
           sql.contains("select * from (select * from orders as t1 where"),
@@ -429,6 +449,8 @@ object QuerySpecs extends ZIOSpecDefault:
           .innerJoin[User]
           .on(_.userId)
           .eq(_.id)
+          .endJoin
+          .all
 
         val sql = q.build.sql
         assertTrue(

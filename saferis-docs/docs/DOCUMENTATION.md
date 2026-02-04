@@ -844,11 +844,184 @@ run {
 }
 ```
 
+### Type-Safe Mutation Builders
+
+Saferis provides type-safe builders for INSERT, UPDATE, and DELETE operations. These builders use Scala 3 macros to extract column names at compile time.
+
+#### Insert Builder
+
+Build INSERT statements with type-safe column selectors:
+
+```scala mdoc:reset:silent
+import saferis.*
+import saferis.docs.DocTestContainer.{run, transactor as xa}
+
+@tableName("builder_users")
+case class BuilderUser(@generated @key id: Int, name: String, email: String, age: Int) derives Table
+```
+
+```scala mdoc
+// Type-safe INSERT builder
+Insert[BuilderUser]
+  .value(_.name, "Alice")
+  .value(_.email, "alice@example.com")
+  .value(_.age, 30)
+  .build.sql
+```
+
+```scala mdoc
+// INSERT with RETURNING clause
+Insert[BuilderUser]
+  .value(_.name, "Bob")
+  .value(_.email, "bob@example.com")
+  .value(_.age, 25)
+  .returning.sql
+```
+
+#### Update Builder (Builder/Ready Pattern)
+
+The Update builder uses a **Builder/Ready pattern** to prevent accidental updates of all rows. You must either:
+- Call `.where(...)` to specify which rows to update
+- Call `.all` to explicitly update all rows
+
+```scala mdoc
+run {
+  xa.run(for
+    _ <- ddl.createTable[BuilderUser]()
+    _ <- dml.insert(BuilderUser(-1, "Alice", "alice@example.com", 30))
+    _ <- dml.insert(BuilderUser(-1, "Bob", "bob@example.com", 25))
+    users <- sql"SELECT * FROM ${Table[BuilderUser]}".query[BuilderUser]
+  yield users)
+}
+```
+
+```scala mdoc
+// Update with type-safe WHERE clause
+Update[BuilderUser]
+  .set(_.name, "Alice Updated")
+  .set(_.age, 31)
+  .where(_.id).eq(1)
+  .build.sql
+```
+
+```scala mdoc
+// Chain multiple WHERE conditions
+Update[BuilderUser]
+  .set(_.email, "new@example.com")
+  .where(_.name).eq("Bob")
+  .where(_.age).gt(20)
+  .build.sql
+```
+
+```scala mdoc
+// Update with RETURNING clause
+Update[BuilderUser]
+  .set(_.age, 35)
+  .where(_.id).eq(1)
+  .returning.sql
+```
+
+```scala mdoc
+// Explicitly update all rows (requires .all)
+Update[BuilderUser]
+  .set(_.age, 0)
+  .all  // Required - prevents accidental "UPDATE ... SET" without WHERE
+  .build.sql
+```
+
+#### Delete Builder (Builder/Ready Pattern)
+
+Like Update, the Delete builder requires either `.where(...)` or `.all`:
+
+```scala mdoc
+// Delete with type-safe WHERE clause
+Delete[BuilderUser]
+  .where(_.id).eq(1)
+  .build.sql
+```
+
+```scala mdoc
+// Chain multiple WHERE conditions
+Delete[BuilderUser]
+  .where(_.age).lt(18)
+  .where(_.name).neq("Admin")
+  .build.sql
+```
+
+```scala mdoc
+// Delete with RETURNING clause
+Delete[BuilderUser]
+  .where(_.email).eq("old@example.com")
+  .returning.sql
+```
+
+```scala mdoc
+// Explicitly delete all rows (requires .all)
+Delete[BuilderUser]
+  .all  // Required - prevents accidental "DELETE FROM ..."
+  .build.sql
+```
+
+#### Available WHERE Operators
+
+All mutation builders support these operators in WHERE clauses:
+
+| Method | SQL | Description |
+|--------|-----|-------------|
+| `.eq(value)` | `= ?` | Equality |
+| `.neq(value)` | `<> ?` | Not equal |
+| `.lt(value)` | `< ?` | Less than |
+| `.lte(value)` | `<= ?` | Less than or equal |
+| `.gt(value)` | `> ?` | Greater than |
+| `.gte(value)` | `>= ?` | Greater than or equal |
+| `.isNull()` | `IS NULL` | Null check |
+| `.isNotNull()` | `IS NOT NULL` | Non-null check |
+
+You can also use raw `SqlFragment` for complex conditions:
+
+```scala mdoc
+// Using SqlFragment for complex WHERE
+val users = Table[BuilderUser]
+Update[BuilderUser]
+  .set(_.age, 25)
+  .where(sql"${users.name} LIKE ${"A%"}")
+  .build.sql
+```
+
 ---
 
 ## Query Builder
 
 Saferis provides a unified, type-safe `Query` builder for constructing SQL queries. It supports single-table queries, multi-table joins (up to 5 tables), WHERE clauses, pagination, and subqueries - all with compile-time type safety.
+
+### Query Safety (Builder/Ready Pattern)
+
+To prevent accidental unbounded queries that could fetch millions of rows, Saferis uses a **Builder/Ready pattern**. A query must have at least one safety constraint before it can be executed:
+
+| Safety Constraint | Description |
+|------------------|-------------|
+| `.where(...)` | Filter results with a WHERE clause |
+| `.limit(n)` | Limit the number of rows returned |
+| `.seekAfter(...)` / `.seekBefore(...)` | Cursor-based pagination |
+| `.all` | Explicit opt-in to fetch all rows |
+
+```scala mdoc:compile-only
+import saferis.*
+import saferis.postgres.given
+
+@tableName("safety_users")
+case class SafetyUser(@generated @key id: Int, name: String) derives Table
+
+// These compile - they have safety constraints:
+Query[SafetyUser].where(_.name).eq("Alice")     // Has WHERE
+Query[SafetyUser].limit(100)                     // Has LIMIT
+Query[SafetyUser].all                            // Explicit opt-in
+
+// This would NOT compile - no safety constraint:
+// Query[SafetyUser].build  // Error: .build not available on Builder
+```
+
+The pattern ensures you consciously choose to query all rows with `.all` rather than accidentally doing so.
 
 ### Basic Queries
 
@@ -930,9 +1103,10 @@ case class JoinItem(@key orderId: Int, @key productId: Int, quantity: Int) deriv
 ```
 
 ```scala mdoc
-// Inner join
+// Inner join (using .all to explicitly fetch all rows)
 Query[JoinUser]
   .innerJoin[JoinOrder].on(_.id).eq(_.userId)
+  .all
   .build.sql
 ```
 
@@ -940,6 +1114,7 @@ Query[JoinUser]
 // Left join
 Query[JoinUser]
   .leftJoin[JoinOrder].on(_.id).eq(_.userId)
+  .all
   .build.sql
 ```
 
@@ -947,6 +1122,7 @@ Query[JoinUser]
 // Right join
 Query[JoinUser]
   .rightJoin[JoinOrder].on(_.id).eq(_.userId)
+  .all
   .build.sql
 ```
 
@@ -954,8 +1130,35 @@ Query[JoinUser]
 // Full join
 Query[JoinUser]
   .fullJoin[JoinOrder].on(_.id).eq(_.userId)
+  .all
   .build.sql
 ```
+
+### Finalizing Joins with `.endJoin`
+
+After specifying the ON clause, you can either:
+1. Use **convenience methods** like `.where()`, `.limit()`, `.all` directly on the join chain
+2. Call **`.endJoin`** explicitly to finalize the join and return to the query builder
+
+```scala mdoc
+// Using convenience method (implicitly calls endJoin)
+Query[JoinUser]
+  .innerJoin[JoinOrder].on(_.id).eq(_.userId)
+  .where(_.name).eq("Alice")  // Convenience method
+  .build.sql
+```
+
+```scala mdoc
+// Using explicit .endJoin for more control
+Query[JoinUser]
+  .innerJoin[JoinOrder].on(_.id).eq(_.userId)
+  .endJoin                    // Explicitly finalize join
+  .orderBy(Table[JoinUser].name.asc)
+  .all
+  .build.sql
+```
+
+The `.endJoin` method is useful when you want to add operations like `.orderBy()` that aren't available as convenience methods on the join chain.
 
 ### Multi-Table Joins
 
@@ -966,6 +1169,7 @@ Chain up to 5 tables. Use `onPrev()` to reference the previously joined table:
 Query[JoinUser]
   .innerJoin[JoinOrder].on(_.id).eq(_.userId)
   .innerJoin[JoinItem].onPrev(_.id).eq(_.orderId)
+  .all
   .build.sql
 ```
 
@@ -1059,6 +1263,7 @@ Use column extensions for concise sorting:
 Query[Article]
   .orderBy(articles.views.desc)
   .orderBy(articles.title.asc)
+  .all
   .build.sql
 ```
 
@@ -1067,6 +1272,7 @@ Control NULL ordering:
 ```scala mdoc
 Query[Article]
   .orderBy(articles.views.descNullsLast)
+  .all
   .build.sql
 ```
 
@@ -1160,7 +1366,7 @@ Use `whereExists()` or `whereNotExists()`:
 ```scala mdoc
 // EXISTS - find users who have orders
 Query[SubUser]
-  .whereExists(Query[SubOrder])
+  .whereExists(Query[SubOrder].all)
   .build.sql
 ```
 
@@ -1222,6 +1428,7 @@ Query.from(highValueOrders, "high_value")
 // Derived table with join
 Query.from(highValueOrders, "summary")
   .innerJoin[DerivedUser].on(_.userId).eq(_.id)
+  .all
   .build.sql
 ```
 
