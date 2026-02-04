@@ -1,10 +1,14 @@
 package saferis.tests
 
 import saferis.Encoder
-import java.sql.{Date, Time, Timestamp, PreparedStatement}
-import java.net.URL
 import zio.*
 import zio.test.*
+
+import java.net.URL
+import java.sql.Date
+import java.sql.PreparedStatement
+import java.sql.Time
+import java.sql.Timestamp
 
 object EncoderSpecs extends ZIOSpecDefault:
   val dateVal      = new Date(1660000000000L)

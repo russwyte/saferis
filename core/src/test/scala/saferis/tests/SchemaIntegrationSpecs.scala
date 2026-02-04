@@ -1,14 +1,14 @@
 package saferis.tests
 
 import saferis.*
+import saferis.Schema.*
 import saferis.ddl.*
 import saferis.dml.*
 import saferis.postgres.PostgresDialect
-import saferis.Schema.*
+import saferis.tests.PostgresTestContainer.DataSourceProvider
 import zio.*
 import zio.json.*
 import zio.test.*
-import PostgresTestContainer.DataSourceProvider
 
 /** Integration tests for Schema DSL features with PostgreSQL. Tests partial indexes, JSON operations, and verifies
   * actual database behavior.
@@ -21,13 +21,13 @@ object SchemaIntegrationSpecs extends ZIOSpecDefault:
 
   // === Test Data Types ===
 
-  case class UserProfile(email: String, verified: Boolean, role: String) derives JsonCodec
-  case class Metadata(tags: List[String], version: Int, active: Boolean) derives JsonCodec
+  final case class UserProfile(email: String, verified: Boolean, role: String) derives JsonCodec
+  final case class Metadata(tags: List[String], version: Int, active: Boolean) derives JsonCodec
 
   // === Test Tables ===
 
   @tableName("schema_int_users")
-  case class User(
+  final case class User(
       @generated @key id: Int,
       name: String,
       email: String,
@@ -36,30 +36,30 @@ object SchemaIntegrationSpecs extends ZIOSpecDefault:
   ) derives Table
 
   @tableName("schema_int_profiles")
-  case class Profile(
+  final case class Profile(
       @generated @key id: Int,
       userId: Int,
       data: Json[UserProfile],
   ) derives Table
 
   @tableName("schema_int_events")
-  case class Event(
+  final case class Event(
       @generated @key id: Int,
       name: String,
       metadata: Json[Metadata],
   ) derives Table
 
   // Helper for querying index info from PostgreSQL
-  case class IndexInfo(indexname: String, indexdef: String) derives Table
+  final case class IndexInfo(indexname: String, indexdef: String) derives Table
 
   // Helper for counting
-  case class CountResult(count: Long) derives Table
+  final case class CountResult(count: Long) derives Table
 
   // Helper for JSON field extraction
-  case class JsonFieldResult(value: Option[String]) derives Table
+  final case class JsonFieldResult(value: Option[String]) derives Table
 
   // Helper for name extraction
-  case class NameResult(name: String) derives Table
+  final case class NameResult(name: String) derives Table
 
   val spec = suite("Schema Integration Tests")(
     // === Partial Index Creation ===

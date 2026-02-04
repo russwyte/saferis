@@ -1,37 +1,37 @@
 package saferis.tests
 
 import saferis.*
+import saferis.Schema.*
 import saferis.ddl.*
 import saferis.dml.*
 import saferis.postgres.given
-import saferis.Schema.*
+import saferis.tests.PostgresTestContainer.DataSourceProvider
 import zio.*
 import zio.test.*
-import PostgresTestContainer.DataSourceProvider
 
 object ForeignKeyIntegrationSpecs extends ZIOSpecDefault:
   val xaLayer = DataSourceProvider.default >>> Transactor.default
 
   // Test tables
   @tableName("fk_int_users")
-  case class User(@generated @key id: Int, name: String, email: String) derives Table
+  final case class User(@generated @key id: Int, name: String, email: String) derives Table
 
   @tableName("fk_int_products")
-  case class Product(@generated @key id: Int, name: String, price: BigDecimal) derives Table
+  final case class Product(@generated @key id: Int, name: String, price: BigDecimal) derives Table
 
   @tableName("fk_int_orders")
-  case class Order(@generated @key id: Int, userId: Int, productId: Int, amount: BigDecimal) derives Table
+  final case class Order(@generated @key id: Int, userId: Int, productId: Int, amount: BigDecimal) derives Table
 
   // For testing SET NULL
   @tableName("fk_int_orders_nullable")
-  case class OrderNullable(@generated @key id: Int, userId: Option[Int], amount: BigDecimal) derives Table
+  final case class OrderNullable(@generated @key id: Int, userId: Option[Int], amount: BigDecimal) derives Table
 
   // For compound FK test
   @tableName("fk_int_order_details")
-  case class OrderDetail(@key orderId: Int, @key lineNum: Int, sku: String) derives Table
+  final case class OrderDetail(@key orderId: Int, @key lineNum: Int, sku: String) derives Table
 
   @tableName("fk_int_order_items")
-  case class OrderItem(@generated @key id: Int, orderId: Int, lineNum: Int, price: BigDecimal) derives Table
+  final case class OrderItem(@generated @key id: Int, orderId: Int, lineNum: Int, price: BigDecimal) derives Table
 
   val spec = suite("Foreign Key Integration Tests")(
     test("createTable with Instance generates FK constraints") {
@@ -276,6 +276,6 @@ object ForeignKeyIntegrationSpecs extends ZIOSpecDefault:
   ).provideShared(xaLayer) @@ TestAspect.sequential
 
   // Helper case classes for query results
-  case class CountResult(count: Int) derives Table
-  case class UserIdResult(userId: Option[Int]) derives Table
+  final case class CountResult(count: Int) derives Table
+  final case class UserIdResult(userId: Option[Int]) derives Table
 end ForeignKeyIntegrationSpecs

@@ -6,15 +6,15 @@ import zio.test.*
 object MacroSpecs extends ZIOSpecDefault:
 
   @tableName("test_users")
-  case class TestUser(@key id: Int, name: String, age: Int) derives Table
+  final case class TestUser(@key id: Int, name: String, age: Int) derives Table
 
   // Table with a field named "column" to test naming collision avoidance
   @tableName("with_column_field")
-  case class WithColumnField(@key id: Int, column: String, data: Int) derives Table
+  final case class WithColumnField(@key id: Int, column: String, data: Int) derives Table
 
   // Table with fields that could collide with Instance methods
   @tableName("reserved_names")
-  case class ReservedNames(
+  final case class ReservedNames(
       @key id: Int,
       sql: String,       // Collides with Placeholder.sql
       withAlias: String, // Collides with Instance.withAlias

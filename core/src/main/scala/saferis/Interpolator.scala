@@ -1,8 +1,8 @@
 package saferis
 
+import scala.annotation.Annotation
 import scala.collection.mutable as m
 import scala.quoted.*
-import scala.annotation.Annotation
 import scala.reflect.Selectable.reflectiveSelectable
 
 class silent extends Annotation

@@ -1,16 +1,16 @@
 package saferis.tests
 
 import saferis.*
+import saferis.tests.PostgresTestContainer.DataSourceProvider
 import zio.*
 import zio.test.*
-import PostgresTestContainer.DataSourceProvider
 
 object MutationSpecs extends ZIOSpecDefault:
   val xaLayer = DataSourceProvider.default >>> Transactor.default
 
   // Test table for mutation specs
   @tableName("test_mutation")
-  case class TestUser(@generated @key id: Int, name: String, age: Int, status: String) derives Table
+  final case class TestUser(@generated @key id: Int, name: String, age: Int, status: String) derives Table
 
   // ============================================================================
   // SQL Generation Tests (Unit Tests)

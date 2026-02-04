@@ -9,19 +9,19 @@ object QuerySpecs extends ZIOSpecDefault:
 
   // Test tables
   @tableName("users")
-  case class User(@generated @key id: Int, name: String, email: String, age: Int) derives Table
+  final case class User(@generated @key id: Int, name: String, email: String, age: Int) derives Table
 
   @tableName("orders")
-  case class Order(@generated @key id: Int, userId: Int, amount: BigDecimal, status: String) derives Table
+  final case class Order(@generated @key id: Int, userId: Int, amount: BigDecimal, status: String) derives Table
 
   @tableName("products")
-  case class Product(@generated @key id: Int, name: String, price: BigDecimal) derives Table
+  final case class Product(@generated @key id: Int, name: String, price: BigDecimal) derives Table
 
   @tableName("order_items")
-  case class OrderItem(@key orderId: Int, @key productId: Int, quantity: Int) derives Table
+  final case class OrderItem(@key orderId: Int, @key productId: Int, quantity: Int) derives Table
 
   @tableName("categories")
-  case class Category(@generated @key id: Int, name: String) derives Table
+  final case class Category(@generated @key id: Int, name: String) derives Table
 
   val spec = suite("Unified Query API")(
     suite("Query1 - Single table")(
@@ -348,7 +348,7 @@ object QuerySpecs extends ZIOSpecDefault:
       test("selectAll creates typed query for derived table") {
         // Virtual type matching subquery result shape
         @tableName("order_summary")
-        case class OrderSummary(userId: Int, status: String) derives Table
+        final case class OrderSummary(userId: Int, status: String) derives Table
 
         val subquery = Query[Order]
           .where(_.amount)
@@ -364,7 +364,7 @@ object QuerySpecs extends ZIOSpecDefault:
       },
       test("Query.from creates derived table query") {
         @tableName("paid_orders")
-        case class PaidOrder(userId: Int, amount: BigDecimal, status: String) derives Table
+        final case class PaidOrder(userId: Int, amount: BigDecimal, status: String) derives Table
 
         val subquery = Query[Order]
           .where(_.status)
@@ -380,7 +380,7 @@ object QuerySpecs extends ZIOSpecDefault:
       },
       test("derived table with where clause") {
         @tableName("high_value")
-        case class HighValueOrder(userId: Int, amount: BigDecimal) derives Table
+        final case class HighValueOrder(userId: Int, amount: BigDecimal) derives Table
 
         val subquery = Query[Order]
           .where(_.amount)
@@ -401,7 +401,7 @@ object QuerySpecs extends ZIOSpecDefault:
       },
       test("derived table with join") {
         @tableName("order_totals")
-        case class OrderTotal(userId: Int, amount: BigDecimal) derives Table
+        final case class OrderTotal(userId: Int, amount: BigDecimal) derives Table
 
         val subquery = Query[Order]
           .where(_.status)

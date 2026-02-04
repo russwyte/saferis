@@ -2,6 +2,7 @@ package saferis.tests
 
 import saferis.*
 import zio.test.*
+
 import java.time.*
 
 object JavaTimeCodecSpecs extends ZIOSpecDefault:
@@ -69,7 +70,7 @@ object JavaTimeCodecSpecs extends ZIOSpecDefault:
     },
     test("Can use Instant in table definition with timestamptz column type") {
       @tableName("events")
-      case class Event(@key id: Int, occurredAt: Instant, description: String) derives Table
+      final case class Event(@key id: Int, occurredAt: Instant, description: String) derives Table
 
       val table            = Table[Event]
       val occurredAtColumn = table.occurredAt
@@ -78,7 +79,7 @@ object JavaTimeCodecSpecs extends ZIOSpecDefault:
     },
     test("Can use LocalDateTime in table definition") {
       @tableName("appointments")
-      case class Appointment(@key id: Int, scheduledFor: LocalDateTime) derives Table
+      final case class Appointment(@key id: Int, scheduledFor: LocalDateTime) derives Table
 
       val table              = Table[Appointment]
       val scheduledForColumn = table.scheduledFor
@@ -87,7 +88,7 @@ object JavaTimeCodecSpecs extends ZIOSpecDefault:
     },
     test("Can use LocalDate in table definition") {
       @tableName("holidays")
-      case class Holiday(@key id: Int, date: LocalDate, name: String) derives Table
+      final case class Holiday(@key id: Int, date: LocalDate, name: String) derives Table
 
       val table      = Table[Holiday]
       val dateColumn = table.date

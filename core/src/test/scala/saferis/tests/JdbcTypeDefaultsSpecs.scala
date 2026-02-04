@@ -49,7 +49,7 @@ object JdbcTypeDefaultsSpecs extends ZIOSpecDefault:
     },
     test("Text can be used in table definitions") {
       @tableName("articles")
-      case class Article(@key id: Int, title: String, content: Text) derives Table
+      final case class Article(@key id: Int, title: String, content: Text) derives Table
 
       val table         = Table[Article]
       val titleColumn   = table.columns.find(_.name == "title").get
@@ -59,16 +59,16 @@ object JdbcTypeDefaultsSpecs extends ZIOSpecDefault:
       assertTrue(contentColumn.columnType == "text")
     },
     test("Json[A] encoder uses Types.OTHER (maps to jsonb in PostgreSQL)") {
-      case class Metadata(tags: List[String], version: Int) derives JsonCodec
+      final case class Metadata(tags: List[String], version: Int) derives JsonCodec
       val encoder = summon[Encoder[Json[Metadata]]]
       assertTrue(encoder.jdbcType == java.sql.Types.OTHER) &&
       assertTrue(encoder.columnType == "jsonb")
     },
     test("Json[A] can be used in table definitions") {
-      case class EventMetadata(source: String, priority: Int) derives JsonCodec
+      final case class EventMetadata(source: String, priority: Int) derives JsonCodec
 
       @tableName("events")
-      case class Event(@key id: Int, name: String, metadata: Json[EventMetadata]) derives Table
+      final case class Event(@key id: Int, name: String, metadata: Json[EventMetadata]) derives Table
 
       val table          = Table[Event]
       val nameColumn     = table.columns.find(_.name == "name").get
@@ -78,10 +78,10 @@ object JdbcTypeDefaultsSpecs extends ZIOSpecDefault:
       assertTrue(metadataColumn.columnType == "jsonb")
     },
     test("Option[Json[A]] is supported for nullable JSON columns") {
-      case class Config(setting: String) derives JsonCodec
+      final case class Config(setting: String) derives JsonCodec
 
       @tableName("settings")
-      case class Settings(@key id: Int, config: Option[Json[Config]]) derives Table
+      final case class Settings(@key id: Int, config: Option[Json[Config]]) derives Table
 
       val table        = Table[Settings]
       val configColumn = table.columns.find(_.name == "config").get

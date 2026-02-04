@@ -2,7 +2,10 @@ package saferis
 
 import zio.*
 import zio.json.*
-import java.sql.{PreparedStatement, ResultSet, SQLException}
+
+import java.sql.PreparedStatement
+import java.sql.ResultSet
+import java.sql.SQLException
 
 /** A wrapper type for storing values as JSON in the database (JSONB in PostgreSQL, JSON in MySQL, etc.)
   *

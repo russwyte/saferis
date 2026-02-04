@@ -1,15 +1,15 @@
 package saferis.tests
 
 import saferis.*
-import saferis.dml.*
 import saferis.ddl.*
+import saferis.dml.*
 import saferis.postgres.given
+import saferis.tests.PostgresTestContainer.DataSourceProvider
 import zio.*
 import zio.test.*
 
 import java.sql.Connection
 import java.sql.SQLException
-import PostgresTestContainer.DataSourceProvider
 
 object TransactorSpecs extends ZIOSpecDefault:
   val serializable = DataSourceProvider.default >>> Transactor.layer(
@@ -73,7 +73,7 @@ object TransactorSpecs extends ZIOSpecDefault:
 
       test("insert operation"):
         @tableName("test_transactor_insert")
-        case class InsertTable(@key id: Int, name: String) derives Table
+        final case class InsertTable(@key id: Int, name: String) derives Table
 
         for
           xa <- ZIO.service[Transactor]
@@ -91,7 +91,7 @@ object TransactorSpecs extends ZIOSpecDefault:
 
       test("update operation"):
         @tableName("test_transactor_update")
-        case class UpdateTable(@key id: Int, name: String) derives Table
+        final case class UpdateTable(@key id: Int, name: String) derives Table
 
         for
           xa <- ZIO.service[Transactor]
@@ -111,7 +111,7 @@ object TransactorSpecs extends ZIOSpecDefault:
 
       test("delete operation"):
         @tableName("test_transactor_delete")
-        case class DeleteTable(@key id: Int, name: String) derives Table
+        final case class DeleteTable(@key id: Int, name: String) derives Table
 
         for
           xa <- ZIO.service[Transactor]
@@ -131,7 +131,7 @@ object TransactorSpecs extends ZIOSpecDefault:
 
       test("DDL operations"):
         @tableName("test_transactor_ddl")
-        case class DDLTable(@key id: Int, name: String) derives Table
+        final case class DDLTable(@key id: Int, name: String) derives Table
 
         for
           xa <- ZIO.service[Transactor]
@@ -199,7 +199,7 @@ object TransactorSpecs extends ZIOSpecDefault:
 
       test("mixed operations in transaction"):
         @tableName("test_transactor_mixed")
-        case class MixedTable(@key id: Int, name: String, value: Int) derives Table
+        final case class MixedTable(@key id: Int, name: String, value: Int) derives Table
 
         for
           xa <- ZIO.service[Transactor]
@@ -223,7 +223,7 @@ object TransactorSpecs extends ZIOSpecDefault:
 
       test("transaction isolation"):
         @tableName("test_transactor_isolation")
-        case class IsolationTable(@key id: Int, value: Int) derives Table
+        final case class IsolationTable(@key id: Int, value: Int) derives Table
 
         for
           xa <- ZIO.service[Transactor]
@@ -249,7 +249,7 @@ object TransactorSpecs extends ZIOSpecDefault:
     suiteAll("should handle unlimited concurrency"):
       test("concurrent access with no semaphore limit"):
         @tableName("test_transactor_unlimited")
-        case class UnlimitedTable(@key id: Int, name: String) derives Table
+        final case class UnlimitedTable(@key id: Int, name: String) derives Table
 
         for
           xa <- ZIO.service[Transactor]
@@ -272,7 +272,7 @@ object TransactorSpecs extends ZIOSpecDefault:
     suiteAll("should handle limited concurrency"):
       test("concurrent access with semaphore limit of 2"):
         @tableName("test_transactor_limited")
-        case class LimitedTable(@key id: Int, name: String) derives Table
+        final case class LimitedTable(@key id: Int, name: String) derives Table
 
         for
           xa <- ZIO.service[Transactor]
@@ -295,7 +295,7 @@ object TransactorSpecs extends ZIOSpecDefault:
     suiteAll("should handle serialized concurrency"):
       test("concurrent access with semaphore limit of 1"):
         @tableName("test_transactor_serialized")
-        case class SerializedTable(@key id: Int, name: String) derives Table
+        final case class SerializedTable(@key id: Int, name: String) derives Table
 
         for
           xa <- ZIO.service[Transactor]
@@ -325,8 +325,8 @@ object TransactorSpecs extends ZIOSpecDefault:
             sql"select 1 as value".queryOne[ValueResult]
         yield assertTrue(result.map(_.value).contains(1))
 
-  case class CountResult(count: Int) derives Table
-  case class ValueResult(value: Int) derives Table
+  final case class CountResult(count: Int) derives Table
+  final case class ValueResult(value: Int) derives Table
 
   val all = suiteAll("A transactor"):
     runSuite.provideShared(defaultTransactor)

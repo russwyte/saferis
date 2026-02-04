@@ -1,7 +1,6 @@
 package saferis.tests
 
 import saferis.*
-// NOTE: No explicit postgres import needed! The default dialect should be available via wildcard import
 import zio.test.*
 
 object DefaultDialectSpecs extends ZIOSpecDefault:
@@ -21,14 +20,14 @@ object DefaultDialectSpecs extends ZIOSpecDefault:
     test("Can create tables with just import saferis.*") {
       // This tests that all the necessary implicits are available
       @tableName("test_default_dialect")
-      case class TestTable(@key id: Int, name: String) derives Table
+      final case class TestTable(@key id: Int, name: String) derives Table
 
       val table = Table[TestTable]
       assertTrue(toSql(table) == "test_default_dialect")
     },
     test("Can generate compound key index SQL with default dialect") {
       @tableName("test_create_sql")
-      case class TestTable(@key id: Int, @key tenantId: Int, name: String) derives Table
+      final case class TestTable(@key id: Int, @key tenantId: Int, name: String) derives Table
 
       import saferis.ddl.*
       val sql = createIndexesSql[TestTable]()

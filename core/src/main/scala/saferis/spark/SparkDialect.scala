@@ -1,6 +1,7 @@
 package saferis.spark
 
 import saferis.*
+
 import java.sql.Types
 
 given Dialect = SparkDialect

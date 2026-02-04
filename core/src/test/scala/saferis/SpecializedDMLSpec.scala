@@ -1,14 +1,14 @@
 package saferis
 
+import saferis.SpecializedDML.*
 import zio.*
 import zio.test.*
-import saferis.SpecializedDML.*
 
 object SpecializedDMLSpec extends ZIOSpecDefault:
 
   // Test model
   @tableName("test_users")
-  case class TestUser(@generated @key id: Int, name: String, email: String) derives Table
+  final case class TestUser(@generated @key id: Int, name: String, email: String) derives Table
 
   def spec = suite("SpecializedDML")(
     test("should provide type-safe dialect-specific operations") {

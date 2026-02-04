@@ -22,7 +22,7 @@ object DialectOverrideSpecs extends ZIOSpecDefault:
       import saferis.mysql.given
 
       // Define a custom type and encoder for testing
-      case class CustomId(value: String)
+      final case class CustomId(value: String)
 
       given customIdEncoder: Encoder[CustomId] with
         override val jdbcType                                                                 = java.sql.Types.VARCHAR
