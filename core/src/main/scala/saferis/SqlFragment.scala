@@ -82,24 +82,18 @@ final case class SqlFragment(
 
   /** alias for [[Statement.dml]]
     *
-    * Executes the statement which must be an SQL Data Manipulation Language (DML) statement, such as INSERT, UPDATE or
-    * DELETE or an SQL statement that returns nothing, such as a DDL statement.
     * @return
     */
   def update(using Trace): ZIO[ConnectionProvider & Scope, Throwable, Int] = dml
 
   /** alias for [[Statement.dml]]
     *
-    * Executes the statement which must be an SQL Data Manipulation Language (DML) statement, such as INSERT, UPDATE or
-    * DELETE or an SQL statement that returns nothing, such as a DDL statement.
     * @return
     */
   def delete(using Trace): ZIO[ConnectionProvider & Scope, Throwable, Int] = dml
 
   /** alias for [[Statement.dml]]
     *
-    * Executes the statement which must be an SQL Data Manipulation Language (DML) statement, such as INSERT, UPDATE or
-    * DELETE or an SQL statement that returns nothing, such as a DDL statement.
     * @return
     */
   def insert(using Trace): ZIO[ConnectionProvider & Scope, Throwable, Int] = dml
@@ -111,7 +105,7 @@ final case class SqlFragment(
   def execute(using Trace): ZIO[ConnectionProvider & Scope, Throwable, Int] = dml
 
   /** Executes the statement which must be an SQL Data Manipulation Language (DML) statement, such as INSERT, UPDATE or
-    * DELETE or an SQL statement that returns nothing, such as a DDL statement.
+    * DELETE or an SQL statement that returns an Int, such as a DML statement.
     * @return
     */
   inline def dml(using Trace): ZIO[ConnectionProvider & Scope, Throwable, Int] =

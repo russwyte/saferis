@@ -71,111 +71,64 @@ final case class SelectQuery[T](query: QueryBase) extends QueryBase:
   def build: SqlFragment = query.build
 
 // ============================================================================
-// Query1 - Single table (entry point)
+// Query1Builder - Single table (entry point, not yet ready to execute)
 // ============================================================================
 
-/** Query for a single table - the starting point for building queries.
+/** Derived table source - subquery with user-provided alias */
+final case class DerivedSource(subquery: SelectQuery[?], alias: String)
+
+/** Query builder for a single table - the starting point for building queries.
+  *
+  * This builder does NOT have execution methods (.query, .queryOne, .build). You must call .where(), .limit(),
+  * .seekAfter(), or .all to get a Query1Ready which can be executed.
   *
   * Usage:
   * {{{
   *   Query[User]
-  *     .where(_.name).eq("Alice")
+  *     .where(_.name).eq("Alice")  // Returns Query1Ready
   *     .orderBy(users.name.asc)
-  *     .seekAfter(users.id, lastId)
   *     .limit(20)
   *     .query[User]
   * }}}
   */
-/** Derived table source - subquery with user-provided alias */
-final case class DerivedSource(subquery: SelectQuery[?], alias: String)
-
-final case class Query1[A <: Product: Table](
+final case class Query1Builder[A <: Product: Table](
     baseInstance: Instance[A],
-    wherePredicates: Vector[SqlFragment] = Vector.empty,
     sorts: Vector[Sort[?]] = Vector.empty,
-    seeks: Vector[Seek[?]] = Vector.empty,
-    limitValue: Option[Int] = None,
-    offsetValue: Option[Long] = None,
-    selectColumns: Vector[Column[?]] = Vector.empty, // Empty = select *
-    derivedSource: Option[DerivedSource] = None,     // For derived tables (subquery in FROM)
-) extends QueryBase:
-  // === WHERE Methods ===
-
-  /** Add a WHERE predicate using SqlFragment */
-  def where(predicate: SqlFragment): Query1[A] =
-    copy(wherePredicates = wherePredicates :+ predicate)
-
-  /** Start a type-safe WHERE condition by selecting a column */
-  inline def where[T](inline selector: A => T): WhereBuilder1[A, T] =
-    val fieldName   = Macros.extractFieldName[A, T](selector)
-    val columnLabel = baseInstance.fieldNamesToColumns(fieldName).label
-    val alias       = baseInstance.alias.getOrElse(baseInstance.tableName)
-    WhereBuilder1(this, alias, columnLabel)
-
-  /** EXISTS subquery - check if subquery returns any rows.
-    *
-    * For correlated subqueries, use sql"..." with outer table references:
-    * {{{
-    *   val users = Table[User]
-    *   Query[User]
-    *     .whereExists(Query[Order].where(sql"userId = ${users.id}"))
-    * }}}
-    */
-  def whereExists(subquery: QueryBase): Query1[A] =
-    val subquerySql = subquery.build
-    val existsSql   = s"EXISTS (${subquerySql.sql})"
-    val whereFrag   = SqlFragment(existsSql, subquerySql.writes)
-    copy(wherePredicates = wherePredicates :+ whereFrag)
-
-  /** NOT EXISTS subquery */
-  def whereNotExists(subquery: QueryBase): Query1[A] =
-    val subquerySql  = subquery.build
-    val notExistsSql = s"NOT EXISTS (${subquerySql.sql})"
-    val whereFrag    = SqlFragment(notExistsSql, subquerySql.writes)
-    copy(wherePredicates = wherePredicates :+ whereFrag)
-
-  // === ORDER BY Methods ===
+    selectColumns: Vector[Column[?]] = Vector.empty,
+    derivedSource: Option[DerivedSource] = None,
+):
+  // === ORDER BY Methods (stay on Builder) ===
 
   /** Add an ORDER BY clause */
-  def orderBy(sort: Sort[?]): Query1[A] =
+  def orderBy(sort: Sort[?]): Query1Builder[A] =
     copy(sorts = sorts :+ sort)
 
   /** Add multiple ORDER BY clauses */
-  def orderBy(sort: Sort[?], moreSorts: Sort[?]*): Query1[A] =
+  def orderBy(sort: Sort[?], moreSorts: Sort[?]*): Query1Builder[A] =
     copy(sorts = sorts ++ (sort +: moreSorts))
 
-  // === PAGINATION Methods ===
+  // === SELECT Methods (for subqueries, stay on Builder) ===
 
-  /** Set LIMIT */
-  def limit(n: Int): Query1[A] = copy(limitValue = Some(n))
+  /** Select a single column (for use in IN subqueries). */
+  inline def select[T](inline selector: A => T): SelectQuery[T] =
+    val fieldName = Macros.extractFieldName[A, T](selector)
+    val column    = baseInstance.fieldNamesToColumns(fieldName)
+    // Create a Ready version for the subquery (subqueries don't need safety constraints)
+    SelectQuery[T](
+      Query1Ready(baseInstance, Vector.empty, sorts, Vector.empty, None, None, Vector(column), derivedSource)
+    )
 
-  /** Set OFFSET */
-  def offset(n: Long): Query1[A] = copy(offsetValue = Some(n))
+  /** Select multiple columns. */
+  def select(columns: Column[?]*): Query1Builder[A] =
+    copy(selectColumns = columns.toVector)
 
-  // === SEEK Methods ===
+  /** Select all columns with a specified result type (for use in derived tables). */
+  def selectAll[R <: Product: Table]: SelectQuery[R] =
+    SelectQuery[R](
+      Query1Ready(baseInstance, Vector.empty, sorts, Vector.empty, None, None, selectColumns, derivedSource)
+    )
 
-  /** Add seek-based pagination cursor */
-  def seek[T: Encoder](
-      column: Column[T],
-      direction: SeekDir,
-      value: T,
-      sortOrder: SortOrder = SortOrder.Asc,
-      nullOrder: NullOrder = NullOrder.Default,
-  ): Query1[A] =
-    copy(seeks = seeks :+ Seek(column, direction, value, sortOrder, nullOrder))
-
-  /** Add a pre-built Seek specification */
-  def seek(s: Seek[?]): Query1[A] = copy(seeks = seeks :+ s)
-
-  /** Convenience for forward seek (>). Gets rows AFTER the cursor value. */
-  def seekAfter[T: Encoder](column: Column[T], value: T, sortOrder: SortOrder = SortOrder.Asc): Query1[A] =
-    seek(column, SeekDir.Gt, value, sortOrder)
-
-  /** Convenience for backward seek (<). Gets rows BEFORE the cursor value. */
-  def seekBefore[T: Encoder](column: Column[T], value: T, sortOrder: SortOrder = SortOrder.Desc): Query1[A] =
-    seek(column, SeekDir.Lt, value, sortOrder)
-
-  // === JOIN Methods ===
+  // === JOIN Methods (stay on Builder) ===
 
   /** Start an INNER JOIN */
   def innerJoin[B <: Product: Table]: JoinBuilder1[A, B] =
@@ -193,50 +146,177 @@ final case class Query1[A <: Product: Table](
   def fullJoin[B <: Product: Table]: JoinBuilder1[A, B] =
     JoinBuilder1(this, JoinType.Full)
 
+  // === WHERE Methods (transition to Ready) ===
+
+  /** Add a WHERE predicate using SqlFragment - transitions to Ready */
+  def where(predicate: SqlFragment): Query1Ready[A] =
+    Query1Ready(baseInstance, Vector(predicate), sorts, Vector.empty, None, None, selectColumns, derivedSource)
+
+  /** Start a type-safe WHERE condition - transitions to Ready via WhereBuilder1 */
+  inline def where[T](inline selector: A => T): WhereBuilder1[A, T] =
+    val fieldName   = Macros.extractFieldName[A, T](selector)
+    val columnLabel = baseInstance.fieldNamesToColumns(fieldName).label
+    val alias       = baseInstance.alias.getOrElse(baseInstance.tableName)
+    WhereBuilder1(this, alias, columnLabel)
+
+  /** EXISTS subquery */
+  def whereExists(subquery: QueryBase): Query1Ready[A] =
+    val subquerySql = subquery.build
+    val existsSql   = s"EXISTS (${subquerySql.sql})"
+    val whereFrag   = SqlFragment(existsSql, subquerySql.writes)
+    Query1Ready(baseInstance, Vector(whereFrag), sorts, Vector.empty, None, None, selectColumns, derivedSource)
+
+  /** NOT EXISTS subquery */
+  def whereNotExists(subquery: QueryBase): Query1Ready[A] =
+    val subquerySql  = subquery.build
+    val notExistsSql = s"NOT EXISTS (${subquerySql.sql})"
+    val whereFrag    = SqlFragment(notExistsSql, subquerySql.writes)
+    Query1Ready(baseInstance, Vector(whereFrag), sorts, Vector.empty, None, None, selectColumns, derivedSource)
+
+  // === LIMIT/SEEK Methods (transition to Ready) ===
+
+  /** Set LIMIT - transitions to Ready (bounded query is safe) */
+  def limit(n: Int): Query1Ready[A] =
+    Query1Ready(baseInstance, Vector.empty, sorts, Vector.empty, Some(n), None, selectColumns, derivedSource)
+
+  /** Add seek-based pagination cursor - transitions to Ready */
+  def seek[T: Encoder](
+      column: Column[T],
+      direction: SeekDir,
+      value: T,
+      sortOrder: SortOrder = SortOrder.Asc,
+      nullOrder: NullOrder = NullOrder.Default,
+  ): Query1Ready[A] =
+    Query1Ready(
+      baseInstance,
+      Vector.empty,
+      sorts,
+      Vector(Seek(column, direction, value, sortOrder, nullOrder)),
+      None,
+      None,
+      selectColumns,
+      derivedSource,
+    )
+
+  /** Convenience for forward seek (>). Gets rows AFTER the cursor value. */
+  def seekAfter[T: Encoder](column: Column[T], value: T, sortOrder: SortOrder = SortOrder.Asc): Query1Ready[A] =
+    seek(column, SeekDir.Gt, value, sortOrder)
+
+  /** Convenience for backward seek (<). Gets rows BEFORE the cursor value. */
+  def seekBefore[T: Encoder](column: Column[T], value: T, sortOrder: SortOrder = SortOrder.Desc): Query1Ready[A] =
+    seek(column, SeekDir.Lt, value, sortOrder)
+
+  // === ALL Method (explicit opt-in to fetch all rows) ===
+
+  /** Explicitly mark this as fetching all rows.
+    *
+    * This is required to prevent accidental unbounded queries.
+    */
+  def all: Query1Ready[A] =
+    Query1Ready(baseInstance, Vector.empty, sorts, Vector.empty, None, None, selectColumns, derivedSource)
+
+end Query1Builder
+
+// ============================================================================
+// Query1Ready - Single table query ready to execute
+// ============================================================================
+
+/** Query for a single table that is ready to execute.
+  *
+  * This type has execution methods (.query, .queryOne, .build) because it has been constrained by WHERE, LIMIT,
+  * pagination, or explicit .all.
+  */
+final case class Query1Ready[A <: Product: Table](
+    baseInstance: Instance[A],
+    wherePredicates: Vector[SqlFragment],
+    sorts: Vector[Sort[?]],
+    seeks: Vector[Seek[?]],
+    limitValue: Option[Int],
+    offsetValue: Option[Long],
+    selectColumns: Vector[Column[?]],
+    derivedSource: Option[DerivedSource],
+) extends QueryBase:
+  // === WHERE Methods (chain on Ready) ===
+
+  /** Add a WHERE predicate using SqlFragment */
+  def where(predicate: SqlFragment): Query1Ready[A] =
+    copy(wherePredicates = wherePredicates :+ predicate)
+
+  /** Start a type-safe WHERE condition */
+  inline def where[T](inline selector: A => T): WhereBuilder1Ready[A, T] =
+    val fieldName   = Macros.extractFieldName[A, T](selector)
+    val columnLabel = baseInstance.fieldNamesToColumns(fieldName).label
+    val alias       = baseInstance.alias.getOrElse(baseInstance.tableName)
+    WhereBuilder1Ready(this, alias, columnLabel)
+
+  /** EXISTS subquery */
+  def whereExists(subquery: QueryBase): Query1Ready[A] =
+    val subquerySql = subquery.build
+    val existsSql   = s"EXISTS (${subquerySql.sql})"
+    val whereFrag   = SqlFragment(existsSql, subquerySql.writes)
+    copy(wherePredicates = wherePredicates :+ whereFrag)
+
+  /** NOT EXISTS subquery */
+  def whereNotExists(subquery: QueryBase): Query1Ready[A] =
+    val subquerySql  = subquery.build
+    val notExistsSql = s"NOT EXISTS (${subquerySql.sql})"
+    val whereFrag    = SqlFragment(notExistsSql, subquerySql.writes)
+    copy(wherePredicates = wherePredicates :+ whereFrag)
+
+  // === ORDER BY Methods ===
+
+  /** Add an ORDER BY clause */
+  def orderBy(sort: Sort[?]): Query1Ready[A] =
+    copy(sorts = sorts :+ sort)
+
+  /** Add multiple ORDER BY clauses */
+  def orderBy(sort: Sort[?], moreSorts: Sort[?]*): Query1Ready[A] =
+    copy(sorts = sorts ++ (sort +: moreSorts))
+
+  // === PAGINATION Methods ===
+
+  /** Set LIMIT */
+  def limit(n: Int): Query1Ready[A] = copy(limitValue = Some(n))
+
+  /** Set OFFSET (safe because already Ready) */
+  def offset(n: Long): Query1Ready[A] = copy(offsetValue = Some(n))
+
+  // === SEEK Methods ===
+
+  /** Add seek-based pagination cursor */
+  def seek[T: Encoder](
+      column: Column[T],
+      direction: SeekDir,
+      value: T,
+      sortOrder: SortOrder = SortOrder.Asc,
+      nullOrder: NullOrder = NullOrder.Default,
+  ): Query1Ready[A] =
+    copy(seeks = seeks :+ Seek(column, direction, value, sortOrder, nullOrder))
+
+  /** Add a pre-built Seek specification */
+  def seek(s: Seek[?]): Query1Ready[A] = copy(seeks = seeks :+ s)
+
+  /** Convenience for forward seek (>). Gets rows AFTER the cursor value. */
+  def seekAfter[T: Encoder](column: Column[T], value: T, sortOrder: SortOrder = SortOrder.Asc): Query1Ready[A] =
+    seek(column, SeekDir.Gt, value, sortOrder)
+
+  /** Convenience for backward seek (<). Gets rows BEFORE the cursor value. */
+  def seekBefore[T: Encoder](column: Column[T], value: T, sortOrder: SortOrder = SortOrder.Desc): Query1Ready[A] =
+    seek(column, SeekDir.Lt, value, sortOrder)
+
   // === SELECT Methods (for subqueries) ===
 
-  /** Select a single column (for use in IN subqueries).
-    *
-    * Returns a SelectQuery[T] where T is the column type, enabling compile-time type checking for IN subqueries.
-    *
-    * Usage:
-    * {{{
-    *   val subquery: SelectQuery[Int] = Query[Order].select(_.userId)
-    *   Query[User].where(_.id).in(subquery)  // Compiles: both are Int
-    * }}}
-    */
+  /** Select a single column (for use in IN subqueries). */
   inline def select[T](inline selector: A => T): SelectQuery[T] =
     val fieldName = Macros.extractFieldName[A, T](selector)
     val column    = baseInstance.fieldNamesToColumns(fieldName)
     SelectQuery[T](copy(selectColumns = Vector(column)))
 
-  /** Select multiple columns.
-    *
-    * Usage:
-    * {{{
-    *   Query[Order].select(_.userId, _.amount)
-    * }}}
-    */
-  def select(columns: Column[?]*): Query1[A] =
+  /** Select multiple columns. */
+  def select(columns: Column[?]*): Query1Ready[A] =
     copy(selectColumns = columns.toVector)
 
-  /** Select all columns with a specified result type (for use in derived tables).
-    *
-    * Returns a SelectQuery[R] where R is the result row type, enabling use as a derived table in FROM clause.
-    *
-    * Usage:
-    * {{{
-    *   case class OrderSummary(userId: Int, status: String) derives Table
-    *
-    *   val summary: SelectQuery[OrderSummary] = Query[Order]
-    *     .where(_.amount).gt(100)
-    *     .selectAll[OrderSummary]
-    *
-    *   Query.from(summary, "high_value_orders")
-    *     .innerJoin[User].on(_.userId).eq(_.id)
-    *     .query[UserWithOrders]
-    * }}}
-    */
+  /** Select all columns with a specified result type (for use in derived tables). */
   def selectAll[R <: Product: Table]: SelectQuery[R] =
     SelectQuery[R](this)
 
@@ -284,99 +364,60 @@ final case class Query1[A <: Product: Table](
   /** Execute query returning first row */
   inline def queryOne[R <: Product: Table](using Trace): ScopedQuery[Option[R]] = build.queryOne[R]
 
-end Query1
+end Query1Ready
 
 // ============================================================================
-// WhereBuilder1 - Type-safe WHERE condition builder for single table
+// WhereBuilder1 - Type-safe WHERE condition builder (Builder -> Ready)
 // ============================================================================
 
 /** Builder for type-safe WHERE conditions on a single table.
   *
-  * Supports literal value comparisons (bound as prepared statement parameters).
+  * Returns Query1Ready since adding a WHERE clause makes the query safe.
   */
 final case class WhereBuilder1[A <: Product: Table, T](
-    query: Query1[A],
+    builder: Query1Builder[A],
     fromAlias: String,
     fromColumn: String,
-):
-  private def completeLiteral[V](operator: Operator, value: V)(using enc: Encoder[V]): Query1[A] =
-    val write     = enc(value)
-    val condition = LiteralCondition(fromAlias, fromColumn, operator, write)
-    val whereFrag = Condition.toSqlFragment(Vector(condition))(using saferis.postgres.PostgresDialect)
-    query.copy(wherePredicates = query.wherePredicates :+ whereFrag)
-
-  /** Compare to literal value with equality */
-  def eq(value: T)(using Encoder[T]): Query1[A] =
-    completeLiteral(Operator.Eq, value)
-
-  /** Compare to literal value with not equal */
-  def neq(value: T)(using Encoder[T]): Query1[A] =
-    completeLiteral(Operator.Neq, value)
-
-  /** Compare to literal value with less than */
-  def lt(value: T)(using Encoder[T]): Query1[A] =
-    completeLiteral(Operator.Lt, value)
-
-  /** Compare to literal value with less than or equal */
-  def lte(value: T)(using Encoder[T]): Query1[A] =
-    completeLiteral(Operator.Lte, value)
-
-  /** Compare to literal value with greater than */
-  def gt(value: T)(using Encoder[T]): Query1[A] =
-    completeLiteral(Operator.Gt, value)
-
-  /** Compare to literal value with greater than or equal */
-  def gte(value: T)(using Encoder[T]): Query1[A] =
-    completeLiteral(Operator.Gte, value)
-
-  /** Compare with custom operator */
-  def op(operator: Operator)(value: T)(using Encoder[T]): Query1[A] =
-    completeLiteral(operator, value)
-
-  /** IS NULL check */
-  def isNull(): Query1[A] =
-    val condition = UnaryCondition(fromAlias, fromColumn, Operator.IsNull)
-    val whereFrag = Condition.toSqlFragment(Vector(condition))(using saferis.postgres.PostgresDialect)
-    query.copy(wherePredicates = query.wherePredicates :+ whereFrag)
-
-  /** IS NOT NULL check */
-  def isNotNull(): Query1[A] =
-    val condition = UnaryCondition(fromAlias, fromColumn, Operator.IsNotNull)
-    val whereFrag = Condition.toSqlFragment(Vector(condition))(using saferis.postgres.PostgresDialect)
-    query.copy(wherePredicates = query.wherePredicates :+ whereFrag)
-
-  /** IN subquery - check if value is in the results of another query.
-    *
-    * Type-safe: the subquery must return the same type T as this column.
-    *
-    * Usage:
-    * {{{
-    *   Query[User]
-    *     .where(_.id).in(Query[Order].select(_.userId))  // Both Int - compiles
-    *   // Query[User].where(_.name).in(Query[Order].select(_.userId))  // String vs Int - won't compile
-    * }}}
-    */
-  def in(subquery: SelectQuery[T]): Query1[A] =
-    val subquerySql = subquery.build
-    val inSql       = s""""$fromAlias".$fromColumn IN (${subquerySql.sql})"""
-    val whereFrag   = SqlFragment(inSql, subquerySql.writes)
-    query.copy(wherePredicates = query.wherePredicates :+ whereFrag)
-
-  /** NOT IN subquery - type-safe variant */
-  def notIn(subquery: SelectQuery[T]): Query1[A] =
-    val subquerySql = subquery.build
-    val notInSql    = s""""$fromAlias".$fromColumn NOT IN (${subquerySql.sql})"""
-    val whereFrag   = SqlFragment(notInSql, subquerySql.writes)
-    query.copy(wherePredicates = query.wherePredicates :+ whereFrag)
+) extends WhereBuilderOps[Query1Ready[A], T]:
+  protected def whereAlias: String                                   = fromAlias
+  protected def whereColumn: String                                  = fromColumn
+  protected def addPredicate(predicate: SqlFragment): Query1Ready[A] =
+    Query1Ready(
+      builder.baseInstance,
+      Vector(predicate),
+      builder.sorts,
+      Vector.empty,
+      None,
+      None,
+      builder.selectColumns,
+      builder.derivedSource,
+    )
 
 end WhereBuilder1
+
+// ============================================================================
+// WhereBuilder1Ready - Type-safe WHERE for chaining on Ready
+// ============================================================================
+
+/** Builder for chaining additional WHERE conditions on Query1Ready. */
+final case class WhereBuilder1Ready[A <: Product: Table, T](
+    ready: Query1Ready[A],
+    fromAlias: String,
+    fromColumn: String,
+) extends WhereBuilderOps[Query1Ready[A], T]:
+  protected def whereAlias: String                                   = fromAlias
+  protected def whereColumn: String                                  = fromColumn
+  protected def addPredicate(predicate: SqlFragment): Query1Ready[A] =
+    ready.copy(wherePredicates = ready.wherePredicates :+ predicate)
+
+end WhereBuilder1Ready
 
 // ============================================================================
 // JoinBuilder1 - Building ON clause for first join
 // ============================================================================
 
 final case class JoinBuilder1[A <: Product: Table, B <: Product: Table](
-    query: Query1[A],
+    query: Query1Builder[A],
     joinType: JoinType,
 ):
   /** Start a type-safe ON condition by selecting a column from the left table (A). */
@@ -395,7 +436,7 @@ end JoinBuilder1
 
 /** Builder for the first ON condition - awaiting the right-hand side. */
 final case class OnBuilder1[A <: Product: Table, B <: Product: Table, T](
-    query: Query1[A],
+    query: Query1Builder[A],
     joinType: JoinType,
     leftAlias: String,
     leftColumn: String,
@@ -451,12 +492,12 @@ final case class OnBuilder1[A <: Product: Table, B <: Product: Table, T](
 end OnBuilder1
 
 // ============================================================================
-// OnChain1 - Chaining ON conditions and finalizing to Query2
+// OnChain1 - Chaining ON conditions and finalizing to Query2Builder
 // ============================================================================
 
 /** Chain state after first ON condition - allows .and() or finalization. */
 final case class OnChain1[A <: Product: Table, B <: Product: Table](
-    query: Query1[A],
+    query: Query1Builder[A],
     joinType: JoinType,
     leftAlias: String,
     rightAlias: String,
@@ -475,49 +516,43 @@ final case class OnChain1[A <: Product: Table, B <: Product: Table](
     val columnLabel = rightInstance.fieldNamesToColumns(fieldName).label
     OnAndBuilder1(this, rightAlias, columnLabel)
 
-  /** Finalize and create Query2 */
-  def done(using Dialect): Query2[A, B] =
+  /** Finalize the JOIN and create Query2Builder */
+  def endJoin(using Dialect): Query2Builder[A, B] =
     val bTable        = summon[Table[B]]
     val conditionFrag = Condition.toSqlFragment(conditions)
-    Query2(
+    Query2Builder(
       query.baseInstance,
       rightInstance,
       Vector(JoinClause(bTable.name, rightAlias, joinType, conditionFrag)),
-      query.wherePredicates,
       query.sorts,
-      query.seeks,
-      query.limitValue,
-      query.offsetValue,
       query.derivedSource,
     )
-  end done
-
-  /** Build SQL fragment directly */
-  def build(using Dialect): SqlFragment = done.build
+  end endJoin
 
   // Convenience methods that implicitly finalize
 
-  def orderBy(sort: Sort[?])(using Dialect): Query2[A, B]        = done.orderBy(sort)
-  def limit(n: Int)(using Dialect): Query2[A, B]                 = done.limit(n)
-  def offset(n: Long)(using Dialect): Query2[A, B]               = done.offset(n)
-  def where(predicate: SqlFragment)(using Dialect): Query2[A, B] = done.where(predicate)
+  def orderBy(sort: Sort[?])(using Dialect): Query2Builder[A, B]      = endJoin.orderBy(sort)
+  def limit(n: Int)(using Dialect): Query2Ready[A, B]                 = endJoin.limit(n)
+  def offset(n: Long)(using Dialect): Query2Builder[A, B]             = endJoin.offset(n)
+  def where(predicate: SqlFragment)(using Dialect): Query2Ready[A, B] = endJoin.where(predicate)
+  def all(using Dialect): Query2Ready[A, B]                           = endJoin.all
 
   inline def where[T](inline selector: A => T)(using Dialect): WhereBuilder2[A, B, T] =
     val alias       = query.baseInstance.alias.getOrElse(query.baseInstance.tableName)
     val fieldName   = Macros.extractFieldName[A, T](selector)
     val columnLabel = query.baseInstance.fieldNamesToColumns(fieldName).label
-    WhereBuilder2(done, alias, columnLabel)
+    WhereBuilder2(endJoin, alias, columnLabel)
 
   inline def whereFrom[T](inline selector: B => T)(using Dialect): WhereBuilder2[A, B, T] =
     val alias       = rightInstance.alias.getOrElse(rightInstance.tableName)
     val fieldName   = Macros.extractFieldName[B, T](selector)
     val columnLabel = rightInstance.fieldNamesToColumns(fieldName).label
-    WhereBuilder2(done, alias, columnLabel)
+    WhereBuilder2(endJoin, alias, columnLabel)
 
-  def innerJoin[C <: Product: Table](using Dialect): JoinBuilder2[A, B, C] = done.innerJoin[C]
-  def leftJoin[C <: Product: Table](using Dialect): JoinBuilder2[A, B, C]  = done.leftJoin[C]
-  def rightJoin[C <: Product: Table](using Dialect): JoinBuilder2[A, B, C] = done.rightJoin[C]
-  def fullJoin[C <: Product: Table](using Dialect): JoinBuilder2[A, B, C]  = done.fullJoin[C]
+  def innerJoin[C <: Product: Table](using Dialect): JoinBuilder2[A, B, C] = endJoin.innerJoin[C]
+  def leftJoin[C <: Product: Table](using Dialect): JoinBuilder2[A, B, C]  = endJoin.leftJoin[C]
+  def rightJoin[C <: Product: Table](using Dialect): JoinBuilder2[A, B, C] = endJoin.rightJoin[C]
+  def fullJoin[C <: Product: Table](using Dialect): JoinBuilder2[A, B, C]  = endJoin.fullJoin[C]
 
 end OnChain1
 
@@ -576,24 +611,39 @@ final case class OnAndBuilder1[A <: Product: Table, B <: Product: Table, T, From
 end OnAndBuilder1
 
 // ============================================================================
-// Query2 - Two tables joined
+// Query2Builder - Two tables joined (not yet ready to execute)
 // ============================================================================
 
-final case class Query2[A <: Product: Table, B <: Product: Table](
+final case class Query2Builder[A <: Product: Table, B <: Product: Table](
     t1: Instance[A],
     t2: Instance[B],
     joins: Vector[JoinClause],
-    wherePredicates: Vector[SqlFragment] = Vector.empty,
     sorts: Vector[Sort[?]] = Vector.empty,
-    seeks: Vector[Seek[?]] = Vector.empty,
-    limitValue: Option[Int] = None,
-    offsetValue: Option[Long] = None,
     derivedSource: Option[DerivedSource] = None,
-) extends QueryBase:
-  // === WHERE Methods ===
+):
+  // === ORDER BY Methods ===
 
-  def where(predicate: SqlFragment): Query2[A, B] =
-    copy(wherePredicates = wherePredicates :+ predicate)
+  def orderBy(sort: Sort[?]): Query2Builder[A, B] =
+    copy(sorts = sorts :+ sort)
+
+  def orderBy(sort: Sort[?], moreSorts: Sort[?]*): Query2Builder[A, B] =
+    copy(sorts = sorts ++ (sort +: moreSorts))
+
+  // === OFFSET (stays on Builder - still needs constraint) ===
+
+  def offset(n: Long): Query2Builder[A, B] = copy() // Offset alone doesn't make safe
+
+  // === JOIN Methods ===
+
+  def innerJoin[C <: Product: Table]: JoinBuilder2[A, B, C] = JoinBuilder2(this, JoinType.Inner)
+  def leftJoin[C <: Product: Table]: JoinBuilder2[A, B, C]  = JoinBuilder2(this, JoinType.Left)
+  def rightJoin[C <: Product: Table]: JoinBuilder2[A, B, C] = JoinBuilder2(this, JoinType.Right)
+  def fullJoin[C <: Product: Table]: JoinBuilder2[A, B, C]  = JoinBuilder2(this, JoinType.Full)
+
+  // === WHERE Methods (transition to Ready) ===
+
+  def where(predicate: SqlFragment): Query2Ready[A, B] =
+    Query2Ready(t1, t2, joins, Vector(predicate), sorts, Vector.empty, None, None, derivedSource)
 
   inline def where[T](inline selector: A => T): WhereBuilder2[A, B, T] =
     val alias       = t1.alias.getOrElse(t1.tableName)
@@ -607,18 +657,87 @@ final case class Query2[A <: Product: Table, B <: Product: Table](
     val columnLabel = t2.fieldNamesToColumns(fieldName).label
     WhereBuilder2(this, alias, columnLabel)
 
+  // === LIMIT/SEEK Methods (transition to Ready) ===
+
+  def limit(n: Int): Query2Ready[A, B] =
+    Query2Ready(t1, t2, joins, Vector.empty, sorts, Vector.empty, Some(n), None, derivedSource)
+
+  def seek[T: Encoder](
+      column: Column[T],
+      direction: SeekDir,
+      value: T,
+      sortOrder: SortOrder = SortOrder.Asc,
+      nullOrder: NullOrder = NullOrder.Default,
+  ): Query2Ready[A, B] =
+    Query2Ready(
+      t1,
+      t2,
+      joins,
+      Vector.empty,
+      sorts,
+      Vector(Seek(column, direction, value, sortOrder, nullOrder)),
+      None,
+      None,
+      derivedSource,
+    )
+
+  def seekAfter[T: Encoder](column: Column[T], value: T, sortOrder: SortOrder = SortOrder.Asc): Query2Ready[A, B] =
+    seek(column, SeekDir.Gt, value, sortOrder)
+
+  def seekBefore[T: Encoder](column: Column[T], value: T, sortOrder: SortOrder = SortOrder.Desc): Query2Ready[A, B] =
+    seek(column, SeekDir.Lt, value, sortOrder)
+
+  // === ALL Method ===
+
+  def all: Query2Ready[A, B] =
+    Query2Ready(t1, t2, joins, Vector.empty, sorts, Vector.empty, None, None, derivedSource)
+
+end Query2Builder
+
+// ============================================================================
+// Query2Ready - Two tables joined, ready to execute
+// ============================================================================
+
+final case class Query2Ready[A <: Product: Table, B <: Product: Table](
+    t1: Instance[A],
+    t2: Instance[B],
+    joins: Vector[JoinClause],
+    wherePredicates: Vector[SqlFragment],
+    sorts: Vector[Sort[?]],
+    seeks: Vector[Seek[?]],
+    limitValue: Option[Int],
+    offsetValue: Option[Long],
+    derivedSource: Option[DerivedSource],
+) extends QueryBase:
+  // === WHERE Methods ===
+
+  def where(predicate: SqlFragment): Query2Ready[A, B] =
+    copy(wherePredicates = wherePredicates :+ predicate)
+
+  inline def where[T](inline selector: A => T): WhereBuilder2Ready[A, B, T] =
+    val alias       = t1.alias.getOrElse(t1.tableName)
+    val fieldName   = Macros.extractFieldName[A, T](selector)
+    val columnLabel = t1.fieldNamesToColumns(fieldName).label
+    WhereBuilder2Ready(this, alias, columnLabel)
+
+  inline def whereFrom[T](inline selector: B => T): WhereBuilder2Ready[A, B, T] =
+    val alias       = t2.alias.getOrElse(t2.tableName)
+    val fieldName   = Macros.extractFieldName[B, T](selector)
+    val columnLabel = t2.fieldNamesToColumns(fieldName).label
+    WhereBuilder2Ready(this, alias, columnLabel)
+
   // === ORDER BY Methods ===
 
-  def orderBy(sort: Sort[?]): Query2[A, B] =
+  def orderBy(sort: Sort[?]): Query2Ready[A, B] =
     copy(sorts = sorts :+ sort)
 
-  def orderBy(sort: Sort[?], moreSorts: Sort[?]*): Query2[A, B] =
+  def orderBy(sort: Sort[?], moreSorts: Sort[?]*): Query2Ready[A, B] =
     copy(sorts = sorts ++ (sort +: moreSorts))
 
   // === PAGINATION Methods ===
 
-  def limit(n: Int): Query2[A, B]   = copy(limitValue = Some(n))
-  def offset(n: Long): Query2[A, B] = copy(offsetValue = Some(n))
+  def limit(n: Int): Query2Ready[A, B]   = copy(limitValue = Some(n))
+  def offset(n: Long): Query2Ready[A, B] = copy(offsetValue = Some(n))
 
   // === SEEK Methods ===
 
@@ -628,23 +747,16 @@ final case class Query2[A <: Product: Table, B <: Product: Table](
       value: T,
       sortOrder: SortOrder = SortOrder.Asc,
       nullOrder: NullOrder = NullOrder.Default,
-  ): Query2[A, B] =
+  ): Query2Ready[A, B] =
     copy(seeks = seeks :+ Seek(column, direction, value, sortOrder, nullOrder))
 
-  def seek(s: Seek[?]): Query2[A, B] = copy(seeks = seeks :+ s)
+  def seek(s: Seek[?]): Query2Ready[A, B] = copy(seeks = seeks :+ s)
 
-  def seekAfter[T: Encoder](column: Column[T], value: T, sortOrder: SortOrder = SortOrder.Asc): Query2[A, B] =
+  def seekAfter[T: Encoder](column: Column[T], value: T, sortOrder: SortOrder = SortOrder.Asc): Query2Ready[A, B] =
     seek(column, SeekDir.Gt, value, sortOrder)
 
-  def seekBefore[T: Encoder](column: Column[T], value: T, sortOrder: SortOrder = SortOrder.Desc): Query2[A, B] =
+  def seekBefore[T: Encoder](column: Column[T], value: T, sortOrder: SortOrder = SortOrder.Desc): Query2Ready[A, B] =
     seek(column, SeekDir.Lt, value, sortOrder)
-
-  // === JOIN Methods ===
-
-  def innerJoin[C <: Product: Table]: JoinBuilder2[A, B, C] = JoinBuilder2(this, JoinType.Inner)
-  def leftJoin[C <: Product: Table]: JoinBuilder2[A, B, C]  = JoinBuilder2(this, JoinType.Left)
-  def rightJoin[C <: Product: Table]: JoinBuilder2[A, B, C] = JoinBuilder2(this, JoinType.Right)
-  def fullJoin[C <: Product: Table]: JoinBuilder2[A, B, C]  = JoinBuilder2(this, JoinType.Full)
 
   // === BUILD Methods ===
 
@@ -692,71 +804,96 @@ final case class Query2[A <: Product: Table, B <: Product: Table](
   inline def query[R <: Product: Table](using Trace): ScopedQuery[Seq[R]]       = build.query[R]
   inline def queryOne[R <: Product: Table](using Trace): ScopedQuery[Option[R]] = build.queryOne[R]
 
-end Query2
+end Query2Ready
 
 // ============================================================================
-// WhereBuilder2 - Type-safe WHERE for two-table queries
+// WhereBuilder2 - Type-safe WHERE for two-table queries (Builder -> Ready)
 // ============================================================================
 
 final case class WhereBuilder2[A <: Product: Table, B <: Product: Table, T](
-    query: Query2[A, B],
+    builder: Query2Builder[A, B],
     fromAlias: String,
     fromColumn: String,
-):
-  private def completeLiteral[V](operator: Operator, value: V)(using enc: Encoder[V]): Query2[A, B] =
-    val write     = enc(value)
-    val condition = LiteralCondition(fromAlias, fromColumn, operator, write)
-    val whereFrag = Condition.toSqlFragment(Vector(condition))(using saferis.postgres.PostgresDialect)
-    query.copy(wherePredicates = query.wherePredicates :+ whereFrag)
+) extends WhereBuilderOps[Query2Ready[A, B], T]:
+  protected def whereAlias: String                                      = fromAlias
+  protected def whereColumn: String                                     = fromColumn
+  protected def addPredicate(predicate: SqlFragment): Query2Ready[A, B] =
+    Query2Ready(
+      builder.t1,
+      builder.t2,
+      builder.joins,
+      Vector(predicate),
+      builder.sorts,
+      Vector.empty,
+      None,
+      None,
+      builder.derivedSource,
+    )
 
-  private def completeColumn(operator: Operator, toAlias: String, toColumn: String): Query2[A, B] =
+  // Column comparisons (specific to join queries)
+  private def completeColumn(operator: Operator, toAlias: String, toColumn: String): Query2Ready[A, B] =
     val condition = BinaryCondition(fromAlias, fromColumn, operator, toAlias, toColumn)
     val whereFrag = Condition.toSqlFragment(Vector(condition))(using saferis.postgres.PostgresDialect)
-    query.copy(wherePredicates = query.wherePredicates :+ whereFrag)
+    addPredicate(whereFrag)
 
-  // Literal comparisons
-  def eq(value: T)(using Encoder[T]): Query2[A, B]                     = completeLiteral(Operator.Eq, value)
-  def neq(value: T)(using Encoder[T]): Query2[A, B]                    = completeLiteral(Operator.Neq, value)
-  def lt(value: T)(using Encoder[T]): Query2[A, B]                     = completeLiteral(Operator.Lt, value)
-  def lte(value: T)(using Encoder[T]): Query2[A, B]                    = completeLiteral(Operator.Lte, value)
-  def gt(value: T)(using Encoder[T]): Query2[A, B]                     = completeLiteral(Operator.Gt, value)
-  def gte(value: T)(using Encoder[T]): Query2[A, B]                    = completeLiteral(Operator.Gte, value)
-  def op(operator: Operator)(value: T)(using Encoder[T]): Query2[A, B] = completeLiteral(operator, value)
-
-  // Column comparisons
   private inline def getColumnLabel[X <: Product, T2](instance: Instance[X])(inline selector: X => T2): String =
     val fieldName = Macros.extractFieldName[X, T2](selector)
     instance.fieldNamesToColumns(fieldName).label
 
-  inline def eqCol(inline selector: B => T): Query2[A, B] =
-    val toAlias = query.t2.alias.getOrElse(query.t2.tableName)
-    val toCol   = getColumnLabel(query.t2)(selector)
+  inline def eqCol(inline selector: B => T): Query2Ready[A, B] =
+    val toAlias = builder.t2.alias.getOrElse(builder.t2.tableName)
+    val toCol   = getColumnLabel(builder.t2)(selector)
     completeColumn(Operator.Eq, toAlias, toCol)
 
-  inline def neqCol(inline selector: B => T): Query2[A, B] =
-    val toAlias = query.t2.alias.getOrElse(query.t2.tableName)
-    val toCol   = getColumnLabel(query.t2)(selector)
+  inline def neqCol(inline selector: B => T): Query2Ready[A, B] =
+    val toAlias = builder.t2.alias.getOrElse(builder.t2.tableName)
+    val toCol   = getColumnLabel(builder.t2)(selector)
     completeColumn(Operator.Neq, toAlias, toCol)
 
-  // Unary
-  def isNull(): Query2[A, B] =
-    val condition = UnaryCondition(fromAlias, fromColumn, Operator.IsNull)
-    val whereFrag = Condition.toSqlFragment(Vector(condition))(using saferis.postgres.PostgresDialect)
-    query.copy(wherePredicates = query.wherePredicates :+ whereFrag)
-
-  def isNotNull(): Query2[A, B] =
-    val condition = UnaryCondition(fromAlias, fromColumn, Operator.IsNotNull)
-    val whereFrag = Condition.toSqlFragment(Vector(condition))(using saferis.postgres.PostgresDialect)
-    query.copy(wherePredicates = query.wherePredicates :+ whereFrag)
-
 end WhereBuilder2
+
+// ============================================================================
+// WhereBuilder2Ready - Type-safe WHERE for chaining on Ready
+// ============================================================================
+
+final case class WhereBuilder2Ready[A <: Product: Table, B <: Product: Table, T](
+    ready: Query2Ready[A, B],
+    fromAlias: String,
+    fromColumn: String,
+) extends WhereBuilderOps[Query2Ready[A, B], T]:
+  protected def whereAlias: String                                      = fromAlias
+  protected def whereColumn: String                                     = fromColumn
+  protected def addPredicate(predicate: SqlFragment): Query2Ready[A, B] =
+    ready.copy(wherePredicates = ready.wherePredicates :+ predicate)
+
+  // Column comparisons
+  private def completeColumn(operator: Operator, toAlias: String, toColumn: String): Query2Ready[A, B] =
+    val condition = BinaryCondition(fromAlias, fromColumn, operator, toAlias, toColumn)
+    val whereFrag = Condition.toSqlFragment(Vector(condition))(using saferis.postgres.PostgresDialect)
+    addPredicate(whereFrag)
+
+  private inline def getColumnLabel[X <: Product, T2](instance: Instance[X])(inline selector: X => T2): String =
+    val fieldName = Macros.extractFieldName[X, T2](selector)
+    instance.fieldNamesToColumns(fieldName).label
+
+  inline def eqCol(inline selector: B => T): Query2Ready[A, B] =
+    val toAlias = ready.t2.alias.getOrElse(ready.t2.tableName)
+    val toCol   = getColumnLabel(ready.t2)(selector)
+    completeColumn(Operator.Eq, toAlias, toCol)
+
+  inline def neqCol(inline selector: B => T): Query2Ready[A, B] =
+    val toAlias = ready.t2.alias.getOrElse(ready.t2.tableName)
+    val toCol   = getColumnLabel(ready.t2)(selector)
+    completeColumn(Operator.Neq, toAlias, toCol)
+
+end WhereBuilder2Ready
 
 // ============================================================================
 // JoinBuilder2 - Building ON clause for second join
 // ============================================================================
 
 final case class JoinBuilder2[A <: Product: Table, B <: Product: Table, C <: Product: Table](
-    query: Query2[A, B],
+    query: Query2Builder[A, B],
     joinType: JoinType,
 ):
   /** ON condition from first table (A) */
@@ -784,7 +921,7 @@ end JoinBuilder2
 // ============================================================================
 
 final case class OnBuilder2[A <: Product: Table, B <: Product: Table, C <: Product: Table, T, From <: Product](
-    query: Query2[A, B],
+    query: Query2Builder[A, B],
     joinType: JoinType,
     leftAlias: String,
     leftColumn: String,
@@ -823,55 +960,50 @@ end OnBuilder2
 // ============================================================================
 
 final case class OnChain2[A <: Product: Table, B <: Product: Table, C <: Product: Table](
-    query: Query2[A, B],
+    query: Query2Builder[A, B],
     joinType: JoinType,
     rightAlias: String,
     rightInstance: Instance[C],
     conditions: Vector[Condition],
 ):
-  def done(using Dialect): Query3[A, B, C] =
+  def endJoin(using Dialect): Query3Builder[A, B, C] =
     val cTable        = summon[Table[C]]
     val conditionFrag = Condition.toSqlFragment(conditions)
-    Query3(
+    Query3Builder(
       query.t1,
       query.t2,
       rightInstance,
       query.joins :+ JoinClause(cTable.name, rightAlias, joinType, conditionFrag),
-      query.wherePredicates,
       query.sorts,
-      query.seeks,
-      query.limitValue,
-      query.offsetValue,
     )
-  end done
+  end endJoin
 
-  def build(using Dialect): SqlFragment                             = done.build
-  def orderBy(sort: Sort[?])(using Dialect): Query3[A, B, C]        = done.orderBy(sort)
-  def limit(n: Int)(using Dialect): Query3[A, B, C]                 = done.limit(n)
-  def offset(n: Long)(using Dialect): Query3[A, B, C]               = done.offset(n)
-  def where(predicate: SqlFragment)(using Dialect): Query3[A, B, C] = done.where(predicate)
+  def orderBy(sort: Sort[?])(using Dialect): Query3Builder[A, B, C]      = endJoin.orderBy(sort)
+  def limit(n: Int)(using Dialect): Query3Ready[A, B, C]                 = endJoin.limit(n)
+  def offset(n: Long)(using Dialect): Query3Builder[A, B, C]             = endJoin.offset(n)
+  def where(predicate: SqlFragment)(using Dialect): Query3Ready[A, B, C] = endJoin.where(predicate)
+  def all(using Dialect): Query3Ready[A, B, C]                           = endJoin.all
 
 end OnChain2
 
 // ============================================================================
-// Query3 - Three tables joined
+// Query3Builder - Three tables joined (not yet ready to execute)
 // ============================================================================
 
-final case class Query3[A <: Product: Table, B <: Product: Table, C <: Product: Table](
+final case class Query3Builder[A <: Product: Table, B <: Product: Table, C <: Product: Table](
     t1: Instance[A],
     t2: Instance[B],
     t3: Instance[C],
     joins: Vector[JoinClause],
-    wherePredicates: Vector[SqlFragment] = Vector.empty,
     sorts: Vector[Sort[?]] = Vector.empty,
-    seeks: Vector[Seek[?]] = Vector.empty,
-    limitValue: Option[Int] = None,
-    offsetValue: Option[Long] = None,
-) extends QueryBase:
-  def where(predicate: SqlFragment): Query3[A, B, C] = copy(wherePredicates = wherePredicates :+ predicate)
-  def orderBy(sort: Sort[?]): Query3[A, B, C]        = copy(sorts = sorts :+ sort)
-  def limit(n: Int): Query3[A, B, C]                 = copy(limitValue = Some(n))
-  def offset(n: Long): Query3[A, B, C]               = copy(offsetValue = Some(n))
+):
+  def where(predicate: SqlFragment): Query3Ready[A, B, C] =
+    Query3Ready(t1, t2, t3, joins, Vector(predicate), sorts, Vector.empty, None, None)
+  def orderBy(sort: Sort[?]): Query3Builder[A, B, C] = copy(sorts = sorts :+ sort)
+  def offset(n: Long): Query3Builder[A, B, C]        = copy() // Offset alone doesn't make safe
+
+  def limit(n: Int): Query3Ready[A, B, C] =
+    Query3Ready(t1, t2, t3, joins, Vector.empty, sorts, Vector.empty, Some(n), None)
 
   def seek[T: Encoder](
       column: Column[T],
@@ -879,10 +1011,63 @@ final case class Query3[A <: Product: Table, B <: Product: Table, C <: Product: 
       value: T,
       sortOrder: SortOrder = SortOrder.Asc,
       nullOrder: NullOrder = NullOrder.Default,
-  ): Query3[A, B, C] =
+  ): Query3Ready[A, B, C] =
+    Query3Ready(
+      t1,
+      t2,
+      t3,
+      joins,
+      Vector.empty,
+      sorts,
+      Vector(Seek(column, direction, value, sortOrder, nullOrder)),
+      None,
+      None,
+    )
+
+  def seekAfter[T: Encoder](column: Column[T], value: T, sortOrder: SortOrder = SortOrder.Asc): Query3Ready[A, B, C] =
+    seek(column, SeekDir.Gt, value, sortOrder)
+
+  def all: Query3Ready[A, B, C] =
+    Query3Ready(t1, t2, t3, joins, Vector.empty, sorts, Vector.empty, None, None)
+
+  // JOIN Methods
+  def innerJoin[D <: Product: Table]: JoinBuilder3[A, B, C, D] = JoinBuilder3(this, JoinType.Inner)
+  def leftJoin[D <: Product: Table]: JoinBuilder3[A, B, C, D]  = JoinBuilder3(this, JoinType.Left)
+  def rightJoin[D <: Product: Table]: JoinBuilder3[A, B, C, D] = JoinBuilder3(this, JoinType.Right)
+  def fullJoin[D <: Product: Table]: JoinBuilder3[A, B, C, D]  = JoinBuilder3(this, JoinType.Full)
+
+end Query3Builder
+
+// ============================================================================
+// Query3Ready - Three tables joined, ready to execute
+// ============================================================================
+
+final case class Query3Ready[A <: Product: Table, B <: Product: Table, C <: Product: Table](
+    t1: Instance[A],
+    t2: Instance[B],
+    t3: Instance[C],
+    joins: Vector[JoinClause],
+    wherePredicates: Vector[SqlFragment],
+    sorts: Vector[Sort[?]],
+    seeks: Vector[Seek[?]],
+    limitValue: Option[Int],
+    offsetValue: Option[Long],
+) extends QueryBase:
+  def where(predicate: SqlFragment): Query3Ready[A, B, C] = copy(wherePredicates = wherePredicates :+ predicate)
+  def orderBy(sort: Sort[?]): Query3Ready[A, B, C]        = copy(sorts = sorts :+ sort)
+  def limit(n: Int): Query3Ready[A, B, C]                 = copy(limitValue = Some(n))
+  def offset(n: Long): Query3Ready[A, B, C]               = copy(offsetValue = Some(n))
+
+  def seek[T: Encoder](
+      column: Column[T],
+      direction: SeekDir,
+      value: T,
+      sortOrder: SortOrder = SortOrder.Asc,
+      nullOrder: NullOrder = NullOrder.Default,
+  ): Query3Ready[A, B, C] =
     copy(seeks = seeks :+ Seek(column, direction, value, sortOrder, nullOrder))
 
-  def seekAfter[T: Encoder](column: Column[T], value: T, sortOrder: SortOrder = SortOrder.Asc): Query3[A, B, C] =
+  def seekAfter[T: Encoder](column: Column[T], value: T, sortOrder: SortOrder = SortOrder.Asc): Query3Ready[A, B, C] =
     seek(column, SeekDir.Gt, value, sortOrder)
 
   def build: SqlFragment =
@@ -915,20 +1100,14 @@ final case class Query3[A <: Product: Table, B <: Product: Table, C <: Product: 
   inline def query[R <: Product: Table](using Trace): ScopedQuery[Seq[R]]       = build.query[R]
   inline def queryOne[R <: Product: Table](using Trace): ScopedQuery[Option[R]] = build.queryOne[R]
 
-  // JOIN Methods for Query3
-  def innerJoin[D <: Product: Table]: JoinBuilder3[A, B, C, D] = JoinBuilder3(this, JoinType.Inner)
-  def leftJoin[D <: Product: Table]: JoinBuilder3[A, B, C, D]  = JoinBuilder3(this, JoinType.Left)
-  def rightJoin[D <: Product: Table]: JoinBuilder3[A, B, C, D] = JoinBuilder3(this, JoinType.Right)
-  def fullJoin[D <: Product: Table]: JoinBuilder3[A, B, C, D]  = JoinBuilder3(this, JoinType.Full)
-
-end Query3
+end Query3Ready
 
 // ============================================================================
 // JoinBuilder3 - Building ON clause for third join
 // ============================================================================
 
 final case class JoinBuilder3[A <: Product: Table, B <: Product: Table, C <: Product: Table, D <: Product: Table](
-    query: Query3[A, B, C],
+    query: Query3Builder[A, B, C],
     joinType: JoinType,
 ):
   inline def on[T](inline selector: A => T): OnBuilder3[A, B, C, D, T] =
@@ -950,7 +1129,7 @@ final case class JoinBuilder3[A <: Product: Table, B <: Product: Table, C <: Pro
 end JoinBuilder3
 
 final case class OnBuilder3[A <: Product: Table, B <: Product: Table, C <: Product: Table, D <: Product: Table, T](
-    query: Query3[A, B, C],
+    query: Query3Builder[A, B, C],
     joinType: JoinType,
     leftAlias: String,
     leftColumn: String,
@@ -975,57 +1154,52 @@ final case class OnBuilder3[A <: Product: Table, B <: Product: Table, C <: Produ
 end OnBuilder3
 
 final case class OnChain3[A <: Product: Table, B <: Product: Table, C <: Product: Table, D <: Product: Table](
-    query: Query3[A, B, C],
+    query: Query3Builder[A, B, C],
     joinType: JoinType,
     rightAlias: String,
     rightInstance: Instance[D],
     conditions: Vector[Condition],
 ):
-  def done(using Dialect): Query4[A, B, C, D] =
+  def endJoin(using Dialect): Query4Builder[A, B, C, D] =
     val dTable        = summon[Table[D]]
     val conditionFrag = Condition.toSqlFragment(conditions)
-    Query4(
+    Query4Builder(
       query.t1,
       query.t2,
       query.t3,
       rightInstance,
       query.joins :+ JoinClause(dTable.name, rightAlias, joinType, conditionFrag),
-      query.wherePredicates,
       query.sorts,
-      query.seeks,
-      query.limitValue,
-      query.offsetValue,
     )
-  end done
+  end endJoin
 
-  def build(using Dialect): SqlFragment                                = done.build
-  def orderBy(sort: Sort[?])(using Dialect): Query4[A, B, C, D]        = done.orderBy(sort)
-  def limit(n: Int)(using Dialect): Query4[A, B, C, D]                 = done.limit(n)
-  def offset(n: Long)(using Dialect): Query4[A, B, C, D]               = done.offset(n)
-  def where(predicate: SqlFragment)(using Dialect): Query4[A, B, C, D] = done.where(predicate)
+  def orderBy(sort: Sort[?])(using Dialect): Query4Builder[A, B, C, D]      = endJoin.orderBy(sort)
+  def limit(n: Int)(using Dialect): Query4Ready[A, B, C, D]                 = endJoin.limit(n)
+  def offset(n: Long)(using Dialect): Query4Builder[A, B, C, D]             = endJoin.offset(n)
+  def where(predicate: SqlFragment)(using Dialect): Query4Ready[A, B, C, D] = endJoin.where(predicate)
+  def all(using Dialect): Query4Ready[A, B, C, D]                           = endJoin.all
 
 end OnChain3
 
 // ============================================================================
-// Query4 - Four tables joined
+// Query4Builder - Four tables joined (not yet ready to execute)
 // ============================================================================
 
-final case class Query4[A <: Product: Table, B <: Product: Table, C <: Product: Table, D <: Product: Table](
+final case class Query4Builder[A <: Product: Table, B <: Product: Table, C <: Product: Table, D <: Product: Table](
     t1: Instance[A],
     t2: Instance[B],
     t3: Instance[C],
     t4: Instance[D],
     joins: Vector[JoinClause],
-    wherePredicates: Vector[SqlFragment] = Vector.empty,
     sorts: Vector[Sort[?]] = Vector.empty,
-    seeks: Vector[Seek[?]] = Vector.empty,
-    limitValue: Option[Int] = None,
-    offsetValue: Option[Long] = None,
-) extends QueryBase:
-  def where(predicate: SqlFragment): Query4[A, B, C, D] = copy(wherePredicates = wherePredicates :+ predicate)
-  def orderBy(sort: Sort[?]): Query4[A, B, C, D]        = copy(sorts = sorts :+ sort)
-  def limit(n: Int): Query4[A, B, C, D]                 = copy(limitValue = Some(n))
-  def offset(n: Long): Query4[A, B, C, D]               = copy(offsetValue = Some(n))
+):
+  def where(predicate: SqlFragment): Query4Ready[A, B, C, D] =
+    Query4Ready(t1, t2, t3, t4, joins, Vector(predicate), sorts, Vector.empty, None, None)
+  def orderBy(sort: Sort[?]): Query4Builder[A, B, C, D] = copy(sorts = sorts :+ sort)
+  def offset(n: Long): Query4Builder[A, B, C, D]        = copy()
+
+  def limit(n: Int): Query4Ready[A, B, C, D] =
+    Query4Ready(t1, t2, t3, t4, joins, Vector.empty, sorts, Vector.empty, Some(n), None)
 
   def seek[T: Encoder](
       column: Column[T],
@@ -1033,16 +1207,73 @@ final case class Query4[A <: Product: Table, B <: Product: Table, C <: Product: 
       value: T,
       sortOrder: SortOrder = SortOrder.Asc,
       nullOrder: NullOrder = NullOrder.Default,
-  ): Query4[A, B, C, D] =
-    copy(seeks = seeks :+ Seek(column, direction, value, sortOrder, nullOrder))
+  ): Query4Ready[A, B, C, D] =
+    Query4Ready(
+      t1,
+      t2,
+      t3,
+      t4,
+      joins,
+      Vector.empty,
+      sorts,
+      Vector(Seek(column, direction, value, sortOrder, nullOrder)),
+      None,
+      None,
+    )
 
-  def seekAfter[T: Encoder](column: Column[T], value: T, sortOrder: SortOrder = SortOrder.Asc): Query4[A, B, C, D] =
+  def seekAfter[T: Encoder](
+      column: Column[T],
+      value: T,
+      sortOrder: SortOrder = SortOrder.Asc,
+  ): Query4Ready[A, B, C, D] =
     seek(column, SeekDir.Gt, value, sortOrder)
+
+  def all: Query4Ready[A, B, C, D] =
+    Query4Ready(t1, t2, t3, t4, joins, Vector.empty, sorts, Vector.empty, None, None)
 
   def innerJoin[E <: Product: Table]: JoinBuilder4[A, B, C, D, E] = JoinBuilder4(this, JoinType.Inner)
   def leftJoin[E <: Product: Table]: JoinBuilder4[A, B, C, D, E]  = JoinBuilder4(this, JoinType.Left)
   def rightJoin[E <: Product: Table]: JoinBuilder4[A, B, C, D, E] = JoinBuilder4(this, JoinType.Right)
   def fullJoin[E <: Product: Table]: JoinBuilder4[A, B, C, D, E]  = JoinBuilder4(this, JoinType.Full)
+
+end Query4Builder
+
+// ============================================================================
+// Query4Ready - Four tables joined, ready to execute
+// ============================================================================
+
+final case class Query4Ready[A <: Product: Table, B <: Product: Table, C <: Product: Table, D <: Product: Table](
+    t1: Instance[A],
+    t2: Instance[B],
+    t3: Instance[C],
+    t4: Instance[D],
+    joins: Vector[JoinClause],
+    wherePredicates: Vector[SqlFragment],
+    sorts: Vector[Sort[?]],
+    seeks: Vector[Seek[?]],
+    limitValue: Option[Int],
+    offsetValue: Option[Long],
+) extends QueryBase:
+  def where(predicate: SqlFragment): Query4Ready[A, B, C, D] = copy(wherePredicates = wherePredicates :+ predicate)
+  def orderBy(sort: Sort[?]): Query4Ready[A, B, C, D]        = copy(sorts = sorts :+ sort)
+  def limit(n: Int): Query4Ready[A, B, C, D]                 = copy(limitValue = Some(n))
+  def offset(n: Long): Query4Ready[A, B, C, D]               = copy(offsetValue = Some(n))
+
+  def seek[T: Encoder](
+      column: Column[T],
+      direction: SeekDir,
+      value: T,
+      sortOrder: SortOrder = SortOrder.Asc,
+      nullOrder: NullOrder = NullOrder.Default,
+  ): Query4Ready[A, B, C, D] =
+    copy(seeks = seeks :+ Seek(column, direction, value, sortOrder, nullOrder))
+
+  def seekAfter[T: Encoder](
+      column: Column[T],
+      value: T,
+      sortOrder: SortOrder = SortOrder.Asc,
+  ): Query4Ready[A, B, C, D] =
+    seek(column, SeekDir.Gt, value, sortOrder)
 
   def build: SqlFragment =
     var result = SqlFragment(s"select * from ${t1.sql}", Seq.empty)
@@ -1074,7 +1305,7 @@ final case class Query4[A <: Product: Table, B <: Product: Table, C <: Product: 
   inline def query[R <: Product: Table](using Trace): ScopedQuery[Seq[R]]       = build.query[R]
   inline def queryOne[R <: Product: Table](using Trace): ScopedQuery[Option[R]] = build.queryOne[R]
 
-end Query4
+end Query4Ready
 
 // ============================================================================
 // JoinBuilder4 - Building ON clause for fourth join
@@ -1087,7 +1318,7 @@ final case class JoinBuilder4[
     D <: Product: Table,
     E <: Product: Table,
 ](
-    query: Query4[A, B, C, D],
+    query: Query4Builder[A, B, C, D],
     joinType: JoinType,
 ):
   inline def on[T](inline selector: A => T): OnBuilder4[A, B, C, D, E, T] =
@@ -1116,7 +1347,7 @@ final case class OnBuilder4[
     E <: Product: Table,
     T,
 ](
-    query: Query4[A, B, C, D],
+    query: Query4Builder[A, B, C, D],
     joinType: JoinType,
     leftAlias: String,
     leftColumn: String,
@@ -1150,43 +1381,39 @@ final case class OnChain4[
     D <: Product: Table,
     E <: Product: Table,
 ](
-    query: Query4[A, B, C, D],
+    query: Query4Builder[A, B, C, D],
     joinType: JoinType,
     rightAlias: String,
     rightInstance: Instance[E],
     conditions: Vector[Condition],
 ):
-  def done(using Dialect): Query5[A, B, C, D, E] =
+  def endJoin(using Dialect): Query5Builder[A, B, C, D, E] =
     val eTable        = summon[Table[E]]
     val conditionFrag = Condition.toSqlFragment(conditions)
-    Query5(
+    Query5Builder(
       query.t1,
       query.t2,
       query.t3,
       query.t4,
       rightInstance,
       query.joins :+ JoinClause(eTable.name, rightAlias, joinType, conditionFrag),
-      query.wherePredicates,
       query.sorts,
-      query.seeks,
-      query.limitValue,
-      query.offsetValue,
     )
-  end done
+  end endJoin
 
-  def build(using Dialect): SqlFragment                                   = done.build
-  def orderBy(sort: Sort[?])(using Dialect): Query5[A, B, C, D, E]        = done.orderBy(sort)
-  def limit(n: Int)(using Dialect): Query5[A, B, C, D, E]                 = done.limit(n)
-  def offset(n: Long)(using Dialect): Query5[A, B, C, D, E]               = done.offset(n)
-  def where(predicate: SqlFragment)(using Dialect): Query5[A, B, C, D, E] = done.where(predicate)
+  def orderBy(sort: Sort[?])(using Dialect): Query5Builder[A, B, C, D, E]      = endJoin.orderBy(sort)
+  def limit(n: Int)(using Dialect): Query5Ready[A, B, C, D, E]                 = endJoin.limit(n)
+  def offset(n: Long)(using Dialect): Query5Builder[A, B, C, D, E]             = endJoin.offset(n)
+  def where(predicate: SqlFragment)(using Dialect): Query5Ready[A, B, C, D, E] = endJoin.where(predicate)
+  def all(using Dialect): Query5Ready[A, B, C, D, E]                           = endJoin.all
 
 end OnChain4
 
 // ============================================================================
-// Query5 - Five tables joined (maximum)
+// Query5Builder - Five tables joined (not yet ready to execute)
 // ============================================================================
 
-final case class Query5[
+final case class Query5Builder[
     A <: Product: Table,
     B <: Product: Table,
     C <: Product: Table,
@@ -1199,16 +1426,15 @@ final case class Query5[
     t4: Instance[D],
     t5: Instance[E],
     joins: Vector[JoinClause],
-    wherePredicates: Vector[SqlFragment] = Vector.empty,
     sorts: Vector[Sort[?]] = Vector.empty,
-    seeks: Vector[Seek[?]] = Vector.empty,
-    limitValue: Option[Int] = None,
-    offsetValue: Option[Long] = None,
-) extends QueryBase:
-  def where(predicate: SqlFragment): Query5[A, B, C, D, E] = copy(wherePredicates = wherePredicates :+ predicate)
-  def orderBy(sort: Sort[?]): Query5[A, B, C, D, E]        = copy(sorts = sorts :+ sort)
-  def limit(n: Int): Query5[A, B, C, D, E]                 = copy(limitValue = Some(n))
-  def offset(n: Long): Query5[A, B, C, D, E]               = copy(offsetValue = Some(n))
+):
+  def where(predicate: SqlFragment): Query5Ready[A, B, C, D, E] =
+    Query5Ready(t1, t2, t3, t4, t5, joins, Vector(predicate), sorts, Vector.empty, None, None)
+  def orderBy(sort: Sort[?]): Query5Builder[A, B, C, D, E] = copy(sorts = sorts :+ sort)
+  def offset(n: Long): Query5Builder[A, B, C, D, E]        = copy()
+
+  def limit(n: Int): Query5Ready[A, B, C, D, E] =
+    Query5Ready(t1, t2, t3, t4, t5, joins, Vector.empty, sorts, Vector.empty, Some(n), None)
 
   def seek[T: Encoder](
       column: Column[T],
@@ -1216,10 +1442,75 @@ final case class Query5[
       value: T,
       sortOrder: SortOrder = SortOrder.Asc,
       nullOrder: NullOrder = NullOrder.Default,
-  ): Query5[A, B, C, D, E] =
+  ): Query5Ready[A, B, C, D, E] =
+    Query5Ready(
+      t1,
+      t2,
+      t3,
+      t4,
+      t5,
+      joins,
+      Vector.empty,
+      sorts,
+      Vector(Seek(column, direction, value, sortOrder, nullOrder)),
+      None,
+      None,
+    )
+
+  def seekAfter[T: Encoder](
+      column: Column[T],
+      value: T,
+      sortOrder: SortOrder = SortOrder.Asc,
+  ): Query5Ready[A, B, C, D, E] =
+    seek(column, SeekDir.Gt, value, sortOrder)
+
+  def all: Query5Ready[A, B, C, D, E] =
+    Query5Ready(t1, t2, t3, t4, t5, joins, Vector.empty, sorts, Vector.empty, None, None)
+
+end Query5Builder
+
+// ============================================================================
+// Query5Ready - Five tables joined, ready to execute
+// ============================================================================
+
+final case class Query5Ready[
+    A <: Product: Table,
+    B <: Product: Table,
+    C <: Product: Table,
+    D <: Product: Table,
+    E <: Product: Table,
+](
+    t1: Instance[A],
+    t2: Instance[B],
+    t3: Instance[C],
+    t4: Instance[D],
+    t5: Instance[E],
+    joins: Vector[JoinClause],
+    wherePredicates: Vector[SqlFragment],
+    sorts: Vector[Sort[?]],
+    seeks: Vector[Seek[?]],
+    limitValue: Option[Int],
+    offsetValue: Option[Long],
+) extends QueryBase:
+  def where(predicate: SqlFragment): Query5Ready[A, B, C, D, E] = copy(wherePredicates = wherePredicates :+ predicate)
+  def orderBy(sort: Sort[?]): Query5Ready[A, B, C, D, E]        = copy(sorts = sorts :+ sort)
+  def limit(n: Int): Query5Ready[A, B, C, D, E]                 = copy(limitValue = Some(n))
+  def offset(n: Long): Query5Ready[A, B, C, D, E]               = copy(offsetValue = Some(n))
+
+  def seek[T: Encoder](
+      column: Column[T],
+      direction: SeekDir,
+      value: T,
+      sortOrder: SortOrder = SortOrder.Asc,
+      nullOrder: NullOrder = NullOrder.Default,
+  ): Query5Ready[A, B, C, D, E] =
     copy(seeks = seeks :+ Seek(column, direction, value, sortOrder, nullOrder))
 
-  def seekAfter[T: Encoder](column: Column[T], value: T, sortOrder: SortOrder = SortOrder.Asc): Query5[A, B, C, D, E] =
+  def seekAfter[T: Encoder](
+      column: Column[T],
+      value: T,
+      sortOrder: SortOrder = SortOrder.Asc,
+  ): Query5Ready[A, B, C, D, E] =
     seek(column, SeekDir.Gt, value, sortOrder)
 
   def build: SqlFragment =
@@ -1252,7 +1543,7 @@ final case class Query5[
   inline def query[R <: Product: Table](using Trace): ScopedQuery[Seq[R]]       = build.query[R]
   inline def queryOne[R <: Product: Table](using Trace): ScopedQuery[Option[R]] = build.queryOne[R]
 
-end Query5
+end Query5Ready
 
 // ============================================================================
 // Query Companion - Entry Point
@@ -1261,18 +1552,21 @@ end Query5
 object Query:
   /** Create a Query starting with a single table.
     *
+    * This returns a Query1Builder which does NOT have execution methods (.query, .queryOne). You must constrain the
+    * query by calling .where(), .limit(), .seekAfter(), or .all to get a Query1Ready which can be executed.
+    *
     * Usage:
     * {{{
     *   Query[User]
-    *     .where(_.name).eq("Alice")
+    *     .where(_.name).eq("Alice")  // Now Query1Ready
     *     .innerJoin[Order].on(_.id).eq(_.userId)
-    *     .build
+    *     .query[UserWithOrder]
     * }}}
     */
-  def apply[A <: Product: Table]: Query1[A] =
+  def apply[A <: Product: Table]: Query1Builder[A] =
     val alias    = AliasGenerator.next()
     val instance = AliasGenerator.aliasedInstance[A](alias)
-    Query1(instance)
+    Query1Builder(instance)
 
   /** Create a Query from a derived table (subquery in FROM clause).
     *
@@ -1292,11 +1586,12 @@ object Query:
     *   // Use as table source with explicit alias
     *   Query.from(summary, "paid_summary")
     *     .innerJoin[User].on(_.userId).eq(_.id)
+    *     .where(_.total).gt(100)
     *     .query[UserWithTotal]
     * }}}
     */
-  def from[A <: Product: Table](subquery: SelectQuery[A], alias: String): Query1[A] =
+  def from[A <: Product: Table](subquery: SelectQuery[A], alias: String): Query1Builder[A] =
     val instance = AliasGenerator.aliasedInstance[A](alias)
-    Query1(instance, derivedSource = Some(DerivedSource(subquery, alias)))
+    Query1Builder(instance, derivedSource = Some(DerivedSource(subquery, alias)))
 
 end Query
