@@ -12,7 +12,7 @@ import java.util.UUID
 object DataDefinitionLayerSpecs extends ZIOSpecDefault:
   val xaLayer = DataSourceProvider.default >>> Transactor.default
 
-  // Case classes for aspect-based index tests (must be at object level for inline macros)
+  // Case classes for Schema-based index tests (must be at object level for inline macros)
   @tableName("test_ddl_compound_index")
   case class CompoundIndexTable(
       @key id: Int,
@@ -727,7 +727,7 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
       yield assertTrue(count.map(_.count).contains(2))
       end for
 
-    test("aspect-based compound indexes"):
+    test("Schema-based compound indexes"):
       import saferis.Schema.*
 
       // Using Schema[A] for fluent index and FK configuration
@@ -811,7 +811,7 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
         assertTrue(missingNotNullAttempt.isLeft) // Should fail due to NOT NULL constraint
       end for
 
-    test("aspect-based partial indexes with WHERE clause"):
+    test("Schema-based partial indexes with WHERE clause"):
       import saferis.Schema.*
 
       // Using Schema[A] with partial index WHERE clause
@@ -839,7 +839,7 @@ object DataDefinitionLayerSpecs extends ZIOSpecDefault:
         assertTrue(count.map(_.count).contains(2))
       end for
 
-    test("aspect-based partial unique indexes"):
+    test("Schema-based partial unique indexes"):
       import saferis.Schema.*
 
       // Using Schema[A] with partial unique index WHERE clause

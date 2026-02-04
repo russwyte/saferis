@@ -98,7 +98,7 @@ object DataDefinitionLayer:
     yield result
   end createTable
 
-  /** Create indexes for an Instance from aspect-based IndexSpecs */
+  /** Create indexes for an Instance from Schema-defined IndexSpecs */
   private def createIndexesFromInstance[A <: Product](instance: Instance[A])(using
       dialect: Dialect,
       trace: Trace,
@@ -108,7 +108,7 @@ object DataDefinitionLayer:
     val keyColumns     = cols.filter(_.isKey)
     val hasCompoundKey = keyColumns.length > 1
 
-    // Create indexes from aspect-based IndexSpecs
+    // Create indexes from Schema-defined IndexSpecs
     val aspectIndexes = instance.indexes.map { spec =>
       val createSql = spec.toCreateSql(tableName)
       val sql       = dialect match
