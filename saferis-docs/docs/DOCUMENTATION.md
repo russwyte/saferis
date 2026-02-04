@@ -210,6 +210,28 @@ val result = xa.run(
 )
 ```
 
+#### Concurrency Limiting
+
+The `Transactor.layer` method accepts an optional `maxConcurrency` parameter that limits concurrent database operations using a ZIO Semaphore:
+
+```scala mdoc:compile-only
+import saferis.*
+
+// Default: no concurrency limit (recommended for connection pools)
+val defaultLayer = Transactor.layer()
+
+// With concurrency limit (for SQLite or direct JDBC without pooling)
+val limitedLayer = Transactor.layer(maxConcurrency = 1L)
+```
+
+**When to use `maxConcurrency`:**
+- SQLite or other embedded databases without connection pooling
+- Direct JDBC connections without a pool
+- When you need concurrency limits below pool size for backpressure
+
+**When NOT to use `maxConcurrency`:**
+- With HikariCP or similar connection pools. The pool handles queuing more efficiently and HikariCP specifically recommends letting threads wait on the pool rather than limiting concurrency externally. Using a semaphore with a pool creates double-queuing and adds overhead in high-contention scenarios.
+
 ---
 
 ## Dialect System
