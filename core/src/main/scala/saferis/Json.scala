@@ -23,10 +23,10 @@ opaque type Json[A] = A
 
 object Json:
   /** Wrap a value to be stored as JSON */
-  def apply[A: JsonCodec](value: A): Json[A] = value
+  def apply[A](value: A)(using @scala.annotation.unused codec: JsonCodec[A]): Json[A] = value
 
   /** Extension method to get the underlying value */
-  extension [A: JsonCodec](json: Json[A]) def value: A = json
+  extension [A](json: Json[A]) def value(using @scala.annotation.unused codec: JsonCodec[A]): A = json
 
   /** Encoder for Json[A] - uses Types.OTHER which maps to jsonb in PostgreSQL */
   given encoder[A: JsonCodec]: Encoder[Json[A]] with

@@ -19,10 +19,24 @@ object Macros:
 
   private[saferis] inline def columnsOf[A <: Product]: Seq[Column[?]] = ${ columnsOfImpl[A] }
 
+  // Scala field names that cannot be used because they would shadow Selectable trait methods
+  private val reservedFieldNames = Set("selectDynamic", "applyDynamic")
+
   private def columnsOfImpl[A: Type](using Quotes): Expr[Seq[Column[?]]] =
     import quotes.reflect.*
     val tpe    = TypeRepr.of[A]
     val fields = tpe.typeSymbol.caseFields
+
+    // Validate no reserved Scala field names are used
+    fields.foreach { field =>
+      if reservedFieldNames.contains(field.name) then
+        report.errorAndAbort(
+          s"Scala field name '${field.name}' is reserved and cannot be used in a Table. " +
+            s"These names conflict with Scala's Selectable trait methods. " +
+            s"If your database column is named '${field.name}', use a different Scala field name with @label: " +
+            s"""@label("${field.name}") myField: String"""
+        )
+    }
 
     val columns = fields.map { field =>
       val fieldName = field.name
@@ -379,7 +393,6 @@ object Macros:
       instance: Expr[Instance[A]],
       selector: Expr[A => T],
   )(using Quotes): Expr[Column[T]] =
-    import quotes.reflect.*
     val fieldName = extractFieldNameFromSelector(selector)
     '{
       $instance.selectDynamic(${ Expr(fieldName) }).asInstanceOf[Column[T]]

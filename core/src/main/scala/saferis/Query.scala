@@ -1,7 +1,6 @@
 package saferis
 
 import zio.Trace
-import java.util.concurrent.atomic.AtomicInteger
 
 /** Join types for SQL JOIN operations */
 enum JoinType:
@@ -22,20 +21,36 @@ final case class JoinClause(
     condition: SqlFragment,
 )
 
-/** Alias generator for auto-aliasing tables in queries */
-private[saferis] object AliasGenerator:
-  private val counter = AtomicInteger(0)
+/** Scoped alias generator - creates deterministic aliases per query chain.
+  * Each Query[A] call creates a fresh generator, so the same query always produces the same SQL.
+  */
+private[saferis] class AliasGenerator:
+  import scala.collection.mutable
 
-  def next(): Alias.Generated = Alias.Generated(s"t${counter.incrementAndGet()}")
+  // Map of table name -> counter (mutable, but instance is scoped per query)
+  private val counters = mutable.Map[String, Int]()
 
-  /** Reset counter (useful for testing) */
-  def reset(): Unit = counter.set(0)
+  /** Generate next alias for a table name.
+    * Uses format: tablename_ref_N (e.g., "users_ref_1", "orders_ref_1")
+    */
+  def next(tableName: String): Alias.Generated =
+    val count = counters.getOrElse(tableName, 0) + 1
+    counters(tableName) = count
+    Alias.Generated(s"${tableName}_ref_$count")
 
   /** Create an aliased Instance from a Table with a generated alias */
-  def aliasedInstance[A <: Product](alias: Alias.Generated)(using table: Table[A]): Instance[A] =
+  def aliasedInstance[A <: Product](using table: Table[A]): Instance[A] =
+    val alias   = next(table.name)
     val columns = table.columns.map(_.withTableAlias(Some(alias)))
     Instance[A](table.name, columns, Some(alias), Vector.empty)
 end AliasGenerator
+
+private[saferis] object AliasGenerator:
+  /** Create a new scoped generator for a query chain */
+  def create(): AliasGenerator = new AliasGenerator()
+
+  /** For backwards compatibility with tests - no-op since each query gets fresh generator */
+  def reset(): Unit = ()
 
 // ============================================================================
 // QueryBase - Base trait for all query types
@@ -92,6 +107,7 @@ final case class DerivedSource(subquery: SelectQuery[?], alias: Alias.User)
   * }}}
   */
 final case class Query1Builder[A <: Product: Table](
+    private[saferis] val gen: AliasGenerator,
     baseInstance: Instance[A],
     sorts: Vector[Sort[?]] = Vector.empty,
     selectColumns: Vector[Column[?]] = Vector.empty,
@@ -123,7 +139,7 @@ final case class Query1Builder[A <: Product: Table](
     copy(selectColumns = columns.toVector)
 
   /** Select all columns with a specified result type (for use in derived tables). */
-  def selectAll[R <: Product: Table]: SelectQuery[R] =
+  def selectAll[R <: Product](using @scala.annotation.unused t: Table[R]): SelectQuery[R] =
     SelectQuery[R](
       Query1Ready(baseInstance, Vector.empty, sorts, Vector.empty, None, None, selectColumns, derivedSource)
     )
@@ -315,7 +331,7 @@ final case class Query1Ready[A <: Product: Table](
     copy(selectColumns = columns.toVector)
 
   /** Select all columns with a specified result type (for use in derived tables). */
-  def selectAll[R <: Product: Table]: SelectQuery[R] =
+  def selectAll[R <: Product](using @scala.annotation.unused t: Table[R]): SelectQuery[R] =
     SelectQuery[R](this)
 
   // === BUILD Methods ===
@@ -330,7 +346,8 @@ final case class Query1Ready[A <: Product: Table](
         val subSql = derived.subquery.build
         (s"(${subSql.sql}) as ${derived.alias.value}", subSql.writes)
       case None =>
-        (baseInstance.sql, Seq.empty)
+        val fromSqlPart = baseInstance.alias.fold(baseInstance.tableName)(a => s"${baseInstance.tableName} as ${a.value}")
+        (fromSqlPart, Seq.empty)
 
     var result = SqlFragment(s"select $selectClause from $fromSql", fromWrites)
 
@@ -420,11 +437,10 @@ final case class JoinBuilder1[A <: Product: Table, B <: Product: Table](
 ):
   /** Start a type-safe ON condition by selecting a column from the left table (A). */
   inline def on[T](inline selector: A => T): OnBuilder1[A, B, T] =
-    val alias     = AliasGenerator.next()
-    val bInstance = AliasGenerator.aliasedInstance[B](alias)
+    val bInstance = query.gen.aliasedInstance[B]
     val leftCol   = query.baseInstance.column(selector)
     val leftAlias = query.baseInstance.alias.getOrElse(Alias.User(query.baseInstance.tableName))
-    OnBuilder1(query, joinType, leftAlias, leftCol, alias, bInstance)
+    OnBuilder1(query, joinType, leftAlias, leftCol, bInstance.alias.get.asInstanceOf[Alias.Generated], bInstance)
 end JoinBuilder1
 
 // ============================================================================
@@ -512,6 +528,7 @@ final case class OnChain1[A <: Product: Table, B <: Product: Table](
     val bTable        = summon[Table[B]]
     val conditionFrag = Condition.toSqlFragment(conditions)
     Query2Builder(
+      query.gen,
       query.baseInstance,
       rightInstance,
       Vector(JoinClause(bTable.name, rightAlias, joinType, conditionFrag)),
@@ -596,6 +613,7 @@ end OnAndBuilder1
 // ============================================================================
 
 final case class Query2Builder[A <: Product: Table, B <: Product: Table](
+    private[saferis] val gen: AliasGenerator,
     t1: Instance[A],
     t2: Instance[B],
     joins: Vector[JoinClause],
@@ -612,7 +630,7 @@ final case class Query2Builder[A <: Product: Table, B <: Product: Table](
 
   // === OFFSET (stays on Builder - still needs constraint) ===
 
-  def offset(n: Long): Query2Builder[A, B] = copy() // Offset alone doesn't make safe
+  def offset(@scala.annotation.unused n: Long): Query2Builder[A, B] = copy() // Offset alone doesn't make safe
 
   // === JOIN Methods ===
 
@@ -744,7 +762,8 @@ final case class Query2Ready[A <: Product: Table, B <: Product: Table](
         val subSql = derived.subquery.build
         (s"(${subSql.sql}) as ${derived.alias.value}", subSql.writes)
       case None =>
-        (t1.sql, Seq.empty)
+        val fromSqlPart = t1.alias.fold(t1.tableName)(a => s"${t1.tableName} as ${a.value}")
+        (fromSqlPart, Seq.empty)
 
     var result = SqlFragment(s"select * from $fromSql", fromWrites)
 
@@ -865,19 +884,17 @@ final case class JoinBuilder2[A <: Product: Table, B <: Product: Table, C <: Pro
 ):
   /** ON condition from first table (A) */
   inline def on[T](inline selector: A => T): OnBuilder2[A, B, C, T, A] =
-    val alias     = AliasGenerator.next()
-    val cInstance = AliasGenerator.aliasedInstance[C](alias)
+    val cInstance = query.gen.aliasedInstance[C]
     val leftCol   = query.t1.column(selector)
     val leftAlias = query.t1.alias.getOrElse(Alias.User(query.t1.tableName))
-    OnBuilder2(query, joinType, leftAlias, leftCol, alias, cInstance)
+    OnBuilder2(query, joinType, leftAlias, leftCol, cInstance.alias.get.asInstanceOf[Alias.Generated], cInstance)
 
   /** ON condition from second table (B) - the "previous" table */
   inline def onPrev[T](inline selector: B => T): OnBuilder2[A, B, C, T, B] =
-    val alias     = AliasGenerator.next()
-    val cInstance = AliasGenerator.aliasedInstance[C](alias)
+    val cInstance = query.gen.aliasedInstance[C]
     val leftCol   = query.t2.column(selector)
     val leftAlias = query.t2.alias.getOrElse(Alias.User(query.t2.tableName))
-    OnBuilder2(query, joinType, leftAlias, leftCol, alias, cInstance)
+    OnBuilder2(query, joinType, leftAlias, leftCol, cInstance.alias.get.asInstanceOf[Alias.Generated], cInstance)
 
 end JoinBuilder2
 
@@ -931,6 +948,7 @@ final case class OnChain2[A <: Product: Table, B <: Product: Table, C <: Product
     val cTable        = summon[Table[C]]
     val conditionFrag = Condition.toSqlFragment(conditions)
     Query3Builder(
+      query.gen,
       query.t1,
       query.t2,
       rightInstance,
@@ -952,6 +970,7 @@ end OnChain2
 // ============================================================================
 
 final case class Query3Builder[A <: Product: Table, B <: Product: Table, C <: Product: Table](
+    private[saferis] val gen: AliasGenerator,
     t1: Instance[A],
     t2: Instance[B],
     t3: Instance[C],
@@ -961,7 +980,7 @@ final case class Query3Builder[A <: Product: Table, B <: Product: Table, C <: Pr
   def where(predicate: SqlFragment): Query3Ready[A, B, C] =
     Query3Ready(t1, t2, t3, joins, Vector(predicate), sorts, Vector.empty, None, None)
   def orderBy(sort: Sort[?]): Query3Builder[A, B, C] = copy(sorts = sorts :+ sort)
-  def offset(n: Long): Query3Builder[A, B, C]        = copy() // Offset alone doesn't make safe
+  def offset(@scala.annotation.unused n: Long): Query3Builder[A, B, C] = copy() // Offset alone doesn't make safe
 
   def limit(n: Int): Query3Ready[A, B, C] =
     Query3Ready(t1, t2, t3, joins, Vector.empty, sorts, Vector.empty, Some(n), None)
@@ -1032,7 +1051,8 @@ final case class Query3Ready[A <: Product: Table, B <: Product: Table, C <: Prod
     seek(column, SeekDir.Gt, value, sortOrder)
 
   def build: SqlFragment =
-    var result = SqlFragment(s"select * from ${t1.sql}", Seq.empty)
+    val t1SqlPart = t1.alias.fold(t1.tableName)(a => s"${t1.tableName} as ${a.value}")
+    var result    = SqlFragment(s"select * from $t1SqlPart", Seq.empty)
 
     for join <- joins do
       val joinSql = s" ${join.joinType.toSql} ${join.tableName} as ${join.alias.value}"
@@ -1072,18 +1092,16 @@ final case class JoinBuilder3[A <: Product: Table, B <: Product: Table, C <: Pro
     joinType: JoinType,
 ):
   inline def on[T](inline selector: A => T): OnBuilder3[A, B, C, D, T] =
-    val alias     = AliasGenerator.next()
-    val dInstance = AliasGenerator.aliasedInstance[D](alias)
+    val dInstance = query.gen.aliasedInstance[D]
     val leftCol   = query.t1.column(selector)
     val leftAlias = query.t1.alias.getOrElse(Alias.User(query.t1.tableName))
-    OnBuilder3(query, joinType, leftAlias, leftCol, alias, dInstance)
+    OnBuilder3(query, joinType, leftAlias, leftCol, dInstance.alias.get.asInstanceOf[Alias.Generated], dInstance)
 
   inline def onPrev[T](inline selector: C => T): OnBuilder3[A, B, C, D, T] =
-    val alias     = AliasGenerator.next()
-    val dInstance = AliasGenerator.aliasedInstance[D](alias)
+    val dInstance = query.gen.aliasedInstance[D]
     val leftCol   = query.t3.column(selector)
     val leftAlias = query.t3.alias.getOrElse(Alias.User(query.t3.tableName))
-    OnBuilder3(query, joinType, leftAlias, leftCol, alias, dInstance)
+    OnBuilder3(query, joinType, leftAlias, leftCol, dInstance.alias.get.asInstanceOf[Alias.Generated], dInstance)
 
 end JoinBuilder3
 
@@ -1119,6 +1137,7 @@ final case class OnChain3[A <: Product: Table, B <: Product: Table, C <: Product
     val dTable        = summon[Table[D]]
     val conditionFrag = Condition.toSqlFragment(conditions)
     Query4Builder(
+      query.gen,
       query.t1,
       query.t2,
       query.t3,
@@ -1141,6 +1160,7 @@ end OnChain3
 // ============================================================================
 
 final case class Query4Builder[A <: Product: Table, B <: Product: Table, C <: Product: Table, D <: Product: Table](
+    private[saferis] val gen: AliasGenerator,
     t1: Instance[A],
     t2: Instance[B],
     t3: Instance[C],
@@ -1151,7 +1171,7 @@ final case class Query4Builder[A <: Product: Table, B <: Product: Table, C <: Pr
   def where(predicate: SqlFragment): Query4Ready[A, B, C, D] =
     Query4Ready(t1, t2, t3, t4, joins, Vector(predicate), sorts, Vector.empty, None, None)
   def orderBy(sort: Sort[?]): Query4Builder[A, B, C, D] = copy(sorts = sorts :+ sort)
-  def offset(n: Long): Query4Builder[A, B, C, D]        = copy()
+  def offset(@scala.annotation.unused n: Long): Query4Builder[A, B, C, D] = copy()
 
   def limit(n: Int): Query4Ready[A, B, C, D] =
     Query4Ready(t1, t2, t3, t4, joins, Vector.empty, sorts, Vector.empty, Some(n), None)
@@ -1231,7 +1251,8 @@ final case class Query4Ready[A <: Product: Table, B <: Product: Table, C <: Prod
     seek(column, SeekDir.Gt, value, sortOrder)
 
   def build: SqlFragment =
-    var result = SqlFragment(s"select * from ${t1.sql}", Seq.empty)
+    val t1SqlPart = t1.alias.fold(t1.tableName)(a => s"${t1.tableName} as ${a.value}")
+    var result    = SqlFragment(s"select * from $t1SqlPart", Seq.empty)
 
     for join <- joins do
       val joinSql = s" ${join.joinType.toSql} ${join.tableName} as ${join.alias.value}"
@@ -1277,18 +1298,16 @@ final case class JoinBuilder4[
     joinType: JoinType,
 ):
   inline def on[T](inline selector: A => T): OnBuilder4[A, B, C, D, E, T] =
-    val alias     = AliasGenerator.next()
-    val eInstance = AliasGenerator.aliasedInstance[E](alias)
+    val eInstance = query.gen.aliasedInstance[E]
     val leftCol   = query.t1.column(selector)
     val leftAlias = query.t1.alias.getOrElse(Alias.User(query.t1.tableName))
-    OnBuilder4(query, joinType, leftAlias, leftCol, alias, eInstance)
+    OnBuilder4(query, joinType, leftAlias, leftCol, eInstance.alias.get.asInstanceOf[Alias.Generated], eInstance)
 
   inline def onPrev[T](inline selector: D => T): OnBuilder4[A, B, C, D, E, T] =
-    val alias     = AliasGenerator.next()
-    val eInstance = AliasGenerator.aliasedInstance[E](alias)
+    val eInstance = query.gen.aliasedInstance[E]
     val leftCol   = query.t4.column(selector)
     val leftAlias = query.t4.alias.getOrElse(Alias.User(query.t4.tableName))
-    OnBuilder4(query, joinType, leftAlias, leftCol, alias, eInstance)
+    OnBuilder4(query, joinType, leftAlias, leftCol, eInstance.alias.get.asInstanceOf[Alias.Generated], eInstance)
 
 end JoinBuilder4
 
@@ -1337,6 +1356,7 @@ final case class OnChain4[
     val eTable        = summon[Table[E]]
     val conditionFrag = Condition.toSqlFragment(conditions)
     Query5Builder(
+      query.gen,
       query.t1,
       query.t2,
       query.t3,
@@ -1366,6 +1386,7 @@ final case class Query5Builder[
     D <: Product: Table,
     E <: Product: Table,
 ](
+    private[saferis] val gen: AliasGenerator,
     t1: Instance[A],
     t2: Instance[B],
     t3: Instance[C],
@@ -1377,7 +1398,7 @@ final case class Query5Builder[
   def where(predicate: SqlFragment): Query5Ready[A, B, C, D, E] =
     Query5Ready(t1, t2, t3, t4, t5, joins, Vector(predicate), sorts, Vector.empty, None, None)
   def orderBy(sort: Sort[?]): Query5Builder[A, B, C, D, E] = copy(sorts = sorts :+ sort)
-  def offset(n: Long): Query5Builder[A, B, C, D, E]        = copy()
+  def offset(@scala.annotation.unused n: Long): Query5Builder[A, B, C, D, E] = copy()
 
   def limit(n: Int): Query5Ready[A, B, C, D, E] =
     Query5Ready(t1, t2, t3, t4, t5, joins, Vector.empty, sorts, Vector.empty, Some(n), None)
@@ -1460,7 +1481,8 @@ final case class Query5Ready[
     seek(column, SeekDir.Gt, value, sortOrder)
 
   def build: SqlFragment =
-    var result = SqlFragment(s"select * from ${t1.sql}", Seq.empty)
+    val t1SqlPart = t1.alias.fold(t1.tableName)(a => s"${t1.tableName} as ${a.value}")
+    var result    = SqlFragment(s"select * from $t1SqlPart", Seq.empty)
 
     for join <- joins do
       val joinSql = s" ${join.joinType.toSql} ${join.tableName} as ${join.alias.value}"
@@ -1510,9 +1532,9 @@ object Query:
     * }}}
     */
   def apply[A <: Product: Table]: Query1Builder[A] =
-    val alias    = AliasGenerator.next()
-    val instance = AliasGenerator.aliasedInstance[A](alias)
-    Query1Builder(instance)
+    val gen      = AliasGenerator.create()
+    val instance = gen.aliasedInstance[A]
+    Query1Builder(gen, instance)
 
   /** Create a Query from a derived table (subquery in FROM clause).
     *
@@ -1537,10 +1559,11 @@ object Query:
     * }}}
     */
   def from[A <: Product: Table](subquery: SelectQuery[A], alias: String): Query1Builder[A] =
+    val gen          = AliasGenerator.create()
     val userAlias    = Alias.User(alias)
     val table        = summon[Table[A]]
     val columns      = table.columns.map(_.withTableAlias(Some(userAlias)))
     val instance     = Instance[A](table.name, columns, Some(userAlias), Vector.empty)
-    Query1Builder(instance, derivedSource = Some(DerivedSource(subquery, userAlias)))
+    Query1Builder(gen, instance, derivedSource = Some(DerivedSource(subquery, userAlias)))
 
 end Query

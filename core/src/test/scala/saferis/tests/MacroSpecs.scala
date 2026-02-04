@@ -79,18 +79,19 @@ object MacroSpecs extends ZIOSpecDefault:
         )
     ,
     suiteAll("Reserved field names"):
-      test("table with field named 'sql' - method takes precedence over selectDynamic"):
+      test("table with field named 'sql' - selectDynamic now works (no collision)"):
         val instance = Table[ReservedNames]
-        // instance.sql returns the Placeholder.sql value, NOT the column
-        // This is a known limitation - these field names shadow Instance methods
-        val sqlFromMethod: String = instance.sql
+        // After removing Placeholder inheritance, instance.sql returns Column[String]
+        // via selectDynamic - no more collision!
+        val sqlCol: Column[String] = instance.sql
         assertTrue(
-          sqlFromMethod == "reserved_names", // The table name SQL
+          sqlCol.label == "sql",
+          sqlCol.name == "sql",
         )
 
-      test("table with field named 'sql' - can still access column via fieldNamesToColumns"):
+      test("table with field named 'sql' - can also access via fieldNamesToColumns"):
         val instance = Table[ReservedNames]
-        // Users can access shadowed fields via the map
+        // Both methods work now - selectDynamic and direct map access
         val sqlCol = instance.fieldNamesToColumns("sql")
         assertTrue(
           sqlCol.label == "sql",
@@ -100,7 +101,7 @@ object MacroSpecs extends ZIOSpecDefault:
       test("table with reserved names - can use columns in SQL interpolator"):
         val instance = Table[ReservedNames]
         // The sql interpolator works correctly with any field name
-        val sqlCol   = instance.fieldNamesToColumns("sql").asInstanceOf[Column[String]]
+        val sqlCol   = instance.sql // Now works via selectDynamic!
         val fragment = sql"SELECT $sqlCol FROM $instance"
         assertTrue(
           fragment.sql.contains("sql"),
@@ -113,6 +114,19 @@ object MacroSpecs extends ZIOSpecDefault:
         val fragment = query.build
         assertTrue(
           fragment.sql.contains("sql"),
+        )
+
+      test("toSql extractor function works"):
+        val instance = Table[ReservedNames]
+        assertTrue(
+          toSql(instance) == "reserved_names",
+        )
+
+      test("aliased via 'as' extension method"):
+        val instance = Table[ReservedNames]
+        val aliased  = instance as "rn"
+        assertTrue(
+          toSql(aliased) == "reserved_names as rn",
         )
     ,
   )

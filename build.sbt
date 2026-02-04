@@ -94,4 +94,6 @@ lazy val docs = project
     ),
     mdocIn  := file("saferis-docs") / "docs",
     mdocOut := file("docs"),
+    // Suppress unused warnings in mdoc - examples often show imports without using them
+    scalacOptions ~= (_.filterNot(_ == "-Wunused:all")),
   )

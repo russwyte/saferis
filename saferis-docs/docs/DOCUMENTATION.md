@@ -1658,6 +1658,120 @@ run {
 | `BigDecimal` | `numeric` |
 | `Option[T]` | Same as `T`, nullable |
 
+### JSON/JSONB Support
+
+Saferis provides `Json[A]` for storing arbitrary types as JSON in the database. This maps to `JSONB` in PostgreSQL and `JSON` in MySQL.
+
+```scala mdoc:reset:silent
+import saferis.*
+import saferis.docs.DocTestContainer.{run, transactor as xa}
+import zio.json.*
+
+// Define a type to store as JSON - needs JsonCodec
+case class Metadata(tags: List[String], version: Int) derives JsonCodec
+
+// Use Json[A] wrapper in your table definition
+@tableName("json_events")
+case class JsonEvent(
+  @generated @key id: Int,
+  name: String,
+  metadata: Json[Metadata]  // Stored as JSONB in PostgreSQL
+) derives Table
+
+val events = Table[JsonEvent]
+```
+
+```scala mdoc
+// Create table and insert with JSON data
+run {
+  xa.run(for
+    _ <- ddl.createTable[JsonEvent]()
+    _ <- dml.insert(JsonEvent(-1, "Deploy", Json(Metadata(List("prod", "release"), 1))))
+    _ <- dml.insert(JsonEvent(-1, "Rollback", Json(Metadata(List("prod", "hotfix"), 2))))
+    all <- sql"SELECT * FROM $events".query[JsonEvent]
+  yield all)
+}
+```
+
+The `Json[A]` wrapper:
+- Requires a `zio.json.JsonCodec[A]` instance for the wrapped type
+- Uses `Types.OTHER` JDBC type which maps to `jsonb` in PostgreSQL
+- Provides `.value` extension to unwrap: `event.metadata.value` returns `Metadata`
+
+---
+
+## Query Execution Methods
+
+SqlFragment provides several methods for executing queries:
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `.query[T]` | `Seq[T]` | Execute query, return all matching rows |
+| `.queryOne[T]` | `Option[T]` | Execute query, return first row if exists |
+| `.queryValue[T]` | `Option[T]` | Execute query, return single value from first column |
+| `.execute` / `.dml` | `Int` | Execute DML statement, return affected row count |
+
+### queryValue for Single Values
+
+Use `.queryValue[T]` for queries that return a single value (aggregates, counts, etc.):
+
+```scala mdoc:reset:silent
+import saferis.*
+import saferis.docs.DocTestContainer.{run, transactor as xa}
+
+@tableName("value_items")
+case class ValueItem(@generated @key id: Int, name: String, price: Double) derives Table
+val items = Table[ValueItem]
+```
+
+```scala mdoc
+run {
+  xa.run(for
+    _ <- ddl.createTable[ValueItem]()
+    _ <- dml.insert(ValueItem(-1, "Widget", 10.0))
+    _ <- dml.insert(ValueItem(-1, "Gadget", 25.0))
+    _ <- dml.insert(ValueItem(-1, "Gizmo", 15.0))
+    count <- sql"SELECT COUNT(*) FROM $items".queryValue[Int]
+    maxPrice <- sql"SELECT MAX(${items.price}) FROM $items".queryValue[Double]
+    avgPrice <- sql"SELECT AVG(${items.price}) FROM $items".queryValue[Double]
+  yield (count, maxPrice, avgPrice))
+}
+```
+
+### execute for Mutation Builders
+
+The mutation builders (Insert, Update, Delete) support `.build.execute` to run the statement:
+
+```scala mdoc:reset:silent
+import saferis.*
+import saferis.docs.DocTestContainer.{run, transactor as xa}
+
+@tableName("exec_items")
+case class ExecItem(@generated @key id: Int, name: String, quantity: Int) derives Table
+```
+
+```scala mdoc
+run {
+  xa.run(for
+    _ <- ddl.createTable[ExecItem]()
+    // Insert using builder and execute
+    insertCount <- Insert[ExecItem]
+      .value(_.name, "Widget")
+      .value(_.quantity, 10)
+      .build
+      .execute
+    // Update using builder and execute
+    updateCount <- Update[ExecItem]
+      .set(_.quantity, 20)
+      .where(_.name).eq("Widget")
+      .build
+      .execute
+    // Verify
+    result <- sql"SELECT * FROM ${Table[ExecItem]}".query[ExecItem]
+  yield (insertCount, updateCount, result))
+}
+```
+
 ---
 
 ## Additional Resources

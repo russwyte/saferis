@@ -121,7 +121,7 @@ object Schema:
     * @tparam A
     *   The table type (case class with derives Table)
     */
-  inline def apply[A <: Product: Table]: Schema[A] =
+  inline def apply[A <: Product](using @scala.annotation.unused t: Table[A]): Schema[A] =
     ${ schemaApplyImpl[A] }
 
   private def schemaApplyImpl[A <: Product: Type](using Quotes): Expr[Schema[A]] =
@@ -222,10 +222,10 @@ object Schema:
   ): InstanceWhereGroupColumnBuilder[A, T] =
     ${ groupResultOrImpl[A, T]('builder, 'selector) }
 
-  inline def fkReferences[A <: Product, To <: Product: Table, T2](
+  inline def fkReferences[A <: Product, To <: Product, T2](
       builder: InstanceFKBuilder[A, ?],
       inline selector: To => T2,
-  ): InstanceFKRefBuilder[A, To, T2] =
+  )(using @scala.annotation.unused t: Table[To]): InstanceFKRefBuilder[A, To, T2] =
     ${ instanceFKReferencesImpl[A, To, T2]('builder, 'selector) }
 
   inline def fkRefAnd[A <: Product, To <: Product](
