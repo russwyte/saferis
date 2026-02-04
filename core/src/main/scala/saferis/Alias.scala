@@ -16,6 +16,7 @@ sealed trait Alias:
     * the dialect's identifier quoting rules.
     */
   def toSql(using Dialect): String
+end Alias
 
 object Alias:
   /** An internally generated alias (e.g., t1, t2, t3).
@@ -28,3 +29,4 @@ object Alias:
   /** A user-supplied alias that requires escaping for SQL injection safety. */
   final case class User(value: String) extends Alias:
     def toSql(using Dialect): String = summon[Dialect].escapeIdentifier(value)
+end Alias

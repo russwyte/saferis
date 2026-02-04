@@ -54,3 +54,4 @@ extension [A <: Product](instance: Instance[A])
     */
   transparent inline infix def as(alias: String) =
     instance.withAlias(alias)
+end extension

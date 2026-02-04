@@ -21,8 +21,8 @@ final case class JoinClause(
     condition: SqlFragment,
 )
 
-/** Scoped alias generator - creates deterministic aliases per query chain.
-  * Each Query[A] call creates a fresh generator, so the same query always produces the same SQL.
+/** Scoped alias generator - creates deterministic aliases per query chain. Each Query[A] call creates a fresh
+  * generator, so the same query always produces the same SQL.
   */
 private[saferis] class AliasGenerator:
   import scala.collection.mutable
@@ -30,8 +30,7 @@ private[saferis] class AliasGenerator:
   // Map of table name -> counter (mutable, but instance is scoped per query)
   private val counters = mutable.Map[String, Int]()
 
-  /** Generate next alias for a table name.
-    * Uses format: tablename_ref_N (e.g., "users_ref_1", "orders_ref_1")
+  /** Generate next alias for a table name. Uses format: tablename_ref_N (e.g., "users_ref_1", "orders_ref_1")
     */
   def next(tableName: String): Alias.Generated =
     val count = counters.getOrElse(tableName, 0) + 1
@@ -346,7 +345,8 @@ final case class Query1Ready[A <: Product: Table](
         val subSql = derived.subquery.build
         (s"(${subSql.sql}) as ${derived.alias.value}", subSql.writes)
       case None =>
-        val fromSqlPart = baseInstance.alias.fold(baseInstance.tableName)(a => s"${baseInstance.tableName} as ${a.value}")
+        val fromSqlPart =
+          baseInstance.alias.fold(baseInstance.tableName)(a => s"${baseInstance.tableName} as ${a.value}")
         (fromSqlPart, Seq.empty)
 
     var result = SqlFragment(s"select $selectClause from $fromSql", fromWrites)
@@ -979,7 +979,7 @@ final case class Query3Builder[A <: Product: Table, B <: Product: Table, C <: Pr
 ):
   def where(predicate: SqlFragment): Query3Ready[A, B, C] =
     Query3Ready(t1, t2, t3, joins, Vector(predicate), sorts, Vector.empty, None, None)
-  def orderBy(sort: Sort[?]): Query3Builder[A, B, C] = copy(sorts = sorts :+ sort)
+  def orderBy(sort: Sort[?]): Query3Builder[A, B, C]                   = copy(sorts = sorts :+ sort)
   def offset(@scala.annotation.unused n: Long): Query3Builder[A, B, C] = copy() // Offset alone doesn't make safe
 
   def limit(n: Int): Query3Ready[A, B, C] =
@@ -1170,7 +1170,7 @@ final case class Query4Builder[A <: Product: Table, B <: Product: Table, C <: Pr
 ):
   def where(predicate: SqlFragment): Query4Ready[A, B, C, D] =
     Query4Ready(t1, t2, t3, t4, joins, Vector(predicate), sorts, Vector.empty, None, None)
-  def orderBy(sort: Sort[?]): Query4Builder[A, B, C, D] = copy(sorts = sorts :+ sort)
+  def orderBy(sort: Sort[?]): Query4Builder[A, B, C, D]                   = copy(sorts = sorts :+ sort)
   def offset(@scala.annotation.unused n: Long): Query4Builder[A, B, C, D] = copy()
 
   def limit(n: Int): Query4Ready[A, B, C, D] =
@@ -1330,12 +1330,18 @@ final case class OnBuilder4[
     val condition = BinaryCondition(leftAlias, leftColumn, operator, rightAlias, rightCol)
     OnChain4(query, joinType, rightAlias, rightInstance, Vector(condition))
 
-  inline def eq(inline selector: E => T): OnChain4[A, B, C, D, E]  = complete(Operator.Eq, rightInstance.column(selector))
-  inline def neq(inline selector: E => T): OnChain4[A, B, C, D, E] = complete(Operator.Neq, rightInstance.column(selector))
-  inline def lt(inline selector: E => T): OnChain4[A, B, C, D, E]  = complete(Operator.Lt, rightInstance.column(selector))
-  inline def lte(inline selector: E => T): OnChain4[A, B, C, D, E] = complete(Operator.Lte, rightInstance.column(selector))
-  inline def gt(inline selector: E => T): OnChain4[A, B, C, D, E]  = complete(Operator.Gt, rightInstance.column(selector))
-  inline def gte(inline selector: E => T): OnChain4[A, B, C, D, E] = complete(Operator.Gte, rightInstance.column(selector))
+  inline def eq(inline selector: E => T): OnChain4[A, B, C, D, E] =
+    complete(Operator.Eq, rightInstance.column(selector))
+  inline def neq(inline selector: E => T): OnChain4[A, B, C, D, E] =
+    complete(Operator.Neq, rightInstance.column(selector))
+  inline def lt(inline selector: E => T): OnChain4[A, B, C, D, E] =
+    complete(Operator.Lt, rightInstance.column(selector))
+  inline def lte(inline selector: E => T): OnChain4[A, B, C, D, E] =
+    complete(Operator.Lte, rightInstance.column(selector))
+  inline def gt(inline selector: E => T): OnChain4[A, B, C, D, E] =
+    complete(Operator.Gt, rightInstance.column(selector))
+  inline def gte(inline selector: E => T): OnChain4[A, B, C, D, E] =
+    complete(Operator.Gte, rightInstance.column(selector))
 
 end OnBuilder4
 
@@ -1397,7 +1403,7 @@ final case class Query5Builder[
 ):
   def where(predicate: SqlFragment): Query5Ready[A, B, C, D, E] =
     Query5Ready(t1, t2, t3, t4, t5, joins, Vector(predicate), sorts, Vector.empty, None, None)
-  def orderBy(sort: Sort[?]): Query5Builder[A, B, C, D, E] = copy(sorts = sorts :+ sort)
+  def orderBy(sort: Sort[?]): Query5Builder[A, B, C, D, E]                   = copy(sorts = sorts :+ sort)
   def offset(@scala.annotation.unused n: Long): Query5Builder[A, B, C, D, E] = copy()
 
   def limit(n: Int): Query5Ready[A, B, C, D, E] =
@@ -1559,11 +1565,11 @@ object Query:
     * }}}
     */
   def from[A <: Product: Table](subquery: SelectQuery[A], alias: String): Query1Builder[A] =
-    val gen          = AliasGenerator.create()
-    val userAlias    = Alias.User(alias)
-    val table        = summon[Table[A]]
-    val columns      = table.columns.map(_.withTableAlias(Some(userAlias)))
-    val instance     = Instance[A](table.name, columns, Some(userAlias), Vector.empty)
+    val gen       = AliasGenerator.create()
+    val userAlias = Alias.User(alias)
+    val table     = summon[Table[A]]
+    val columns   = table.columns.map(_.withTableAlias(Some(userAlias)))
+    val instance  = Instance[A](table.name, columns, Some(userAlias), Vector.empty)
     Query1Builder(gen, instance, derivedSource = Some(DerivedSource(subquery, userAlias)))
 
 end Query

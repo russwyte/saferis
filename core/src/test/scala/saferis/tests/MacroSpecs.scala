@@ -24,7 +24,7 @@ object MacroSpecs extends ZIOSpecDefault:
   val spec = suite("MacroSpecs")(
     suiteAll("Macro extractColumn"):
       test("extractColumn returns typed Column[String] for string field"):
-        val instance                 = Table[TestUser]
+        val instance                = Table[TestUser]
         val nameCol: Column[String] = instance.column(_.name)
         assertTrue(
           nameCol.label == "name",
@@ -32,7 +32,7 @@ object MacroSpecs extends ZIOSpecDefault:
         )
 
       test("extractColumn returns typed Column[Int] for int field"):
-        val instance              = Table[TestUser]
+        val instance            = Table[TestUser]
         val ageCol: Column[Int] = instance.column(_.age)
         assertTrue(
           ageCol.label == "age",
@@ -40,7 +40,7 @@ object MacroSpecs extends ZIOSpecDefault:
         )
 
       test("extractColumn returns typed Column[Int] for key field"):
-        val instance             = Table[TestUser]
+        val instance           = Table[TestUser]
         val idCol: Column[Int] = instance.column(_.id)
         assertTrue(
           idCol.label == "id",
@@ -49,7 +49,7 @@ object MacroSpecs extends ZIOSpecDefault:
         )
 
       test("extractColumn preserves column metadata"):
-        val instance                 = Table[TestUser]
+        val instance                = Table[TestUser]
         val idCol: Column[Int]      = instance.column(_.id)
         val nameCol: Column[String] = instance.column(_.name)
         assertTrue(
@@ -60,7 +60,7 @@ object MacroSpecs extends ZIOSpecDefault:
         )
 
       test("table with field named 'column' works correctly"):
-        val instance                    = Table[WithColumnField]
+        val instance = Table[WithColumnField]
         // Can access the "column" field via the column() method
         val columnCol: Column[String] = instance.column(_.column)
         assertTrue(
@@ -113,20 +113,20 @@ object MacroSpecs extends ZIOSpecDefault:
         val query    = Query[ReservedNames].where(_.sql).eq("test")
         val fragment = query.build
         assertTrue(
-          fragment.sql.contains("sql"),
+          fragment.sql.contains("sql")
         )
 
       test("toSql extractor function works"):
         val instance = Table[ReservedNames]
         assertTrue(
-          toSql(instance) == "reserved_names",
+          toSql(instance) == "reserved_names"
         )
 
       test("aliased via 'as' extension method"):
         val instance = Table[ReservedNames]
         val aliased  = instance as "rn"
         assertTrue(
-          toSql(aliased) == "reserved_names as rn",
-        )
-    ,
+          toSql(aliased) == "reserved_names as rn"
+        ),
   )
+end MacroSpecs

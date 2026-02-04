@@ -294,7 +294,9 @@ object Macros:
   // This method is used to refine the Instance type with the field names/labels
   // Instance is a structural type - we preserve the actual field types for type-safe column access
   // Important: We take baseType as Instance[A] to preserve the type parameter
-  private def refinementForLabels(using q: Quotes)(
+  private def refinementForLabels(using
+      q: Quotes
+  )(
       baseType: q.reflect.TypeRepr,
       fieldNamesAndTypes: Seq[(String, q.reflect.TypeRepr)],
   ) =
@@ -304,6 +306,7 @@ object Macros:
       // Create Column[FieldType] refinement to preserve type information
       val columnType = TypeRepr.of[Column].appliedTo(fieldType)
       Refinement(t, name, columnType)
+  end refinementForLabels
 
   private[saferis] def summonEncoder[T: Type](using Quotes): Expr[Encoder[T]] =
     import quotes.reflect.*

@@ -108,6 +108,7 @@ object Interpolator:
               val ph  = summonPlaceholder[tp](arg)
               val acc = '{ $builder.addOne($ph) }
               getPlaceHoldersExpr(rest, acc)
+        end if
       case _ =>
         '{ $builder.result() }
     end match

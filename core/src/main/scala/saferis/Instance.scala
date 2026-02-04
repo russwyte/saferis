@@ -7,11 +7,11 @@ import scala.annotation.unused
   *
   * This class is derived via a macro from a Table[A] typeclass.
   *
-  * Instance exposes ONLY column access via `selectDynamic` - all other methods are private[saferis].
-  * This ensures no method names can collide with user-defined field names like "sql", "withAlias", etc.
+  * Instance exposes ONLY column access via `selectDynamic` - all other methods are private[saferis]. This ensures no
+  * method names can collide with user-defined field names like "sql", "withAlias", etc.
   *
-  * To get the SQL representation, use: `toSql(instance)`
-  * To alias a table, use: `instance as "alias"` or `aliased(instance, "alias")`
+  * To get the SQL representation, use: `toSql(instance)` To alias a table, use: `instance as "alias"` or
+  * `aliased(instance, "alias")`
   *
   * ==Reserved Field Names==
   * The following Scala field names cannot be used because they conflict with the Selectable trait:
@@ -73,6 +73,7 @@ final case class Instance[A <: Product: Table as table](
       indexes = indexes,
       uniqueConstraints = uniqueConstraints,
     ).asInstanceOf[this.type]
+  end withAlias
 
   /** Internal method to set a generated alias on this instance. */
   private[saferis] transparent inline def withGeneratedAlias(alias: Alias.Generated) =
@@ -101,8 +102,8 @@ final case class Instance[A <: Product: Table as table](
 
   /** Extract a typed column using a field selector.
     *
-    * This is private[saferis] to avoid collision with user-defined fields named "column".
-    * Used internally by Query.where and other builder methods.
+    * This is private[saferis] to avoid collision with user-defined fields named "column". Used internally by
+    * Query.where and other builder methods.
     */
   private[saferis] inline def column[T](inline selector: A => T): Column[T] =
     Macros.extractColumn(this, selector)
