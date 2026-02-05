@@ -24,7 +24,7 @@ A comprehensive guide to Saferis - the type-safe, resource-safe SQL client libra
 Add Saferis to your `build.sbt`:
 
 ```scala
-libraryDependencies += "io.github.russwyte" %% "saferis" % "0.4.0+3-27ced31a+20260205-0803"
+libraryDependencies += "io.github.russwyte" %% "saferis" % "0.5.0"
 ```
 
 Saferis requires ZIO as a provided dependency:
@@ -193,7 +193,7 @@ val minPrice = 10.0
 val query = sql"SELECT * FROM $products WHERE ${products.price} > $minPrice"
 // query: SqlFragment = SqlFragment(
 //   sql = "SELECT * FROM products WHERE price > ?",
-//   writes = Vector(saferis.Write@3f1d5d70)
+//   writes = Vector(saferis.Write@6a577df8)
 // )
 query.show
 // res8: String = "SELECT * FROM products WHERE price > 10.0"
@@ -744,7 +744,7 @@ run {
   yield jobs)
 }
 // res39: Seq[Job] = Vector(
-//   Job(id = 1, status = "pending", retryAt = Some(2026-02-05T16:12:58.768696Z)),
+//   Job(id = 1, status = "pending", retryAt = Some(2026-02-05T16:42:35.501715Z)),
 //   Job(id = 2, status = "completed", retryAt = None)
 // )
 ```
@@ -1919,7 +1919,7 @@ val activeUserIds = Query[SubOrder]
 //     wherePredicates = Vector(
 //       SqlFragment(
 //         sql = "sub_orders_ref_1.status = ?",
-//         writes = Vector(saferis.Write@29a42afc)
+//         writes = Vector(saferis.Write@24106a4a)
 //       )
 //     ),
 //     sorts = Vector(),
@@ -2159,7 +2159,7 @@ val electronicProductIds = Query[ComplexProduct]
 //     wherePredicates = Vector(
 //       SqlFragment(
 //         sql = "complex_products_ref_1.category = ?",
-//         writes = Vector(saferis.Write@3bdfcd33)
+//         writes = Vector(saferis.Write@452c551f)
 //       )
 //     ),
 //     sorts = Vector(),
@@ -2222,7 +2222,7 @@ val usersWithElectronics = Query[ComplexOrder]
 //     wherePredicates = Vector(
 //       SqlFragment(
 //         sql = "complex_orders_ref_1.productId IN (select id from complex_products as complex_products_ref_1 where complex_products_ref_1.category = ?)",
-//         writes = List(saferis.Write@3bdfcd33)
+//         writes = List(saferis.Write@452c551f)
 //       )
 //     ),
 //     sorts = Vector(),
@@ -2408,14 +2408,14 @@ run {
 //   Event(
 //     id = 1,
 //     name = "Conference",
-//     occurredAt = 2026-02-05T16:12:59.130401Z,
-//     scheduledFor = Some(2026-02-12T10:12:59.130429),
+//     occurredAt = 2026-02-05T16:42:35.819654Z,
+//     scheduledFor = Some(2026-02-12T10:42:35.819689),
 //     eventDate = 2026-02-05
 //   ),
 //   Event(
 //     id = 2,
 //     name = "Meeting",
-//     occurredAt = 2026-02-05T16:12:59.135319Z,
+//     occurredAt = 2026-02-05T16:42:35.823919Z,
 //     scheduledFor = None,
 //     eventDate = 2026-02-06
 //   )
@@ -2448,7 +2448,7 @@ run {
   yield found)
 }
 // res124: Option[Entity] = Some(
-//   Entity(id = 425a3652-3924-40d2-96f7-b76b8df9fb69, name = "First Entity")
+//   Entity(id = 0b8625ef-5a83-4267-92fd-64fdd1782b6b, name = "First Entity")
 // )
 ```
 
