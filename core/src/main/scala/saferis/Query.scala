@@ -276,6 +276,27 @@ final case class Query1Ready[A <: Product: Table](
     val whereFrag    = SqlFragment(notExistsSql, subquerySql.writes)
     copy(wherePredicates = wherePredicates :+ whereFrag)
 
+  /** Add a grouped WHERE condition using lambda syntax for complex OR/AND expressions.
+    *
+    * Usage:
+    * {{{
+    *   Query[User]
+    *     .where(_.active).eq(true)
+    *     .andWhere(w => w(_.status).isNull.or(_.deletedAt).isNotNull)
+    *     .query[User]
+    * }}}
+    *
+    * Generates: `WHERE active = ? AND (status IS NULL OR deleted_at IS NOT NULL)`
+    */
+  def andWhere(builder: WhereGroupBuilder[A] => WhereGroupChain[A]): Query1Ready[A] =
+    val groupBuilder = WhereGroupBuilder[A](
+      baseInstance.fieldNamesToColumns,
+      baseInstance.alias.getOrElse(Alias.unsafe(baseInstance.tableName)),
+    )
+    val chain     = builder(groupBuilder)
+    val whereFrag = chain.toWhereGroup.toSqlFragment
+    copy(wherePredicates = wherePredicates :+ whereFrag)
+
   // === ORDER BY Methods ===
 
   /** Add an ORDER BY clause */
@@ -332,6 +353,30 @@ final case class Query1Ready[A <: Product: Table](
   /** Select all columns with a specified result type (for use in derived tables). */
   def selectAll[R <: Product](using @scala.annotation.unused t: Table[R]): SelectQuery[R] =
     SelectQuery[R](this)
+
+  // === AGGREGATE Methods ===
+
+  /** Select an aggregate function on a column.
+    *
+    * Usage:
+    * {{{
+    *   Query[EventRow]
+    *     .where(_.instanceId).eq(instanceId)
+    *     .selectAggregate(_.sequenceNr)(_.max.coalesce(0L))
+    *     .queryValue[Long]
+    * }}}
+    */
+  transparent inline def selectAggregate[T, R](inline selector: A => T)(
+      f: Column[T] => AggregateExpr[R]
+  ): AggregateQuery[A, R] =
+    val fieldName = Macros.extractFieldName[A, T](selector)
+    val column    = baseInstance.fieldNamesToColumns(fieldName).asInstanceOf[Column[T]]
+    val agg       = f(column)
+    AggregateQuery(baseInstance.tableName, baseInstance.alias, wherePredicates, agg)
+
+  /** Select a pre-built aggregate expression directly. */
+  def selectAggregate[T](aggregate: AggregateExpr[T]): AggregateQuery[A, T] =
+    AggregateQuery(baseInstance.tableName, baseInstance.alias, wherePredicates, aggregate)
 
   // === BUILD Methods ===
 

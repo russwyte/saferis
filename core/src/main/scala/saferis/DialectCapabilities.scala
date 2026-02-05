@@ -132,6 +132,53 @@ trait UpsertSupport:
     *   SQL statement for UPSERT
     */
   def upsertSql(tableName: String, insertColumns: String, conflictColumns: Seq[String], updateColumns: String): String
+
+  /** Returns SQL for an UPSERT operation with a WHERE clause on the conflict update.
+    *
+    * Used for conditional upserts like: `ON CONFLICT (id) DO UPDATE SET ... WHERE expires_at < now()`
+    *
+    * @param tableName
+    *   Name of the table
+    * @param insertColumns
+    *   Columns for insertion
+    * @param conflictColumns
+    *   Columns that define the conflict
+    * @param updateColumns
+    *   Columns to update on conflict
+    * @param conflictWhere
+    *   Optional WHERE clause for the DO UPDATE (conditions for when to actually update)
+    * @return
+    *   SQL statement for conditional UPSERT
+    */
+  def upsertWithWhereSql(
+      tableName: String,
+      insertColumns: String,
+      conflictColumns: Seq[String],
+      updateColumns: String,
+      conflictWhere: Option[String],
+  ): String =
+    val baseUpsert  = upsertSql(tableName, insertColumns, conflictColumns, updateColumns)
+    val whereClause = conflictWhere.map(w => s" WHERE $w").getOrElse("")
+    baseUpsert + whereClause
+  end upsertWithWhereSql
+
+  /** Returns SQL for an UPSERT with DO NOTHING (insert only if no conflict).
+    *
+    * @param tableName
+    *   Name of the table
+    * @param insertColumns
+    *   Columns for insertion
+    * @param conflictColumns
+    *   Columns that define the conflict
+    * @return
+    *   SQL statement for INSERT ... ON CONFLICT DO NOTHING
+    */
+  def upsertDoNothingSql(
+      tableName: String,
+      insertColumns: String,
+      conflictColumns: Seq[String],
+  ): String
+
 end UpsertSupport
 
 /** Trait for dialects that support JSON operations */
