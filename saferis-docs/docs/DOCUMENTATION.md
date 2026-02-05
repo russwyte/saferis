@@ -6,6 +6,7 @@ A comprehensive guide to Saferis - the type-safe, resource-safe SQL client libra
 
 - [Getting Started](#getting-started)
 - [Core Concepts](#core-concepts)
+- [SQL Injection Prevention](#sql-injection-prevention)
 - [Dialect System](#dialect-system)
 - [Data Definition Layer (DDL)](#data-definition-layer-ddl)
 - [Foreign Key Support](#foreign-key-support)
@@ -155,7 +156,7 @@ run {
 
 ### SQL Interpolation
 
-The `sql"..."` interpolator provides SQL injection protection:
+The `sql"..."` interpolator is Saferis's primary defense against SQL injection. It automatically distinguishes between different types of interpolated values:
 
 ```scala mdoc:reset:silent
 import saferis.*
@@ -174,16 +175,27 @@ val products = Table[Product]
 ```
 
 ```scala mdoc
-// Values are safely parameterized
+// Values are safely parameterized using prepared statement placeholders
 val minPrice = 10.0
 val query = sql"SELECT * FROM $products WHERE ${products.price} > $minPrice"
 query.show
 ```
 
 ```scala mdoc
-// Table and column references are properly escaped
+// Table and column references use SQL identifiers (not parameters)
 sql"SELECT ${products.name}, ${products.price} FROM $products WHERE ${products.inStock} = ${true}".show
 ```
+
+The interpolator handles each type differently:
+
+| Interpolated Type | Treatment | Example |
+|-------------------|-----------|---------|
+| Table instance | SQL identifier | `$products` → `products` |
+| Column reference | SQL identifier | `${products.name}` → `name` |
+| Scalar values | Prepared statement `?` | `$minPrice` → `?` with bound value |
+| `SqlFragment` | Embedded SQL | Nested fragments are composed |
+
+See [SQL Injection Prevention](#sql-injection-prevention) for the complete security model.
 
 ### The Transactor
 
@@ -286,6 +298,170 @@ import saferis.spark.{given}
 | PostgreSQL | `GENERATED ALWAYS AS IDENTITY` |
 | MySQL | `AUTO_INCREMENT` |
 | SQLite | `AUTOINCREMENT` |
+
+---
+
+## SQL Injection Prevention
+
+Saferis is designed from the ground up to prevent SQL injection at multiple levels. This section explains the complete security model.
+
+### The Three Layers of Protection
+
+1. **Parameterized Values** - User data is always bound via prepared statements, never concatenated into SQL
+2. **Compile-Time Literal Enforcement** - Table aliases must be string literals known at compile time
+3. **Runtime Escaping** - When runtime identifiers are unavoidable, proper escaping is applied
+
+### How the `sql"..."` Interpolator Works
+
+The interpolator analyzes each interpolated expression at compile time and routes it appropriately:
+
+```scala mdoc:reset:silent
+import saferis.*
+
+@tableName("users")
+case class User(@generated @key id: Int, name: String, email: String) derives Table
+
+val users = Table[User]
+val userName = "Alice"  // User input
+```
+
+```scala mdoc
+// This is SAFE - userName becomes a prepared statement parameter
+sql"SELECT * FROM $users WHERE ${users.name} = $userName".show
+```
+
+The generated SQL uses `?` placeholders, and the actual value is bound separately - it never touches the SQL string. Even malicious input is harmless:
+
+```scala mdoc
+// Attempted SQL injection - completely harmless
+val malicious = "'; DROP TABLE users; --"
+sql"SELECT * FROM $users WHERE ${users.name} = $malicious".show
+```
+
+The malicious string becomes a parameter value, not part of the SQL syntax.
+
+### Table Aliases: Compile-Time Literal Enforcement
+
+Table aliases appear directly in SQL (not as parameters), so they could be injection vectors. Saferis prevents this with a **macro that enforces string literals at compile time**:
+
+```scala mdoc:compile-only
+import saferis.*
+
+@tableName("users")
+case class User(@key id: Int, name: String) derives Table
+
+// These compile - string literals are safe
+val u1 = Table[User]("u")           // OK
+val u2 = Table[User] as "users"     // OK
+val a = Alias("my_alias")           // OK
+
+// These would NOT compile - variables could contain injection vectors
+// val alias = "u"
+// val bad1 = Table[User](alias)       // COMPILE ERROR
+// val bad2 = Table[User] as alias     // COMPILE ERROR
+// val bad3 = Alias(alias)             // COMPILE ERROR
+```
+
+The compile error message guides you to the safe alternative:
+
+```
+Alias requires a string literal.
+For runtime identifiers, use Placeholder.identifier() or dialect.escapeIdentifier() instead.
+```
+
+This compile-time enforcement means SQL injection via aliases is **impossible** - there's no runtime path for user input to become an alias.
+
+### Runtime Identifiers with `Placeholder.identifier()`
+
+Sometimes you genuinely need runtime-determined identifiers (e.g., dynamic column names from configuration). For these cases, use `Placeholder.identifier()` which applies proper escaping:
+
+```scala mdoc:reset:silent
+import saferis.*
+
+@tableName("users")
+case class User(@key id: Int, name: String, email: String) derives Table
+val users = Table[User]
+```
+
+```scala mdoc
+// Safe runtime identifier - properly escaped
+val columnName = "name"  // Could come from config, NOT user input
+sql"SELECT ${Placeholder.identifier(columnName)} FROM $users".show
+```
+
+The identifier is escaped using the dialect's quoting rules. For PostgreSQL, this means double-quote escaping:
+
+```scala mdoc
+// Even problematic identifiers are safely escaped
+import saferis.postgres.PostgresDialect
+PostgresDialect.escapeIdentifier("table")  // Reserved word
+```
+
+```scala mdoc
+PostgresDialect.escapeIdentifier("user\"input")  // Contains quote
+```
+
+**Important**: While `Placeholder.identifier()` escapes properly, you should still validate runtime identifiers against an allowlist when possible. Escaping is a defense-in-depth measure, not a replacement for input validation.
+
+### The `Placeholder.raw()` Escape Hatch
+
+For rare cases where you need to embed literal SQL (e.g., database-specific syntax not supported by Saferis), use `Placeholder.raw()`:
+
+```scala mdoc
+// Raw SQL - use with extreme caution
+val trustedSql = "CURRENT_TIMESTAMP"
+sql"SELECT ${Placeholder.raw(trustedSql)} as now".show
+```
+
+⚠️ **Warning**: `Placeholder.raw()` bypasses all safety mechanisms. Only use it with:
+- Hardcoded strings in your source code
+- Values from trusted configuration (never user input)
+- SQL syntax that Saferis doesn't support natively
+
+Never pass user input to `Placeholder.raw()`.
+
+### JSON Operations: Automatic Escaping
+
+When using JSON operations in the Schema DSL or dialect methods, Saferis automatically escapes single quotes to prevent injection:
+
+```scala mdoc:reset:silent
+import saferis.*
+import saferis.Schema.*
+
+@tableName("profiles")
+case class Profile(@key id: Int, name: String, data: Json[Map[String, String]]) derives Table
+```
+
+```scala mdoc
+// JSON key with special characters - automatically escaped
+import saferis.postgres.PostgresDialect
+PostgresDialect.jsonHasKeySql("data", "user's_key")
+```
+
+```scala mdoc
+// Even attempted injection is escaped
+PostgresDialect.jsonHasKeySql("data", "'); DROP TABLE profiles; --")
+```
+
+The single quote in the injection attempt is escaped to `''`, rendering it harmless.
+
+### Security Summary
+
+| Mechanism | What It Protects | How It Works |
+|-----------|------------------|--------------|
+| Parameterized queries | User data values | Bound via `?` placeholders, never in SQL string |
+| Alias macro | Table aliases | Compile-time string literal enforcement |
+| `Placeholder.identifier()` | Runtime column/table names | Dialect-specific identifier escaping |
+| JSON escaping | JSON keys and paths | Automatic single-quote escaping |
+| `Placeholder.raw()` | Escape hatch | Developer takes responsibility |
+
+### Best Practices
+
+1. **Use the `sql"..."` interpolator** for all queries - it handles parameterization automatically
+2. **Use literal strings** for table aliases - the compiler enforces this
+3. **Validate runtime identifiers** against an allowlist before using `Placeholder.identifier()`
+4. **Never use `Placeholder.raw()`** with user input
+5. **Prefer the Query builder** for dynamic queries - it's type-safe end-to-end
 
 ---
 

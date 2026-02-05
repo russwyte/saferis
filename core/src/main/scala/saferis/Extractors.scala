@@ -24,8 +24,8 @@ def toSql[A <: Product](instance: Instance[A]): String =
   *   val u = Table[User] as "u"
   * }}}
   */
-def aliased[A <: Product: Table](instance: Instance[A], alias: String): Instance[A] =
-  val userAlias  = Alias.User(alias)
+inline def aliased[A <: Product: Table](instance: Instance[A], inline alias: String): Instance[A] =
+  val userAlias  = Alias(alias)
   val newColumns = instance.columns.map(_.withTableAlias(Some(userAlias)))
   instance.copy(alias = Some(userAlias), columns = newColumns)
 
@@ -52,6 +52,6 @@ extension [A <: Product](instance: Instance[A])
     *   sql"SELECT \${u.name} FROM \$u"
     * }}}
     */
-  transparent inline infix def as(alias: String) =
+  transparent inline infix def as(inline alias: String) =
     instance.withAlias(alias)
 end extension

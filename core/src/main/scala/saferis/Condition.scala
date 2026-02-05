@@ -6,7 +6,7 @@ package saferis
   */
 sealed trait Condition:
   /** Generate the SQL string for this condition */
-  def toSql(using Dialect): String
+  def toSql: String
 
   /** Get any Write instances needed for prepared statement binding */
   def writes: Seq[Write[?]]
@@ -19,7 +19,7 @@ final case class BinaryCondition(
     rightAlias: Alias,
     rightColumn: Column[?],
 ) extends Condition:
-  def toSql(using d: Dialect): String =
+  def toSql: String =
     s"${leftAlias.toSql}.${leftColumn.label} ${operator.sql} ${rightAlias.toSql}.${rightColumn.label}"
 
   def writes: Seq[Write[?]] = Seq.empty
@@ -31,7 +31,7 @@ final case class UnaryCondition(
     column: Column[?],
     operator: Operator, // IsNull or IsNotNull
 ) extends Condition:
-  def toSql(using d: Dialect): String =
+  def toSql: String =
     s"${alias.toSql}.${column.label} ${operator.sql}"
 
   def writes: Seq[Write[?]] = Seq.empty
@@ -48,7 +48,7 @@ final case class LiteralCondition(
     operator: Operator,
     write: Write[?],
 ) extends Condition:
-  def toSql(using d: Dialect): String =
+  def toSql: String =
     s"${alias.toSql}.${column.label} ${operator.sql} ?"
 
   def writes: Seq[Write[?]] = Seq(write)
@@ -56,7 +56,7 @@ end LiteralCondition
 
 object Condition:
   /** Convert a sequence of conditions to SQL with AND between them */
-  def toSqlFragment(conditions: Seq[Condition])(using Dialect): SqlFragment =
+  def toSqlFragment(conditions: Seq[Condition]): SqlFragment =
     if conditions.isEmpty then SqlFragment("", Seq.empty)
     else
       val sql    = conditions.map(_.toSql).mkString(" AND ")

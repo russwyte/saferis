@@ -25,7 +25,7 @@ trait WhereBuilderOps[Parent, T]:
   private def completeLiteral(operator: Operator, value: T)(using enc: Encoder[T]): Parent =
     val write     = enc(value)
     val condition = LiteralCondition(whereAlias, whereColumn, operator, write)
-    val whereFrag = Condition.toSqlFragment(Vector(condition))(using saferis.postgres.PostgresDialect)
+    val whereFrag = Condition.toSqlFragment(Vector(condition))
     addPredicate(whereFrag)
 
   /** Compare to literal value with equality */
@@ -61,13 +61,13 @@ trait WhereBuilderOps[Parent, T]:
   /** IS NULL check */
   def isNull(): Parent =
     val condition = UnaryCondition(whereAlias, whereColumn, Operator.IsNull)
-    val whereFrag = Condition.toSqlFragment(Vector(condition))(using saferis.postgres.PostgresDialect)
+    val whereFrag = Condition.toSqlFragment(Vector(condition))
     addPredicate(whereFrag)
 
   /** IS NOT NULL check */
   def isNotNull(): Parent =
     val condition = UnaryCondition(whereAlias, whereColumn, Operator.IsNotNull)
-    val whereFrag = Condition.toSqlFragment(Vector(condition))(using saferis.postgres.PostgresDialect)
+    val whereFrag = Condition.toSqlFragment(Vector(condition))
     addPredicate(whereFrag)
 
   // === Subquery operators ===
@@ -77,7 +77,6 @@ trait WhereBuilderOps[Parent, T]:
     * Type-safe: the subquery must return the same type T as this column.
     */
   def in(subquery: SelectQuery[T]): Parent =
-    given Dialect   = saferis.postgres.PostgresDialect
     val subquerySql = subquery.build
     val inSql       = s"${whereAlias.toSql}.${whereColumn.label} IN (${subquerySql.sql})"
     val whereFrag   = SqlFragment(inSql, subquerySql.writes)
@@ -85,7 +84,6 @@ trait WhereBuilderOps[Parent, T]:
 
   /** NOT IN subquery - type-safe variant */
   def notIn(subquery: SelectQuery[T]): Parent =
-    given Dialect   = saferis.postgres.PostgresDialect
     val subquerySql = subquery.build
     val notInSql    = s"${whereAlias.toSql}.${whereColumn.label} NOT IN (${subquerySql.sql})"
     val whereFrag   = SqlFragment(notInSql, subquerySql.writes)

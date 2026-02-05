@@ -7,9 +7,11 @@ final case class tableName(name: String) extends StaticAnnotation
 sealed trait Table[A <: Product]:
   private[saferis] def name: String
   def columns: Seq[Column[?]]
-  private[saferis] def columnMap                     = columns.map(c => c.name -> c).toMap
-  transparent inline def instance                    = Macros.instanceOf[A](alias = None)
-  transparent inline def instance(alias: String)     = Macros.instanceOf[A](alias = Some(alias))
+  private[saferis] def columnMap                               = columns.map(c => c.name -> c).toMap
+  transparent inline def instance                              = Macros.instanceOf[A](alias = None)
+  transparent inline def aliasedInstance(inline alias: String) =
+    val _ = Alias(alias) // Compile-time validation that alias is a string literal
+    Macros.instanceOf[A](alias = Some(alias))
   private[saferis] def insertColumnsSql: SqlFragment =
     SqlFragment(columns.filterNot(_.isGenerated).map(_.sql).mkString("(", ", ", ")"), Seq.empty)
   private[saferis] def returningColumnsSql: SqlFragment =
@@ -53,8 +55,9 @@ sealed trait Table[A <: Product]:
 end Table
 
 object Table:
-  transparent inline def apply[A <: Product: Table](using table: Table[A])                = table.instance
-  transparent inline def apply[A <: Product: Table](alias: String)(using table: Table[A]) = table.instance(alias)
+  transparent inline def apply[A <: Product: Table](using table: Table[A])                       = table.instance
+  transparent inline def apply[A <: Product: Table](inline alias: String)(using table: Table[A]) =
+    table.aliasedInstance(alias)
 
   final case class Derived[A <: Product](name: String, columns: Seq[Column[?]]) extends Table[A]
 

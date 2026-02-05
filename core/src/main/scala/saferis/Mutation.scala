@@ -92,7 +92,7 @@ final case class UpdateBuilder[A <: Product: Table](
   inline def where[T](inline selector: A => T): UpdateWhereBuilder[A, T] =
     val fieldName = Macros.extractFieldName[A, T](selector)
     val col       = fieldNamesToColumns(fieldName).asInstanceOf[Column[T]]
-    UpdateWhereBuilder(this, Alias.User(tableName), col)
+    UpdateWhereBuilder(this, Alias.unsafe(tableName), col)
 
   /** Add a WHERE predicate using SqlFragment */
   def where(predicate: SqlFragment): UpdateReady[A] =
@@ -125,7 +125,7 @@ final case class UpdateReady[A <: Product: Table](
   inline def where[T](inline selector: A => T): UpdateReadyWhereBuilder[A, T] =
     val fieldName = Macros.extractFieldName[A, T](selector)
     val col       = fieldNamesToColumns(fieldName).asInstanceOf[Column[T]]
-    UpdateReadyWhereBuilder(this, Alias.User(tableName), col)
+    UpdateReadyWhereBuilder(this, Alias.unsafe(tableName), col)
 
   /** Add a WHERE predicate using SqlFragment */
   def where(predicate: SqlFragment): UpdateReady[A] =
@@ -223,7 +223,7 @@ final case class DeleteBuilder[A <: Product: Table](
   inline def where[T](inline selector: A => T): DeleteWhereBuilder[A, T] =
     val fieldName = Macros.extractFieldName[A, T](selector)
     val col       = fieldNamesToColumns(fieldName).asInstanceOf[Column[T]]
-    DeleteWhereBuilder(this, Alias.User(tableName), col)
+    DeleteWhereBuilder(this, Alias.unsafe(tableName), col)
 
   /** Add a WHERE predicate using SqlFragment */
   def where(predicate: SqlFragment): DeleteReady[A] =
@@ -255,7 +255,7 @@ final case class DeleteReady[A <: Product: Table](
   inline def where[T](inline selector: A => T): DeleteReadyWhereBuilder[A, T] =
     val fieldName = Macros.extractFieldName[A, T](selector)
     val col       = fieldNamesToColumns(fieldName).asInstanceOf[Column[T]]
-    DeleteReadyWhereBuilder(this, Alias.User(tableName), col)
+    DeleteReadyWhereBuilder(this, Alias.unsafe(tableName), col)
 
   /** Add a WHERE predicate using SqlFragment */
   def where(predicate: SqlFragment): DeleteReady[A] =

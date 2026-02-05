@@ -396,7 +396,7 @@ object QuerySpecs extends ZIOSpecDefault:
         assertTrue(
           sql.contains("(select * from orders as orders_ref_1 where"),
           sql.contains(") as high_value"),
-          sql.contains("\"high_value\".userId >"),
+          sql.contains("high_value.userId >"),
         )
       },
       test("derived table with join") {
@@ -421,7 +421,7 @@ object QuerySpecs extends ZIOSpecDefault:
           sql.contains("(select * from orders as orders_ref_1 where"),
           sql.contains(") as totals"),
           sql.contains("inner join users as users_ref_1"),
-          sql.contains(""""totals".userId = users_ref_1.id"""),
+          sql.contains("totals.userId = users_ref_1.id"),
         )
       },
     ),

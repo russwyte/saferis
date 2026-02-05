@@ -96,8 +96,8 @@ object Macros:
       case '[t] =>
         '{
           val x = ${ summonTable[A] }
-          // Convert Option[String] to Option[Alias.User] - user-provided aliases need escaping
-          val aliasOpt: Option[Alias] = $alias.map(Alias.User(_))
+          // Convert Option[String] to Option[Alias]
+          val aliasOpt: Option[Alias] = $alias.map(Alias.unsafe(_))
           new Instance[A](
             $name,
             $columns,
