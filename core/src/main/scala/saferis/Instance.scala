@@ -65,8 +65,8 @@ final case class Instance[A <: Product](
   end applyDynamic
 
   /** Set a user-provided alias on this instance - use via `instance as "alias"` */
-  private[saferis] transparent inline def withAlias(alias: String) =
-    val userAlias  = Alias.User(alias)
+  private[saferis] transparent inline def withAlias(inline alias: String) =
+    val userAlias  = Alias(alias)
     val newColumns = columns.map(_.withTableAlias(Some(userAlias)))
     copy(
       alias = Some(userAlias),
@@ -78,7 +78,7 @@ final case class Instance[A <: Product](
   end withAlias
 
   /** Internal method to set a generated alias on this instance. */
-  private[saferis] transparent inline def withGeneratedAlias(alias: Alias.Generated) =
+  private[saferis] transparent inline def withGeneratedAlias(alias: Alias) =
     val newColumns = columns.map(_.withTableAlias(Some(alias)))
     copy(
       alias = Some(alias),

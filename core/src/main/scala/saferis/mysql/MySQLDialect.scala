@@ -102,20 +102,23 @@ object MySQLDialect extends Dialect with JsonSupport with WindowFunctionSupport 
   def jsonType: String = "json"
 
   def jsonExtractSql(columnName: String, fieldPath: String): String =
-    s"JSON_EXTRACT($columnName, '$$.$fieldPath')"
+    val escaped = fieldPath.replace("'", "''")
+    s"JSON_EXTRACT($columnName, '$$.$escaped')"
 
   def jsonContainsSql(columnName: String, jsonValue: String): String =
-    s"JSON_CONTAINS($columnName, '$jsonValue')"
+    val escaped = jsonValue.replace("'", "''")
+    s"JSON_CONTAINS($columnName, '$escaped')"
 
   def jsonHasKeySql(columnName: String, key: String): String =
-    s"JSON_CONTAINS_PATH($columnName, 'one', '$$.$key')"
+    val escaped = key.replace("'", "''")
+    s"JSON_CONTAINS_PATH($columnName, 'one', '$$.$escaped')"
 
   def jsonHasAnyKeySql(columnName: String, keys: Seq[String]): String =
-    val paths = keys.map(k => s"'$$.$k'").mkString(", ")
+    val paths = keys.map(k => s"'$$.${k.replace("'", "''")}'").mkString(", ")
     s"JSON_CONTAINS_PATH($columnName, 'one', $paths)"
 
   def jsonHasAllKeysSql(columnName: String, keys: Seq[String]): String =
-    val paths = keys.map(k => s"'$$.$k'").mkString(", ")
+    val paths = keys.map(k => s"'$$.${k.replace("'", "''")}'").mkString(", ")
     s"JSON_CONTAINS_PATH($columnName, 'all', $paths)"
 
 end MySQLDialect

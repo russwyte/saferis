@@ -79,22 +79,25 @@ object PostgresDialect
   def jsonType: String = "jsonb"
 
   def jsonExtractSql(columnName: String, fieldPath: String): String =
-    s"$columnName->>'$fieldPath'"
+    val escaped = fieldPath.replace("'", "''")
+    s"$columnName->>'$escaped'"
 
   def jsonContainsSql(columnName: String, jsonValue: String): String =
-    s"$columnName @> '$jsonValue'"
+    val escaped = jsonValue.replace("'", "''")
+    s"$columnName @> '$escaped'"
 
   // Note: We use function equivalents instead of ? / ?| / ?& operators because
   // the ? character is interpreted as a JDBC parameter placeholder in PreparedStatements
   def jsonHasKeySql(columnName: String, key: String): String =
-    s"jsonb_exists($columnName, '$key')"
+    val escaped = key.replace("'", "''")
+    s"jsonb_exists($columnName, '$escaped')"
 
   def jsonHasAnyKeySql(columnName: String, keys: Seq[String]): String =
-    val keysArray = keys.map(k => s"'$k'").mkString(", ")
+    val keysArray = keys.map(k => s"'${k.replace("'", "''")}'").mkString(", ")
     s"jsonb_exists_any($columnName, array[$keysArray])"
 
   def jsonHasAllKeysSql(columnName: String, keys: Seq[String]): String =
-    val keysArray = keys.map(k => s"'$k'").mkString(", ")
+    val keysArray = keys.map(k => s"'${k.replace("'", "''")}'").mkString(", ")
     s"jsonb_exists_all($columnName, array[$keysArray])"
 
   // === ArraySupport implementation ===

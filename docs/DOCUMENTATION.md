@@ -6,6 +6,7 @@ A comprehensive guide to Saferis - the type-safe, resource-safe SQL client libra
 
 - [Getting Started](#getting-started)
 - [Core Concepts](#core-concepts)
+- [SQL Injection Prevention](#sql-injection-prevention)
 - [Dialect System](#dialect-system)
 - [Data Definition Layer (DDL)](#data-definition-layer-ddl)
 - [Foreign Key Support](#foreign-key-support)
@@ -167,7 +168,7 @@ run {
 
 ### SQL Interpolation
 
-The `sql"..."` interpolator provides SQL injection protection:
+The `sql"..."` interpolator is Saferis's primary defense against SQL injection. It automatically distinguishes between different types of interpolated values:
 
 ```scala
 import saferis.*
@@ -186,23 +187,34 @@ val products = Table[Product]
 ```
 
 ```scala
-// Values are safely parameterized
+// Values are safely parameterized using prepared statement placeholders
 val minPrice = 10.0
 // minPrice: Double = 10.0
 val query = sql"SELECT * FROM $products WHERE ${products.price} > $minPrice"
 // query: SqlFragment = SqlFragment(
 //   sql = "SELECT * FROM products WHERE price > ?",
-//   writes = Vector(saferis.Write@10006448)
+//   writes = Vector(saferis.Write@3f1d5d70)
 // )
 query.show
 // res8: String = "SELECT * FROM products WHERE price > 10.0"
 ```
 
 ```scala
-// Table and column references are properly escaped
+// Table and column references use SQL identifiers (not parameters)
 sql"SELECT ${products.name}, ${products.price} FROM $products WHERE ${products.inStock} = ${true}".show
 // res9: String = "SELECT name, price FROM products WHERE inStock = true"
 ```
+
+The interpolator handles each type differently:
+
+| Interpolated Type | Treatment | Example |
+|-------------------|-----------|---------|
+| Table instance | SQL identifier | `$products` → `products` |
+| Column reference | SQL identifier | `${products.name}` → `name` |
+| Scalar values | Prepared statement `?` | `$minPrice` → `?` with bound value |
+| `SqlFragment` | Embedded SQL | Nested fragments are composed |
+
+See [SQL Injection Prevention](#sql-injection-prevention) for the complete security model.
 
 ### The Transactor
 
@@ -308,6 +320,181 @@ import saferis.spark.{given}
 
 ---
 
+## SQL Injection Prevention
+
+Saferis is designed from the ground up to prevent SQL injection at multiple levels. This section explains the complete security model.
+
+### The Three Layers of Protection
+
+1. **Parameterized Values** - User data is always bound via prepared statements, never concatenated into SQL
+2. **Compile-Time Literal Enforcement** - Table aliases must be string literals known at compile time
+3. **Runtime Escaping** - When runtime identifiers are unavoidable, proper escaping is applied
+
+### How the `sql"..."` Interpolator Works
+
+The interpolator analyzes each interpolated expression at compile time and routes it appropriately:
+
+```scala
+import saferis.*
+
+@tableName("users")
+case class User(@generated @key id: Int, name: String, email: String) derives Table
+
+val users = Table[User]
+val userName = "Alice"  // User input
+```
+
+```scala
+// This is SAFE - userName becomes a prepared statement parameter
+sql"SELECT * FROM $users WHERE ${users.name} = $userName".show
+// res14: String = "SELECT * FROM users WHERE name = 'Alice'"
+```
+
+The generated SQL uses `?` placeholders, and the actual value is bound separately - it never touches the SQL string. Even malicious input is harmless:
+
+```scala
+// Attempted SQL injection - completely harmless
+val malicious = "'; DROP TABLE users; --"
+// malicious: String = "'; DROP TABLE users; --"
+sql"SELECT * FROM $users WHERE ${users.name} = $malicious".show
+// res15: String = "SELECT * FROM users WHERE name = '''; DROP TABLE users; --'"
+```
+
+The malicious string becomes a parameter value, not part of the SQL syntax.
+
+### Table Aliases: Compile-Time Literal Enforcement
+
+Table aliases appear directly in SQL (not as parameters), so they could be injection vectors. Saferis prevents this with a **macro that enforces string literals at compile time**:
+
+```scala
+import saferis.*
+
+@tableName("users")
+case class User(@key id: Int, name: String) derives Table
+
+// These compile - string literals are safe
+val u1 = Table[User]("u")           // OK
+val u2 = Table[User] as "users"     // OK
+val a = Alias("my_alias")           // OK
+
+// These would NOT compile - variables could contain injection vectors
+// val alias = "u"
+// val bad1 = Table[User](alias)       // COMPILE ERROR
+// val bad2 = Table[User] as alias     // COMPILE ERROR
+// val bad3 = Alias(alias)             // COMPILE ERROR
+```
+
+The compile error message guides you to the safe alternative:
+
+```
+Alias requires a string literal.
+For runtime identifiers, use Placeholder.identifier() or dialect.escapeIdentifier() instead.
+```
+
+This compile-time enforcement means SQL injection via aliases is **impossible** - there's no runtime path for user input to become an alias.
+
+### Runtime Identifiers with `Placeholder.identifier()`
+
+Sometimes you genuinely need runtime-determined identifiers (e.g., dynamic column names from configuration). For these cases, use `Placeholder.identifier()` which applies proper escaping:
+
+```scala
+import saferis.*
+
+@tableName("users")
+case class User(@key id: Int, name: String, email: String) derives Table
+val users = Table[User]
+```
+
+```scala
+// Safe runtime identifier - properly escaped
+val columnName = "name"  // Could come from config, NOT user input
+// columnName: String = "name"
+sql"SELECT ${Placeholder.identifier(columnName)} FROM $users".show
+// res18: String = "SELECT \"name\" FROM users"
+```
+
+The identifier is escaped using the dialect's quoting rules. For PostgreSQL, this means double-quote escaping:
+
+```scala
+// Even problematic identifiers are safely escaped
+import saferis.postgres.PostgresDialect
+PostgresDialect.escapeIdentifier("table")  // Reserved word
+// res19: String = "\"table\""
+```
+
+```scala
+PostgresDialect.escapeIdentifier("user\"input")  // Contains quote
+// res20: String = "\"user\"\"input\""
+```
+
+**Important**: While `Placeholder.identifier()` escapes properly, you should still validate runtime identifiers against an allowlist when possible. Escaping is a defense-in-depth measure, not a replacement for input validation.
+
+### The `Placeholder.raw()` Escape Hatch
+
+For rare cases where you need to embed literal SQL (e.g., database-specific syntax not supported by Saferis), use `Placeholder.raw()`:
+
+```scala
+// Raw SQL - use with extreme caution
+val trustedSql = "CURRENT_TIMESTAMP"
+// trustedSql: String = "CURRENT_TIMESTAMP"
+sql"SELECT ${Placeholder.raw(trustedSql)} as now".show
+// res21: String = "SELECT CURRENT_TIMESTAMP as now"
+```
+
+⚠️ **Warning**: `Placeholder.raw()` bypasses all safety mechanisms. Only use it with:
+- Hardcoded strings in your source code
+- Values from trusted configuration (never user input)
+- SQL syntax that Saferis doesn't support natively
+
+Never pass user input to `Placeholder.raw()`.
+
+### JSON Operations: Automatic Escaping
+
+When using JSON operations in the Schema DSL or dialect methods, Saferis automatically escapes single quotes to prevent injection:
+
+```scala
+import saferis.*
+import saferis.Schema.*
+
+@tableName("profiles")
+case class Profile(@key id: Int, name: String, data: Json[Map[String, String]]) derives Table
+```
+
+```scala
+// JSON key with special characters - automatically escaped
+import saferis.postgres.PostgresDialect
+PostgresDialect.jsonHasKeySql("data", "user's_key")
+// res23: String = "jsonb_exists(data, 'user''s_key')"
+```
+
+```scala
+// Even attempted injection is escaped
+PostgresDialect.jsonHasKeySql("data", "'); DROP TABLE profiles; --")
+// res24: String = "jsonb_exists(data, '''); DROP TABLE profiles; --')"
+```
+
+The single quote in the injection attempt is escaped to `''`, rendering it harmless.
+
+### Security Summary
+
+| Mechanism | What It Protects | How It Works |
+|-----------|------------------|--------------|
+| Parameterized queries | User data values | Bound via `?` placeholders, never in SQL string |
+| Alias macro | Table aliases | Compile-time string literal enforcement |
+| `Placeholder.identifier()` | Runtime column/table names | Dialect-specific identifier escaping |
+| JSON escaping | JSON keys and paths | Automatic single-quote escaping |
+| `Placeholder.raw()` | Escape hatch | Developer takes responsibility |
+
+### Best Practices
+
+1. **Use the `sql"..."` interpolator** for all queries - it handles parameterization automatically
+2. **Use literal strings** for table aliases - the compiler enforces this
+3. **Validate runtime identifiers** against an allowlist before using `Placeholder.identifier()`
+4. **Never use `Placeholder.raw()`** with user input
+5. **Prefer the Query builder** for dynamic queries - it's type-safe end-to-end
+
+---
+
 ## Data Definition Layer (DDL)
 
 The DDL layer provides type-safe schema management operations.
@@ -331,7 +518,7 @@ case class Customer(
 ```scala
 // Actually create the table
 run { xa.run(ddl.createTable[Customer]()) }
-// res14: Int = 0
+// res26: Int = 0
 ```
 
 ### Other DDL Operations
@@ -407,7 +594,7 @@ case class SchemaUser(
 Schema[SchemaUser]
   .withIndex(_.name)
   .ddl().sql
-// res18: String = """create table if not exists schema_users (id integer generated always as identity primary key not null, name varchar(255) not null, email varchar(255) not null, status varchar(255) not null);
+// res30: String = """create table if not exists schema_users (id integer generated always as identity primary key not null, name varchar(255) not null, email varchar(255) not null, status varchar(255) not null);
 // create index "idx_schema_users_name" on "schema_users" ("name")"""
 ```
 
@@ -416,7 +603,7 @@ Schema[SchemaUser]
 Schema[SchemaUser]
   .withUniqueIndex(_.email)
   .ddl().sql
-// res19: String = """create table if not exists schema_users (id integer generated always as identity primary key not null, name varchar(255) not null, email varchar(255) not null, status varchar(255) not null);
+// res31: String = """create table if not exists schema_users (id integer generated always as identity primary key not null, name varchar(255) not null, email varchar(255) not null, status varchar(255) not null);
 // create unique index "idx_schema_users_email" on "schema_users" ("email")"""
 ```
 
@@ -425,7 +612,7 @@ Schema[SchemaUser]
 Schema[SchemaUser]
   .withIndex(_.name).and(_.status).named("idx_name_status")
   .ddl().sql
-// res20: String = """create table if not exists schema_users (id integer generated always as identity primary key not null, name varchar(255) not null, email varchar(255) not null, status varchar(255) not null);
+// res32: String = """create table if not exists schema_users (id integer generated always as identity primary key not null, name varchar(255) not null, email varchar(255) not null, status varchar(255) not null);
 // create index "idx_name_status" on "schema_users" ("name", "status")"""
 ```
 
@@ -434,7 +621,7 @@ Schema[SchemaUser]
 Schema[SchemaUser]
   .withIndex(_.name).where(_.status).eql("active")
   .ddl().sql
-// res21: String = """create table if not exists schema_users (id integer generated always as identity primary key not null, name varchar(255) not null, email varchar(255) not null, status varchar(255) not null);
+// res33: String = """create table if not exists schema_users (id integer generated always as identity primary key not null, name varchar(255) not null, email varchar(255) not null, status varchar(255) not null);
 // create index "idx_schema_users_name" on "schema_users" ("name") where status = 'active'"""
 ```
 
@@ -443,7 +630,7 @@ Schema[SchemaUser]
 Schema[SchemaUser]
   .withUniqueIndex(_.email).where(_.status).eql("active")
   .ddl().sql
-// res22: String = """create table if not exists schema_users (id integer generated always as identity primary key not null, name varchar(255) not null, email varchar(255) not null, status varchar(255) not null);
+// res34: String = """create table if not exists schema_users (id integer generated always as identity primary key not null, name varchar(255) not null, email varchar(255) not null, status varchar(255) not null);
 // create unique index "idx_schema_users_email" on "schema_users" ("email") where status = 'active'"""
 ```
 
@@ -453,7 +640,7 @@ Schema[SchemaUser]
   .withIndex(_.name)
   .withUniqueIndex(_.email)
   .ddl().sql
-// res23: String = """create table if not exists schema_users (id integer generated always as identity primary key not null, name varchar(255) not null, email varchar(255) not null, status varchar(255) not null);
+// res35: String = """create table if not exists schema_users (id integer generated always as identity primary key not null, name varchar(255) not null, email varchar(255) not null, status varchar(255) not null);
 // create index "idx_schema_users_name" on "schema_users" ("name");
 // create unique index "idx_schema_users_email" on "schema_users" ("email")"""
 ```
@@ -463,7 +650,7 @@ Schema[SchemaUser]
 Schema[SchemaUser]
   .withUniqueConstraint(_.name).and(_.status)
   .ddl().sql
-// res24: String = "create table if not exists schema_users (id integer generated always as identity primary key not null, name varchar(255) not null, email varchar(255) not null, status varchar(255) not null, constraint uq_name_status unique (name, status))"
+// res36: String = "create table if not exists schema_users (id integer generated always as identity primary key not null, name varchar(255) not null, email varchar(255) not null, status varchar(255) not null, constraint uq_name_status unique (name, status))"
 ```
 
 ### Creating Tables with Schema
@@ -526,7 +713,7 @@ val schemaUsers = Schema[SchemaUser]
 // )
 
 run { xa.run(ddl.createTable(schemaUsers)) }
-// res25: Int = 0
+// res37: Int = 0
 ```
 
 ### Partial Indexes via Runtime API
@@ -556,8 +743,8 @@ run {
     jobs <- sql"SELECT * FROM ${Table[Job]}".query[Job]
   yield jobs)
 }
-// res27: Seq[Job] = Vector(
-//   Job(id = 1, status = "pending", retryAt = Some(2026-02-05T14:44:45.604499Z)),
+// res39: Seq[Job] = Vector(
+//   Job(id = 1, status = "pending", retryAt = Some(2026-02-05T16:12:58.768696Z)),
 //   Job(id = 2, status = "completed", retryAt = None)
 // )
 ```
@@ -591,7 +778,7 @@ case class FkOrder(@generated @key id: Int, userId: Int, amount: BigDecimal) der
 Schema[FkOrder]
   .withForeignKey(_.userId).references[FkUser](_.id)
   .ddl().sql
-// res29: String = "create table if not exists fk_orders (id integer generated always as identity primary key not null, userId integer not null, amount numeric not null, foreign key (userId) references fk_users (id))"
+// res41: String = "create table if not exists fk_orders (id integer generated always as identity primary key not null, userId integer not null, amount numeric not null, foreign key (userId) references fk_users (id))"
 ```
 
 ```scala
@@ -655,7 +842,7 @@ run {
     result <- sql"SELECT * FROM ${Table[FkOrder]}".query[FkOrder]
   yield result)
 }
-// res30: Seq[FkOrder] = Vector(FkOrder(id = 1, userId = 1, amount = 99.99))
+// res42: Seq[FkOrder] = Vector(FkOrder(id = 1, userId = 1, amount = 99.99))
 ```
 
 ### ON DELETE and ON UPDATE Actions
@@ -679,7 +866,7 @@ Schema[ActionOrder]
   .withForeignKey(_.userId).references[ActionUser](_.id)
   .onDelete(Cascade)
   .ddl().sql
-// res32: String = "create table if not exists action_orders (id integer generated always as identity primary key not null, userId integer not null, foreign key (userId) references action_users (id) on delete cascade)"
+// res44: String = "create table if not exists action_orders (id integer generated always as identity primary key not null, userId integer not null, foreign key (userId) references action_users (id) on delete cascade)"
 ```
 
 ```scala
@@ -689,7 +876,7 @@ Schema[ActionOrder]
   .withForeignKey(_.userId).references[ActionUser](_.id)
   .onDelete(SetNull)
   .ddl().sql
-// res33: String = "create table if not exists action_orders (id integer generated always as identity primary key not null, userId integer not null, foreign key (userId) references action_users (id) on delete set null)"
+// res45: String = "create table if not exists action_orders (id integer generated always as identity primary key not null, userId integer not null, foreign key (userId) references action_users (id) on delete set null)"
 ```
 
 Available actions (import `saferis.Schema.*` to use short names):
@@ -723,7 +910,7 @@ Schema[NamedOrder]
   .onDelete(Cascade)
   .named("fk_order_user")
   .ddl().sql
-// res35: String = "create table if not exists named_orders (id integer generated always as identity primary key not null, userId integer not null, constraint fk_order_user foreign key (userId) references named_users (id) on delete cascade)"
+// res47: String = "create table if not exists named_orders (id integer generated always as identity primary key not null, userId integer not null, constraint fk_order_user foreign key (userId) references named_users (id) on delete cascade)"
 ```
 
 ### Compound Foreign Keys
@@ -756,7 +943,7 @@ Schema[CompoundInventory]
   .references[CompoundProduct](_.tenantId).and(_.sku)
   .onDelete(Cascade)
   .ddl().sql
-// res37: String = "create table if not exists compound_inventory (id integer generated always as identity primary key not null, tenantId varchar(255) not null, productSku varchar(255) not null, quantity integer not null, foreign key (tenantId, productSku) references compound_products (tenantId, sku) on delete cascade)"
+// res49: String = "create table if not exists compound_inventory (id integer generated always as identity primary key not null, tenantId varchar(255) not null, productSku varchar(255) not null, quantity integer not null, foreign key (tenantId, productSku) references compound_products (tenantId, sku) on delete cascade)"
 ```
 
 ```scala
@@ -826,7 +1013,7 @@ run {
     result <- sql"SELECT * FROM ${Table[CompoundInventory]}".query[CompoundInventory]
   yield result)
 }
-// res38: Seq[CompoundInventory] = Vector(
+// res50: Seq[CompoundInventory] = Vector(
 //   CompoundInventory(
 //     id = 1,
 //     tenantId = "tenant1",
@@ -865,7 +1052,7 @@ Schema[MultiOrderItem]
   .withForeignKey(_.userId).references[MultiUser](_.id).onDelete(Cascade)
   .withForeignKey(_.productId).references[MultiProduct](_.id).onDelete(Restrict)
   .ddl().sql
-// res40: String = "create table if not exists multi_order_items (id integer generated always as identity primary key not null, userId integer not null, productId integer not null, quantity integer not null, foreign key (userId) references multi_users (id) on delete cascade, foreign key (productId) references multi_products (id) on delete restrict)"
+// res52: String = "create table if not exists multi_order_items (id integer generated always as identity primary key not null, userId integer not null, productId integer not null, quantity integer not null, foreign key (userId) references multi_users (id) on delete cascade, foreign key (productId) references multi_products (id) on delete restrict)"
 ```
 
 ### Type Safety
@@ -911,13 +1098,13 @@ val tasks = Table[Task]
 ```scala
 // SELECT query
 sql"SELECT * FROM $tasks WHERE ${tasks.done} = ${false}".show
-// res43: String = "SELECT * FROM tasks WHERE done = false"
+// res55: String = "SELECT * FROM tasks WHERE done = false"
 ```
 
 ```scala
 // SELECT with multiple conditions
 sql"SELECT * FROM $tasks WHERE ${tasks.title} LIKE ${"Learn%"} AND ${tasks.done} = ${false}".show
-// res44: String = "SELECT * FROM tasks WHERE title LIKE 'Learn%' AND done = false"
+// res56: String = "SELECT * FROM tasks WHERE title LIKE 'Learn%' AND done = false"
 ```
 
 ### Running DML Operations
@@ -944,7 +1131,7 @@ run {
     done <- sql"SELECT * FROM $tasks WHERE ${tasks.done} = ${true}".query[Task]
   yield (all, done))
 }
-// res46: Tuple2[Seq[Task], Seq[Task]] = (
+// res58: Tuple2[Seq[Task], Seq[Task]] = (
 //   Vector(
 //     Task(id = 1, title = "Task 1", done = false),
 //     Task(id = 2, title = "Task 2", done = false),
@@ -960,7 +1147,7 @@ For databases that support it (PostgreSQL, SQLite), get the inserted row back:
 
 ```scala
 run { xa.run(dml.insertReturning(Task(-1, "New Task", false))) }
-// res47: Task = Task(id = 4, title = "New Task", done = false)
+// res59: Task = Task(id = 4, title = "New Task", done = false)
 ```
 
 ### Custom Queries
@@ -970,7 +1157,7 @@ Use the `sql` interpolator for any query:
 ```scala
 // Query with ordering
 run { xa.run(sql"SELECT * FROM $tasks ORDER BY ${tasks.title}".query[Task]) }
-// res48: Seq[Task] = Vector(
+// res60: Seq[Task] = Vector(
 //   Task(id = 4, title = "New Task", done = false),
 //   Task(id = 1, title = "Task 1", done = false),
 //   Task(id = 2, title = "Task 2", done = false),
@@ -1007,7 +1194,7 @@ run {
     result <- sql"SELECT * FROM $items WHERE ${items.id} = ${inserted.id}".queryOne[Item]
   yield (updated, result))
 }
-// res50: Tuple2[Item, Option[Item]] = (
+// res62: Tuple2[Item, Option[Item]] = (
 //   Item(id = 1, name = "Super Widget", quantity = 20),
 //   Some(Item(id = 1, name = "Super Widget", quantity = 20))
 // )
@@ -1030,7 +1217,7 @@ run {
     all <- sql"SELECT * FROM $items".query[Item]
   yield (rowsUpdated, all))
 }
-// res51: Tuple2[Int, Seq[Item]] = (
+// res63: Tuple2[Int, Seq[Item]] = (
 //   2,
 //   Vector(
 //     Item(id = 1, name = "Super Widget", quantity = 20),
@@ -1070,7 +1257,7 @@ run {
     remaining <- sql"SELECT * FROM $logs".query[LogEntry]
   yield (deleted, remaining))
 }
-// res53: Tuple2[LogEntry, Seq[LogEntry]] = (
+// res65: Tuple2[LogEntry, Seq[LogEntry]] = (
 //   LogEntry(id = 1, level = "INFO", message = "Application started"),
 //   Vector(LogEntry(id = 3, level = "ERROR", message = "Something failed"))
 // )
@@ -1094,7 +1281,7 @@ run {
     remaining <- sql"SELECT * FROM $logs".query[LogEntry]
   yield (rowsDeleted, deletedEntries, remaining))
 }
-// res54: Tuple3[Int, Seq[LogEntry], Seq[LogEntry]] = (
+// res66: Tuple3[Int, Seq[LogEntry], Seq[LogEntry]] = (
 //   2,
 //   Vector(LogEntry(id = 3, level = "ERROR", message = "Something failed")),
 //   Vector(LogEntry(id = 6, level = "INFO", message = "Important info"))
@@ -1124,7 +1311,7 @@ Insert[BuilderUser]
   .value(_.email, "alice@example.com")
   .value(_.age, 30)
   .build.sql
-// res56: String = "insert into builder_users (name, email, age) values (?, ?, ?)"
+// res68: String = "insert into builder_users (name, email, age) values (?, ?, ?)"
 ```
 
 ```scala
@@ -1134,7 +1321,7 @@ Insert[BuilderUser]
   .value(_.email, "bob@example.com")
   .value(_.age, 25)
   .returning.sql
-// res57: String = "insert into builder_users (name, email, age) values (?, ?, ?) returning *"
+// res69: String = "insert into builder_users (name, email, age) values (?, ?, ?) returning *"
 ```
 
 #### Update Builder (Builder/Ready Pattern)
@@ -1152,7 +1339,7 @@ run {
     users <- sql"SELECT * FROM ${Table[BuilderUser]}".query[BuilderUser]
   yield users)
 }
-// res58: Seq[BuilderUser] = Vector(
+// res70: Seq[BuilderUser] = Vector(
 //   BuilderUser(id = 1, name = "Alice", email = "alice@example.com", age = 30),
 //   BuilderUser(id = 2, name = "Bob", email = "bob@example.com", age = 25)
 // )
@@ -1165,7 +1352,7 @@ Update[BuilderUser]
   .set(_.age, 31)
   .where(_.id).eq(1)
   .build.sql
-// res59: String = "update builder_users set name = ?, age = ? where \"builder_users\".id = ?"
+// res71: String = "update builder_users set name = ?, age = ? where builder_users.id = ?"
 ```
 
 ```scala
@@ -1175,7 +1362,7 @@ Update[BuilderUser]
   .where(_.name).eq("Bob")
   .where(_.age).gt(20)
   .build.sql
-// res60: String = "update builder_users set email = ? where \"builder_users\".name = ? and \"builder_users\".age > ?"
+// res72: String = "update builder_users set email = ? where builder_users.name = ? and builder_users.age > ?"
 ```
 
 ```scala
@@ -1184,7 +1371,7 @@ Update[BuilderUser]
   .set(_.age, 35)
   .where(_.id).eq(1)
   .returning.sql
-// res61: String = "update builder_users set age = ? where \"builder_users\".id = ? returning *"
+// res73: String = "update builder_users set age = ? where builder_users.id = ? returning *"
 ```
 
 ```scala
@@ -1193,7 +1380,7 @@ Update[BuilderUser]
   .set(_.age, 0)
   .all  // Required - prevents accidental "UPDATE ... SET" without WHERE
   .build.sql
-// res62: String = "update builder_users set age = ?"
+// res74: String = "update builder_users set age = ?"
 ```
 
 #### Delete Builder (Builder/Ready Pattern)
@@ -1205,7 +1392,7 @@ Like Update, the Delete builder requires either `.where(...)` or `.all`:
 Delete[BuilderUser]
   .where(_.id).eq(1)
   .build.sql
-// res63: String = "delete from builder_users where \"builder_users\".id = ?"
+// res75: String = "delete from builder_users where builder_users.id = ?"
 ```
 
 ```scala
@@ -1214,7 +1401,7 @@ Delete[BuilderUser]
   .where(_.age).lt(18)
   .where(_.name).neq("Admin")
   .build.sql
-// res64: String = "delete from builder_users where \"builder_users\".age < ? and \"builder_users\".name <> ?"
+// res76: String = "delete from builder_users where builder_users.age < ? and builder_users.name <> ?"
 ```
 
 ```scala
@@ -1222,7 +1409,7 @@ Delete[BuilderUser]
 Delete[BuilderUser]
   .where(_.email).eq("old@example.com")
   .returning.sql
-// res65: String = "delete from builder_users where \"builder_users\".email = ? returning *"
+// res77: String = "delete from builder_users where builder_users.email = ? returning *"
 ```
 
 ```scala
@@ -1230,7 +1417,7 @@ Delete[BuilderUser]
 Delete[BuilderUser]
   .all  // Required - prevents accidental "DELETE FROM ..."
   .build.sql
-// res66: String = "delete from builder_users"
+// res78: String = "delete from builder_users"
 ```
 
 #### Available WHERE Operators
@@ -1308,7 +1495,7 @@ Update[BuilderUser]
   .set(_.age, 25)
   .where(sql"${users.name} LIKE ${"A%"}")
   .build.sql
-// res67: String = "update builder_users set age = ? where name LIKE ?"
+// res79: String = "update builder_users set age = ? where name LIKE ?"
 ```
 
 ---
@@ -1366,7 +1553,7 @@ val users = Table[QueryUser]
 Query[QueryUser]
   .where(_.name).eq("Alice")
   .build.sql
-// res70: String = "select * from query_users as query_users_ref_1 where query_users_ref_1.name = ?"
+// res82: String = "select * from query_users as query_users_ref_1 where query_users_ref_1.name = ?"
 ```
 
 ```scala
@@ -1377,7 +1564,7 @@ Query[QueryUser]
   .limit(10)
   .offset(20)
   .build.sql
-// res71: String = "select * from query_users as query_users_ref_1 where query_users_ref_1.age > ? order by name asc limit 10 offset 20"
+// res83: String = "select * from query_users as query_users_ref_1 where query_users_ref_1.age > ? order by name asc limit 10 offset 20"
 ```
 
 ### Type-Safe WHERE Clauses
@@ -1387,19 +1574,19 @@ Use selector syntax for type-safe column references:
 ```scala
 // Equality
 Query[QueryUser].where(_.name).eq("Alice").build.sql
-// res72: String = "select * from query_users as query_users_ref_1 where query_users_ref_1.name = ?"
+// res84: String = "select * from query_users as query_users_ref_1 where query_users_ref_1.name = ?"
 ```
 
 ```scala
 // Comparison operators
 Query[QueryUser].where(_.age).gt(21).build.sql
-// res73: String = "select * from query_users as query_users_ref_1 where query_users_ref_1.age > ?"
+// res85: String = "select * from query_users as query_users_ref_1 where query_users_ref_1.age > ?"
 ```
 
 ```scala
 // IS NULL / IS NOT NULL
 Query[QueryUser].where(_.email).isNotNull().build.sql
-// res74: String = "select * from query_users as query_users_ref_1 where query_users_ref_1.email IS NOT NULL"
+// res86: String = "select * from query_users as query_users_ref_1 where query_users_ref_1.email IS NOT NULL"
 ```
 
 You can also use raw `SqlFragment` for complex conditions:
@@ -1409,7 +1596,7 @@ You can also use raw `SqlFragment` for complex conditions:
 Query[QueryUser]
   .where(sql"${users.age} BETWEEN 18 AND 65")
   .build.sql
-// res75: String = "select * from query_users as query_users_ref_1 where age BETWEEN 18 AND 65"
+// res87: String = "select * from query_users as query_users_ref_1 where age BETWEEN 18 AND 65"
 ```
 
 ### Joins
@@ -1437,7 +1624,7 @@ Query[JoinUser]
   .innerJoin[JoinOrder].on(_.id).eq(_.userId)
   .all
   .build.sql
-// res77: String = "select * from join_users as join_users_ref_1 inner join join_orders as join_orders_ref_1 on join_users_ref_1.id = join_orders_ref_1.userId"
+// res89: String = "select * from join_users as join_users_ref_1 inner join join_orders as join_orders_ref_1 on join_users_ref_1.id = join_orders_ref_1.userId"
 ```
 
 ```scala
@@ -1446,7 +1633,7 @@ Query[JoinUser]
   .leftJoin[JoinOrder].on(_.id).eq(_.userId)
   .all
   .build.sql
-// res78: String = "select * from join_users as join_users_ref_1 left join join_orders as join_orders_ref_1 on join_users_ref_1.id = join_orders_ref_1.userId"
+// res90: String = "select * from join_users as join_users_ref_1 left join join_orders as join_orders_ref_1 on join_users_ref_1.id = join_orders_ref_1.userId"
 ```
 
 ```scala
@@ -1455,7 +1642,7 @@ Query[JoinUser]
   .rightJoin[JoinOrder].on(_.id).eq(_.userId)
   .all
   .build.sql
-// res79: String = "select * from join_users as join_users_ref_1 right join join_orders as join_orders_ref_1 on join_users_ref_1.id = join_orders_ref_1.userId"
+// res91: String = "select * from join_users as join_users_ref_1 right join join_orders as join_orders_ref_1 on join_users_ref_1.id = join_orders_ref_1.userId"
 ```
 
 ```scala
@@ -1464,7 +1651,7 @@ Query[JoinUser]
   .fullJoin[JoinOrder].on(_.id).eq(_.userId)
   .all
   .build.sql
-// res80: String = "select * from join_users as join_users_ref_1 full join join_orders as join_orders_ref_1 on join_users_ref_1.id = join_orders_ref_1.userId"
+// res92: String = "select * from join_users as join_users_ref_1 full join join_orders as join_orders_ref_1 on join_users_ref_1.id = join_orders_ref_1.userId"
 ```
 
 ### Finalizing Joins with `.endJoin`
@@ -1479,7 +1666,7 @@ Query[JoinUser]
   .innerJoin[JoinOrder].on(_.id).eq(_.userId)
   .where(_.name).eq("Alice")  // Convenience method
   .build.sql
-// res81: String = "select * from join_users as join_users_ref_1 inner join join_orders as join_orders_ref_1 on join_users_ref_1.id = join_orders_ref_1.userId where join_users_ref_1.name = ?"
+// res93: String = "select * from join_users as join_users_ref_1 inner join join_orders as join_orders_ref_1 on join_users_ref_1.id = join_orders_ref_1.userId where join_users_ref_1.name = ?"
 ```
 
 ```scala
@@ -1490,7 +1677,7 @@ Query[JoinUser]
   .orderBy(Table[JoinUser].name.asc)
   .all
   .build.sql
-// res82: String = "select * from join_users as join_users_ref_1 inner join join_orders as join_orders_ref_1 on join_users_ref_1.id = join_orders_ref_1.userId order by name asc"
+// res94: String = "select * from join_users as join_users_ref_1 inner join join_orders as join_orders_ref_1 on join_users_ref_1.id = join_orders_ref_1.userId order by name asc"
 ```
 
 The `.endJoin` method is useful when you want to add operations like `.orderBy()` that aren't available as convenience methods on the join chain.
@@ -1506,7 +1693,7 @@ Query[JoinUser]
   .innerJoin[JoinItem].onPrev(_.id).eq(_.orderId)
   .all
   .build.sql
-// res83: String = "select * from join_users as join_users_ref_1 inner join join_orders as join_orders_ref_1 on join_users_ref_1.id = join_orders_ref_1.userId inner join join_items as join_items_ref_1 on join_orders_ref_1.id = join_items_ref_1.orderId"
+// res95: String = "select * from join_users as join_users_ref_1 inner join join_orders as join_orders_ref_1 on join_users_ref_1.id = join_orders_ref_1.userId inner join join_items as join_items_ref_1 on join_orders_ref_1.id = join_items_ref_1.orderId"
 ```
 
 ### WHERE on Joined Queries
@@ -1519,7 +1706,7 @@ Query[JoinUser]
   .innerJoin[JoinOrder].on(_.id).eq(_.userId)
   .where(_.name).eq("Alice")
   .build.sql
-// res84: String = "select * from join_users as join_users_ref_1 inner join join_orders as join_orders_ref_1 on join_users_ref_1.id = join_orders_ref_1.userId where join_users_ref_1.name = ?"
+// res96: String = "select * from join_users as join_users_ref_1 inner join join_orders as join_orders_ref_1 on join_users_ref_1.id = join_orders_ref_1.userId where join_users_ref_1.name = ?"
 ```
 
 ```scala
@@ -1528,7 +1715,7 @@ Query[JoinUser]
   .innerJoin[JoinOrder].on(_.id).eq(_.userId)
   .whereFrom(_.amount).gt(BigDecimal(100))
   .build.sql
-// res85: String = "select * from join_users as join_users_ref_1 inner join join_orders as join_orders_ref_1 on join_users_ref_1.id = join_orders_ref_1.userId where join_orders_ref_1.amount > ?"
+// res97: String = "select * from join_users as join_users_ref_1 inner join join_orders as join_orders_ref_1 on join_users_ref_1.id = join_orders_ref_1.userId where join_orders_ref_1.amount > ?"
 ```
 
 ### ON Clause Operators
@@ -1571,7 +1758,7 @@ Query[Article]
   .limit(10)
   .offset(20)
   .build.sql
-// res87: String = "select * from page_articles as page_articles_ref_1 where page_articles_ref_1.published = ? order by views desc limit 10 offset 20"
+// res99: String = "select * from page_articles as page_articles_ref_1 where page_articles_ref_1.published = ? order by views desc limit 10 offset 20"
 ```
 
 #### Cursor/Seek Pagination
@@ -1584,7 +1771,7 @@ Query[Article]
   .seekAfter(articles.id, 100L)
   .limit(10)
   .build.sql
-// res88: String = "select * from page_articles as page_articles_ref_1 where id > ? order by id asc limit 10"
+// res100: String = "select * from page_articles as page_articles_ref_1 where id > ? order by id asc limit 10"
 ```
 
 ```scala
@@ -1593,7 +1780,7 @@ Query[Article]
   .seekBefore(articles.id, 50L)
   .limit(10)
   .build.sql
-// res89: String = "select * from page_articles as page_articles_ref_1 where id < ? order by id desc limit 10"
+// res101: String = "select * from page_articles as page_articles_ref_1 where id < ? order by id desc limit 10"
 ```
 
 ### Sorting
@@ -1606,7 +1793,7 @@ Query[Article]
   .orderBy(articles.title.asc)
   .all
   .build.sql
-// res90: String = "select * from page_articles as page_articles_ref_1 order by views desc, title asc"
+// res102: String = "select * from page_articles as page_articles_ref_1 order by views desc, title asc"
 ```
 
 Control NULL ordering:
@@ -1616,7 +1803,7 @@ Query[Article]
   .orderBy(articles.views.descNullsLast)
   .all
   .build.sql
-// res91: String = "select * from page_articles as page_articles_ref_1 order by views desc nulls last"
+// res103: String = "select * from page_articles as page_articles_ref_1 order by views desc nulls last"
 ```
 
 Available sorting extensions:
@@ -1658,7 +1845,7 @@ run {
       .query[ExecUser]
   yield result)
 }
-// res93: Seq[ExecUser] = Vector(
+// res105: Seq[ExecUser] = Vector(
 //   ExecUser(id = 1, name = "Alice"),
 //   ExecUser(id = 1, name = "Alice")
 // )
@@ -1703,7 +1890,7 @@ val activeUserIds = Query[SubOrder]
 //           isGenerated = true,
 //           isNullable = false,
 //           defaultValue = None,
-//           tableAlias = Some(Generated("sub_orders_ref_1"))
+//           tableAlias = Some(Alias("sub_orders_ref_1"))
 //         ),
 //         Column(
 //           name = "userId",
@@ -1712,7 +1899,7 @@ val activeUserIds = Query[SubOrder]
 //           isGenerated = false,
 //           isNullable = false,
 //           defaultValue = None,
-//           tableAlias = Some(Generated("sub_orders_ref_1"))
+//           tableAlias = Some(Alias("sub_orders_ref_1"))
 //         ),
 //         Column(
 //           name = "status",
@@ -1721,10 +1908,10 @@ val activeUserIds = Query[SubOrder]
 //           isGenerated = false,
 //           isNullable = false,
 //           defaultValue = None,
-//           tableAlias = Some(Generated("sub_orders_ref_1"))
+//           tableAlias = Some(Alias("sub_orders_ref_1"))
 //         )
 //       ),
-//       alias = Some(Generated("sub_orders_ref_1")),
+//       alias = Some(Alias("sub_orders_ref_1")),
 //       foreignKeys = Vector(),
 //       indexes = Vector(),
 //       uniqueConstraints = Vector()
@@ -1732,7 +1919,7 @@ val activeUserIds = Query[SubOrder]
 //     wherePredicates = Vector(
 //       SqlFragment(
 //         sql = "sub_orders_ref_1.status = ?",
-//         writes = Vector(saferis.Write@2aad548c)
+//         writes = Vector(saferis.Write@29a42afc)
 //       )
 //     ),
 //     sorts = Vector(),
@@ -1745,7 +1932,7 @@ val activeUserIds = Query[SubOrder]
 Query[SubUser]
   .where(_.id).in(activeUserIds)  // Compiles: both are Int
   .build.sql
-// res95: String = "select * from sub_users as sub_users_ref_1 where sub_users_ref_1.id IN (select userId from sub_orders as sub_orders_ref_1 where sub_orders_ref_1.status = ?)"
+// res107: String = "select * from sub_users as sub_users_ref_1 where sub_users_ref_1.id IN (select userId from sub_orders as sub_orders_ref_1 where sub_orders_ref_1.status = ?)"
 ```
 
 ```scala
@@ -1753,7 +1940,7 @@ Query[SubUser]
 Query[SubUser]
   .where(_.id).notIn(activeUserIds)
   .build.sql
-// res96: String = "select * from sub_users as sub_users_ref_1 where sub_users_ref_1.id NOT IN (select userId from sub_orders as sub_orders_ref_1 where sub_orders_ref_1.status = ?)"
+// res108: String = "select * from sub_users as sub_users_ref_1 where sub_users_ref_1.id NOT IN (select userId from sub_orders as sub_orders_ref_1 where sub_orders_ref_1.status = ?)"
 ```
 
 The type safety is enforced at compile time - if the column types don't match, it won't compile.
@@ -1767,7 +1954,7 @@ Use `whereExists()` or `whereNotExists()`:
 Query[SubUser]
   .whereExists(Query[SubOrder].all)
   .build.sql
-// res97: String = "select * from sub_users as sub_users_ref_1 where EXISTS (select * from sub_orders as sub_orders_ref_1)"
+// res109: String = "select * from sub_users as sub_users_ref_1 where EXISTS (select * from sub_orders as sub_orders_ref_1)"
 ```
 
 ```scala
@@ -1775,7 +1962,7 @@ Query[SubUser]
 Query[SubUser]
   .whereNotExists(Query[SubOrder].where(_.status).eq("cancelled"))
   .build.sql
-// res98: String = "select * from sub_users as sub_users_ref_1 where NOT EXISTS (select * from sub_orders as sub_orders_ref_1 where sub_orders_ref_1.status = ?)"
+// res110: String = "select * from sub_users as sub_users_ref_1 where NOT EXISTS (select * from sub_orders as sub_orders_ref_1 where sub_orders_ref_1.status = ?)"
 ```
 
 ### Correlated Subqueries
@@ -1822,7 +2009,7 @@ Query[SubUser]
     Query[SubOrder].where(sql"userId = ${users.id}")
   )
   .build.sql
-// res99: String = "select * from sub_users as sub_users_ref_1 where EXISTS (select * from sub_orders as sub_orders_ref_1 where userId = id)"
+// res111: String = "select * from sub_users as sub_users_ref_1 where EXISTS (select * from sub_orders as sub_orders_ref_1 where userId = id)"
 ```
 
 ### Derived Tables
@@ -1862,7 +2049,7 @@ val highValueOrders = Query[DerivedOrder]
 //           isGenerated = true,
 //           isNullable = false,
 //           defaultValue = None,
-//           tableAlias = Some(Generated("derived_orders_ref_1"))
+//           tableAlias = Some(Alias("derived_orders_ref_1"))
 //         ),
 //         Column(
 //           name = "userId",
@@ -1871,7 +2058,7 @@ val highValueOrders = Query[DerivedOrder]
 //           isGenerated = false,
 //           isNullable = false,
 //           defaultValue = None,
-//           tableAlias = Some(Generated("derived_orders_ref_1"))
+//           tableAlias = Some(Alias("derived_orders_ref_1"))
 //         ),
 //         Column(
 //           name = "amount",
@@ -1880,7 +2067,7 @@ val highValueOrders = Query[DerivedOrder]
 //           isGenerated = false,
 //           isNullable = false,
 //           defaultValue = None,
-//           tableAlias = Some(Generated("derived_orders_ref_1"))
+//           tableAlias = Some(Alias("derived_orders_ref_1"))
 //         ),
 //         Column(
 //           name = "status",
@@ -1889,10 +2076,10 @@ val highValueOrders = Query[DerivedOrder]
 //           isGenerated = false,
 //           isNullable = false,
 //           defaultValue = None,
-//           tableAlias = Some(Generated("derived_orders_ref_1"))
+//           tableAlias = Some(Alias("derived_orders_ref_1"))
 //         )
 //       ),
-//       alias = Some(Generated("derived_orders_ref_1")),
+//       alias = Some(Alias("derived_orders_ref_1")),
 //       foreignKeys = Vector(),
 //       indexes = Vector(),
 //       uniqueConstraints = Vector()
@@ -1905,7 +2092,7 @@ val highValueOrders = Query[DerivedOrder]
 Query.from(highValueOrders, "high_value")
   .where(_.userId).gt(0)
   .build.sql
-// res101: String = "select * from (select * from derived_orders as derived_orders_ref_1 where derived_orders_ref_1.amount > ?) as high_value where \"high_value\".userId > ?"
+// res113: String = "select * from (select * from derived_orders as derived_orders_ref_1 where derived_orders_ref_1.amount > ?) as high_value where high_value.userId > ?"
 ```
 
 ```scala
@@ -1914,7 +2101,7 @@ Query.from(highValueOrders, "summary")
   .innerJoin[DerivedUser].on(_.userId).eq(_.id)
   .all
   .build.sql
-// res102: String = "select * from (select * from derived_orders as derived_orders_ref_1 where derived_orders_ref_1.amount > ?) as summary inner join derived_users as derived_users_ref_1 on \"summary\".userId = derived_users_ref_1.id"
+// res114: String = "select * from (select * from derived_orders as derived_orders_ref_1 where derived_orders_ref_1.amount > ?) as summary inner join derived_users as derived_users_ref_1 on summary.userId = derived_users_ref_1.id"
 ```
 
 ### Complex Nested Subqueries
@@ -1952,7 +2139,7 @@ val electronicProductIds = Query[ComplexProduct]
 //           isGenerated = true,
 //           isNullable = false,
 //           defaultValue = None,
-//           tableAlias = Some(Generated("complex_products_ref_1"))
+//           tableAlias = Some(Alias("complex_products_ref_1"))
 //         ),
 //         Column(
 //           name = "category",
@@ -1961,10 +2148,10 @@ val electronicProductIds = Query[ComplexProduct]
 //           isGenerated = false,
 //           isNullable = false,
 //           defaultValue = None,
-//           tableAlias = Some(Generated("complex_products_ref_1"))
+//           tableAlias = Some(Alias("complex_products_ref_1"))
 //         )
 //       ),
-//       alias = Some(Generated("complex_products_ref_1")),
+//       alias = Some(Alias("complex_products_ref_1")),
 //       foreignKeys = Vector(),
 //       indexes = Vector(),
 //       uniqueConstraints = Vector()
@@ -1972,7 +2159,7 @@ val electronicProductIds = Query[ComplexProduct]
 //     wherePredicates = Vector(
 //       SqlFragment(
 //         sql = "complex_products_ref_1.category = ?",
-//         writes = Vector(saferis.Write@3103a7f5)
+//         writes = Vector(saferis.Write@3bdfcd33)
 //       )
 //     ),
 //     sorts = Vector(),
@@ -1987,7 +2174,7 @@ val electronicProductIds = Query[ComplexProduct]
 //         isGenerated = true,
 //         isNullable = false,
 //         defaultValue = None,
-//         tableAlias = Some(Generated("complex_products_ref_1"))
+//         tableAlias = Some(Alias("complex_products_ref_1"))
 //       )
 // ...
 
@@ -2006,7 +2193,7 @@ val usersWithElectronics = Query[ComplexOrder]
 //           isGenerated = true,
 //           isNullable = false,
 //           defaultValue = None,
-//           tableAlias = Some(Generated("complex_orders_ref_1"))
+//           tableAlias = Some(Alias("complex_orders_ref_1"))
 //         ),
 //         Column(
 //           name = "userId",
@@ -2015,7 +2202,7 @@ val usersWithElectronics = Query[ComplexOrder]
 //           isGenerated = false,
 //           isNullable = false,
 //           defaultValue = None,
-//           tableAlias = Some(Generated("complex_orders_ref_1"))
+//           tableAlias = Some(Alias("complex_orders_ref_1"))
 //         ),
 //         Column(
 //           name = "productId",
@@ -2024,10 +2211,10 @@ val usersWithElectronics = Query[ComplexOrder]
 //           isGenerated = false,
 //           isNullable = false,
 //           defaultValue = None,
-//           tableAlias = Some(Generated("complex_orders_ref_1"))
+//           tableAlias = Some(Alias("complex_orders_ref_1"))
 //         )
 //       ),
-//       alias = Some(Generated("complex_orders_ref_1")),
+//       alias = Some(Alias("complex_orders_ref_1")),
 //       foreignKeys = Vector(),
 //       indexes = Vector(),
 //       uniqueConstraints = Vector()
@@ -2035,7 +2222,7 @@ val usersWithElectronics = Query[ComplexOrder]
 //     wherePredicates = Vector(
 //       SqlFragment(
 //         sql = "complex_orders_ref_1.productId IN (select id from complex_products as complex_products_ref_1 where complex_products_ref_1.category = ?)",
-//         writes = List(saferis.Write@3103a7f5)
+//         writes = List(saferis.Write@3bdfcd33)
 //       )
 //     ),
 //     sorts = Vector(),
@@ -2047,7 +2234,7 @@ val usersWithElectronics = Query[ComplexOrder]
 Query[ComplexUser]
   .where(_.id).in(usersWithElectronics)
   .build.sql
-// res104: String = "select * from complex_users as complex_users_ref_1 where complex_users_ref_1.id IN (select userId from complex_orders as complex_orders_ref_1 where complex_orders_ref_1.productId IN (select id from complex_products as complex_products_ref_1 where complex_products_ref_1.category = ?))"
+// res116: String = "select * from complex_users as complex_users_ref_1 where complex_users_ref_1.id IN (select userId from complex_orders as complex_orders_ref_1 where complex_orders_ref_1.productId IN (select id from complex_products as complex_products_ref_1 where complex_products_ref_1.category = ?))"
 ```
 
 ### Operator Reference
@@ -2110,7 +2297,7 @@ run {
     all <- sql"SELECT * FROM ${Table[SpecializedItem]}".query[SpecializedItem]
   yield (inserted, all))
 }
-// res106: Tuple2[SpecializedItem, Seq[SpecializedItem]] = (
+// res118: Tuple2[SpecializedItem, Seq[SpecializedItem]] = (
 //   SpecializedItem(id = 1, name = "Widget", category = "hardware"),
 //   Vector(
 //     SpecializedItem(id = 1, name = "Widget", category = "hardware"),
@@ -2128,7 +2315,7 @@ The `SpecializedDML` object provides operations that require specific dialect ca
 run {
   xa.run(sql"SELECT * FROM ${Table[SpecializedItem]} ORDER BY ${Table[SpecializedItem].id}".query[SpecializedItem])
 }
-// res107: Seq[SpecializedItem] = Vector(
+// res119: Seq[SpecializedItem] = Vector(
 //   SpecializedItem(id = 1, name = "Widget", category = "hardware"),
 //   SpecializedItem(id = 2, name = "Gadget", category = "electronics")
 // )
@@ -2165,7 +2352,7 @@ Write functions that require specific capabilities using intersection types:
 run {
   xa.run(dml.insertReturning(SpecializedItem(-1, "Capability Demo", "demo")))
 }
-// res108: SpecializedItem = SpecializedItem(
+// res120: SpecializedItem = SpecializedItem(
 //   id = 3,
 //   name = "Capability Demo",
 //   category = "demo"
@@ -2217,18 +2404,18 @@ run {
     all <- sql"SELECT * FROM $events".query[Event]
   yield all)
 }
-// res110: Seq[Event] = Vector(
+// res122: Seq[Event] = Vector(
 //   Event(
 //     id = 1,
 //     name = "Conference",
-//     occurredAt = 2026-02-05T14:44:45.945538Z,
-//     scheduledFor = Some(2026-02-12T08:44:45.945569),
+//     occurredAt = 2026-02-05T16:12:59.130401Z,
+//     scheduledFor = Some(2026-02-12T10:12:59.130429),
 //     eventDate = 2026-02-05
 //   ),
 //   Event(
 //     id = 2,
 //     name = "Meeting",
-//     occurredAt = 2026-02-05T14:44:45.949725Z,
+//     occurredAt = 2026-02-05T16:12:59.135319Z,
 //     scheduledFor = None,
 //     eventDate = 2026-02-06
 //   )
@@ -2260,8 +2447,8 @@ run {
     found <- sql"SELECT * FROM $entities WHERE ${entities.id} = $id1".queryOne[Entity]
   yield found)
 }
-// res112: Option[Entity] = Some(
-//   Entity(id = 498ff868-d082-4018-9a13-6dfe44aba8ad, name = "First Entity")
+// res124: Option[Entity] = Some(
+//   Entity(id = 425a3652-3924-40d2-96f7-b76b8df9fb69, name = "First Entity")
 // )
 ```
 
@@ -2311,7 +2498,7 @@ run {
     all <- sql"SELECT * FROM $events".query[JsonEvent]
   yield all)
 }
-// res114: Seq[JsonEvent] = Vector(
+// res126: Seq[JsonEvent] = Vector(
 //   JsonEvent(
 //     id = 1,
 //     name = "Deploy",
@@ -2368,7 +2555,7 @@ run {
     avgPrice <- sql"SELECT AVG(${items.price}) FROM $items".queryValue[Double]
   yield (count, maxPrice, avgPrice))
 }
-// res116: Tuple3[Option[Int], Option[Double], Option[Double]] = (
+// res128: Tuple3[Option[Int], Option[Double], Option[Double]] = (
 //   Some(3),
 //   Some(25.0),
 //   Some(16.666666666666668)
@@ -2407,7 +2594,7 @@ run {
     result <- sql"SELECT * FROM ${Table[ExecItem]}".query[ExecItem]
   yield (insertCount, updateCount, result))
 }
-// res118: Tuple3[Int, Int, Seq[ExecItem]] = (
+// res130: Tuple3[Int, Int, Seq[ExecItem]] = (
 //   1,
 //   1,
 //   Vector(ExecItem(id = 1, name = "Widget", quantity = 20))
