@@ -407,6 +407,41 @@ object JsonIntegrationSpecs extends ZIOSpecDefault:
         end res
         res,
     ),
+    // === Generic Json[E] Type Derivation Tests ===
+    suite("Generic Json[E] table derivation")(
+      test("derive Table for generic case class with Json[E] field"):
+        // This tests the fix for path-dependent type codec resolution
+        // When E is a type parameter, the macro resolves it using type parameter substitution
+        final case class GenericEvent(kind: String, value: Int) derives JsonCodec
+
+        // Json[E] now requires JsonCodec[E] as a context bound, which captures the evidence
+        @tableName("generic_json_events")
+        case class GenericRow[E: JsonCodec](@generated @key id: Long, data: Json[E])
+
+        // The JsonCodec[E] context bound on GenericRow ensures the evidence is available
+        class GenericStore[E: JsonCodec](xa: Transactor):
+          given Table[GenericRow[E]]                    = Table.derived[GenericRow[E]]
+          def insert(row: GenericRow[E])(using Dialect) = xa.run(saferis.dml.insert(row))
+
+        // Helper to read raw JSON data
+        case class RawJsonRow(id: Long, data: String) derives Table
+
+        for
+          xa <- ZIO.service[Transactor]
+          store                                 = new GenericStore[GenericEvent](xa)
+          given Table[GenericRow[GenericEvent]] = store.given_Table_GenericRow
+          _ <- xa.run(dropTable[GenericRow[GenericEvent]](ifExists = true))
+          _ <- xa.run(createTable[GenericRow[GenericEvent]]())
+          _ <- store.insert(GenericRow(0, Json(GenericEvent("test", 42))))
+          // Use raw SQL query to verify the data was inserted correctly
+          rows <- xa.run(sql"SELECT id, data FROM generic_json_events".query[RawJsonRow])
+        yield assertTrue(
+          rows.length == 1,
+          rows.head.data.contains("test"), // JSON contains "test"
+          rows.head.data.contains("42"),   // JSON contains 42
+        )
+        end for
+    ),
   ).provideShared(xaLayer) @@ TestAspect.sequential
 
   // Helper for querying index info from PostgreSQL

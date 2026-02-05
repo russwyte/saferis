@@ -82,9 +82,10 @@ object Interpolator:
   ): Expr[Vector[Placeholder]] =
     import quotes.reflect.*
 
-    // Helper to check if type is an Instance
+    // Helper to check if type is an Instance (using type symbol comparison for robustness)
+    val instanceTypeSymbol                     = TypeRepr.of[Instance[?]].typeSymbol
     def isInstanceType(tpe: TypeRepr): Boolean =
-      tpe.baseClasses.exists(_.fullName == "saferis.Instance")
+      tpe.baseClasses.contains(instanceTypeSymbol)
 
     all match
       case '{ $arg: Placeholder } +: rest =>

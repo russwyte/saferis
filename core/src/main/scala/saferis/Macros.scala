@@ -10,12 +10,16 @@ object Macros:
 
   private def nameOfImpl[A: Type](using Quotes): Expr[String] =
     import quotes.reflect.*
-    val tpe = TypeRepr.of[A]
+    val tpe                 = TypeRepr.of[A]
+    val tableNameTypeSymbol = TypeRepr.of[tableName].typeSymbol
     tpe.typeSymbol.annotations
-      .collectFirst { case Apply(Select(New(TypeIdent("tableName")), _), List(Literal(StringConstant(name)))) =>
-        Expr(name)
+      .collectFirst {
+        case Apply(Select(New(tpt), _), List(Literal(StringConstant(name))))
+            if tpt.tpe.typeSymbol == tableNameTypeSymbol =>
+          Expr(name)
       }
       .getOrElse(Expr(tpe.typeSymbol.name))
+  end nameOfImpl
 
   private[saferis] inline def columnsOf[A <: Product]: Seq[Column[?]] = ${ columnsOfImpl[A] }
 
@@ -26,6 +30,14 @@ object Macros:
     import quotes.reflect.*
     val tpe    = TypeRepr.of[A]
     val fields = tpe.typeSymbol.caseFields
+
+    // Build a mapping from type parameter names to their actual type arguments
+    // This enables resolving path-dependent types like GenericRow.this.E to the actual E from the calling context
+    val typeParamSubstitution: Map[String, TypeRepr] = tpe match
+      case AppliedType(_, typeArgs) =>
+        val typeParams = tpe.typeSymbol.typeMembers.filter(_.isTypeParam)
+        typeParams.map(_.name).zip(typeArgs).toMap
+      case _ => Map.empty
 
     // Validate no reserved Scala field names are used
     fields.foreach { field =>
@@ -38,6 +50,96 @@ object Macros:
         )
     }
 
+    // Helper to resolve path-dependent types using the substitution map
+    def resolveInnerType(innerType: TypeRepr): TypeRepr =
+      innerType match
+        case tr if tr.typeSymbol.isTypeParam =>
+          typeParamSubstitution.getOrElse(tr.typeSymbol.name, tr)
+        case tr =>
+          // Try to extract type param name from the string representation for path-dependent types
+          val typeStr   = tr.show
+          val paramName = typeStr.split("\\.").lastOption.getOrElse("")
+          typeParamSubstitution.getOrElse(paramName, tr)
+
+    // Get the Json type symbol for comparison (more robust than string matching)
+    val jsonTypeSymbol = TypeRepr.of[Json[Any]].typeSymbol
+
+    // Decoder summon with Json[X] special handling using type parameter substitution
+    def summonDecoderForField[T: Type]: Expr[Decoder[T]] =
+      Expr
+        .summon[Decoder[T]]
+        .orElse {
+          val tpeRepr = TypeRepr.of[T]
+          // Check if it's Json[X] by comparing type symbols directly
+          if tpeRepr.typeSymbol == jsonTypeSymbol && tpeRepr.typeArgs.nonEmpty then
+            val innerType     = tpeRepr.typeArgs.head
+            val resolvedInner = resolveInnerType(innerType)
+            val codecType     = TypeRepr.of[zio.json.JsonCodec].appliedTo(resolvedInner)
+            Implicits.search(codecType) match
+              case iss: ImplicitSearchSuccess =>
+                resolvedInner.asType match
+                  case '[inner] =>
+                    Some('{
+                      Json
+                        .decoder[inner](using ${ iss.tree.asExprOf[zio.json.JsonCodec[inner]] })
+                        .asInstanceOf[Decoder[T]]
+                    })
+              case _: ImplicitSearchFailure => None
+            end match
+          else None
+          end if
+        }
+        .orElse(
+          TypeRepr.of[T].widen.asType match
+            case '[tpe] => Expr.summon[Decoder[tpe]].map(d => '{ $d.asInstanceOf[Decoder[T]] })
+        )
+        .orElse(
+          TypeRepr.of[T].widen.asType match
+            case '[tpe] => Expr.summon[Codec[tpe]].map(codec => '{ $codec.asInstanceOf[Decoder[T]] })
+        )
+        .orElse(
+          Expr.summon[zio.json.JsonCodec[T]].map(codec => '{ Decoder.fromJsonCodec[T](using $codec) })
+        )
+        .getOrElse(report.errorAndAbort(s"Could not find a Decoder for ${Type.show[T]}"))
+
+    // Encoder summon with Json[X] special handling using type parameter substitution
+    def summonEncoderForField[T: Type]: Expr[Encoder[T]] =
+      Expr
+        .summon[Encoder[T]]
+        .orElse {
+          val tpeRepr = TypeRepr.of[T]
+          // Check if it's Json[X] by comparing type symbols directly
+          if tpeRepr.typeSymbol == jsonTypeSymbol && tpeRepr.typeArgs.nonEmpty then
+            val innerType     = tpeRepr.typeArgs.head
+            val resolvedInner = resolveInnerType(innerType)
+            val codecType     = TypeRepr.of[zio.json.JsonCodec].appliedTo(resolvedInner)
+            Implicits.search(codecType) match
+              case iss: ImplicitSearchSuccess =>
+                resolvedInner.asType match
+                  case '[inner] =>
+                    Some('{
+                      Json
+                        .encoder[inner](using ${ iss.tree.asExprOf[zio.json.JsonCodec[inner]] })
+                        .asInstanceOf[Encoder[T]]
+                    })
+              case _: ImplicitSearchFailure => None
+            end match
+          else None
+          end if
+        }
+        .orElse(
+          TypeRepr.of[T].widen.asType match
+            case '[tpe] => Expr.summon[Encoder[tpe]].map(e => '{ $e.asInstanceOf[Encoder[T]] })
+        )
+        .orElse(
+          TypeRepr.of[T].widen.asType match
+            case '[tpe] => Expr.summon[Codec[tpe]].map(codec => '{ $codec.asInstanceOf[Encoder[T]] })
+        )
+        .orElse(
+          Expr.summon[zio.json.JsonCodec[T]].map(codec => '{ Encoder.fromJsonCodec[T](using $codec) })
+        )
+        .getOrElse(report.errorAndAbort(s"Could not find Encoder for ${Type.show[T]}"))
+
     val columns = fields.map { field =>
       val fieldName = field.name
 
@@ -45,8 +147,8 @@ object Macros:
         case valDef: ValDef =>
           valDef.tpt.tpe.asType match
             case '[a] =>
-              val reader     = summonDecoder[a]
-              val writer     = summonEncoder[a]
+              val reader     = summonDecoderForField[a]
+              val writer     = summonEncoderForField[a]
               val isNullable = isOptionType[a]
               val defaultVal = getDefaultValue[A, a](fieldName)
 
@@ -215,34 +317,6 @@ object Macros:
     end if
   end getDefaultValue
 
-  private def summonDecoder[T: Type](using Quotes): Expr[Decoder[T]] =
-    import quotes.reflect.*
-    Expr
-      .summon[Decoder[T]]
-      .orElse(
-        TypeRepr.of[T].widen.asType match
-          case '[tpe] =>
-            Expr
-              .summon[Decoder[tpe]]
-              .map(d => '{ $d.asInstanceOf[Decoder[T]] })
-      )
-      .orElse(
-        TypeRepr.of[T].widen.asType match
-          case '[tpe] =>
-            Expr
-              .summon[Codec[tpe]]
-              .map(codec => '{ $codec.asInstanceOf[Decoder[T]] })
-      )
-      .orElse(
-        // Fallback: if JsonCodec[T] exists, derive a Decoder from it (JSONB support)
-        Expr.summon[zio.json.JsonCodec[T]].map { codec =>
-          '{ Decoder.fromJsonCodec[T](using $codec) }
-        }
-      )
-      .getOrElse:
-        report.errorAndAbort(s"Could not find a Decoder for ${Type.show[T]}")
-  end summonDecoder
-
   private def summonTable[T <: Product: Type](using Quotes): Expr[Table[T]] =
     import quotes.reflect.*
     Expr
@@ -306,32 +380,23 @@ object Macros:
       Refinement(t, name, columnType)
   end refinementForLabels
 
+  // Simple encoder summon for columnPlaceholdersImpl (used with concrete types)
   private[saferis] def summonEncoder[T: Type](using Quotes): Expr[Encoder[T]] =
     import quotes.reflect.*
     Expr
       .summon[Encoder[T]]
       .orElse(
         TypeRepr.of[T].widen.asType match
-          case '[tpe] =>
-            Expr
-              .summon[Encoder[tpe]]
-              .map(e => '{ $e.asInstanceOf[Encoder[T]] })
+          case '[tpe] => Expr.summon[Encoder[tpe]].map(e => '{ $e.asInstanceOf[Encoder[T]] })
       )
       .orElse(
         TypeRepr.of[T].widen.asType match
-          case '[tpe] =>
-            Expr
-              .summon[Codec[tpe]]
-              .map(codec => '{ $codec.asInstanceOf[Encoder[T]] })
+          case '[tpe] => Expr.summon[Codec[tpe]].map(codec => '{ $codec.asInstanceOf[Encoder[T]] })
       )
       .orElse(
-        // Fallback: if JsonCodec[T] exists, derive an Encoder from it (JSONB support)
-        Expr.summon[zio.json.JsonCodec[T]].map { codec =>
-          '{ Encoder.fromJsonCodec[T](using $codec) }
-        }
+        Expr.summon[zio.json.JsonCodec[T]].map(codec => '{ Encoder.fromJsonCodec[T](using $codec) })
       )
-      .getOrElse:
-        report.errorAndAbort(s"Could not find Encoder for ${Type.show[T]}")
+      .getOrElse(report.errorAndAbort(s"Could not find Encoder for ${Type.show[T]}"))
   end summonEncoder
 
   private[saferis] inline def columnPlaceholders[A <: Product](instance: A): List[(String, Placeholder)] = ${
