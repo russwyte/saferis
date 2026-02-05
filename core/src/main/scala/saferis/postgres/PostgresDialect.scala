@@ -4,7 +4,8 @@ import saferis.*
 
 import java.sql.Types
 
-given Dialect = PostgresDialect
+// Export PostgresDialect with its singleton type so all capability intersections are satisfied
+given PostgresDialect.type = PostgresDialect
 
 /** PostgreSQL dialect implementation providing PostgreSQL-specific type mappings and SQL generation */
 object PostgresDialect
@@ -74,6 +75,9 @@ object PostgresDialect
   // === UpsertSupport implementation ===
   def upsertSql(tableName: String, insertColumns: String, conflictColumns: Seq[String], updateColumns: String): String =
     s"insert into $tableName $insertColumns on conflict (${conflictColumns.mkString(", ")}) do update set $updateColumns"
+
+  def upsertDoNothingSql(tableName: String, insertColumns: String, conflictColumns: Seq[String]): String =
+    s"insert into $tableName $insertColumns on conflict (${conflictColumns.mkString(", ")}) do nothing"
 
   // === JsonSupport implementation ===
   def jsonType: String = "jsonb"

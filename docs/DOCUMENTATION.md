@@ -13,6 +13,8 @@ A comprehensive guide to Saferis - the type-safe, resource-safe SQL client libra
 - [Data Manipulation Layer (DML)](#data-manipulation-layer-dml)
 - [Query Builder](#query-builder)
 - [Subqueries](#subqueries)
+- [Aggregate Functions](#aggregate-functions)
+- [Conditional Upsert DSL](#conditional-upsert-dsl)
 - [Type-Safe Capabilities](#type-safe-capabilities)
 
 ---
@@ -24,7 +26,7 @@ A comprehensive guide to Saferis - the type-safe, resource-safe SQL client libra
 Add Saferis to your `build.sbt`:
 
 ```scala
-libraryDependencies += "io.github.russwyte" %% "saferis" % "0.5.0"
+libraryDependencies += "io.github.russwyte" %% "saferis" % "0.5.0+1-132d9d66"
 ```
 
 Saferis requires ZIO as a provided dependency:
@@ -193,7 +195,7 @@ val minPrice = 10.0
 val query = sql"SELECT * FROM $products WHERE ${products.price} > $minPrice"
 // query: SqlFragment = SqlFragment(
 //   sql = "SELECT * FROM products WHERE price > ?",
-//   writes = Vector(saferis.Write@6a577df8)
+//   writes = Vector(saferis.Write@457de490)
 // )
 query.show
 // res8: String = "SELECT * FROM products WHERE price > 10.0"
@@ -744,7 +746,7 @@ run {
   yield jobs)
 }
 // res39: Seq[Job] = Vector(
-//   Job(id = 1, status = "pending", retryAt = Some(2026-02-05T16:42:35.501715Z)),
+//   Job(id = 1, status = "pending", retryAt = Some(2026-02-05T17:56:04.300526Z)),
 //   Job(id = 2, status = "completed", retryAt = None)
 // )
 ```
@@ -1498,6 +1500,113 @@ Update[BuilderUser]
 // res79: String = "update builder_users set age = ? where name LIKE ?"
 ```
 
+#### Complex WHERE with OR and Grouping
+
+Use `andWhere` with a lambda for complex conditions with OR logic:
+
+```scala
+import saferis.*
+import saferis.docs.DocTestContainer.{run, transactor as xa}
+
+@tableName("claim_tasks")
+case class ClaimTask(
+  @generated @key id: Int,
+  deadline: java.time.Instant,
+  claimedBy: Option[String],
+  claimedUntil: Option[java.time.Instant]
+) derives Table
+```
+
+```scala
+// Query for unclaimed or expired claims
+val now = java.time.Instant.now()
+// now: Instant = 2026-02-05T17:56:04.555892837Z
+Update[ClaimTask]
+  .set(_.claimedBy, Some("worker-1"))
+  .where(_.deadline).lte(now)
+  .andWhere(w => w(_.claimedBy).isNull.or(_.claimedUntil).lt(Some(now)))
+  .build.sql
+// res81: String = "update claim_tasks set claimedBy = ? where claim_tasks.deadline <= ? and (claim_tasks.claimedBy IS NULL OR claim_tasks.claimedUntil < ?)"
+```
+
+This generates: `UPDATE ... WHERE deadline <= ? AND (claimed_by IS NULL OR claimed_until < ?)`
+
+The `andWhere` lambda provides a builder that supports:
+- `w(_.column)` - Start a condition on a column
+- `.isNull` / `.isNotNull` - Null checks
+- `.eq(value)` / `.lt(value)` / etc. - Comparisons
+- `.or(_.column)` - Chain with OR
+- `.and(_.column)` - Chain with AND
+
+Delete also supports `andWhere`:
+
+```scala
+Delete[ClaimTask]
+  .where(_.deadline).lt(now)
+  .andWhere(w => w(_.claimedBy).isNotNull.or(_.claimedUntil).lt(Some(now)))
+  .build.sql
+// res82: String = "delete from claim_tasks where claim_tasks.deadline < ? and (claim_tasks.claimedBy IS NOT NULL OR claim_tasks.claimedUntil < ?)"
+```
+
+#### Type-Safe UPDATE with RETURNING
+
+Return updated rows atomically using `returningAs`:
+
+```scala
+import saferis.*
+import saferis.docs.DocTestContainer.{run, transactor as xa}
+
+@tableName("lock_rows")
+case class LockRow(
+  @key instanceId: String,
+  nodeId: String,
+  expiresAt: java.time.Instant
+) derives Table
+```
+
+```scala
+// returningAs provides type-safe query execution
+val newExpiry = java.time.Instant.now().plusSeconds(60)
+// newExpiry: Instant = 2026-02-05T17:57:04.558915100Z
+Update[LockRow]
+  .set(_.expiresAt, newExpiry)
+  .where(_.instanceId).eq("instance-1")
+  .where(_.nodeId).eq("node-1")
+  .returningAs
+  .build.sql
+// res84: String = "update lock_rows set expiresAt = ? where lock_rows.instanceId = ? and lock_rows.nodeId = ? returning *"
+```
+
+The `returningAs` method:
+- Returns `ReturningQuery[A]` with type-safe `query` and `queryOne` methods
+- Only compiles when the dialect supports RETURNING (PostgreSQL, SQLite)
+- Uses capability constraint: requires `Dialect & ReturningSupport`
+
+```scala
+import saferis.*
+import zio.*
+
+@tableName("lock_rows")
+case class LockRow(@key instanceId: String, nodeId: String, expiresAt: java.time.Instant) derives Table
+
+// Execute and get the updated row
+val result: ScopedQuery[Option[LockRow]] = Update[LockRow]
+  .set(_.expiresAt, java.time.Instant.now())
+  .where(_.instanceId).eq("id")
+  .returningAs
+  .queryOne  // Returns ScopedQuery[Option[LockRow]]
+```
+
+Delete also supports `returningAs`:
+
+```scala
+Delete[LockRow]
+  .where(_.instanceId).eq("instance-1")
+  .returningAs
+  .build.sql
+// res86: String = "delete from lock_rows where lock_rows.instanceId = ? returning *"
+```
+
 ---
 
 ## Query Builder
@@ -1553,7 +1662,7 @@ val users = Table[QueryUser]
 Query[QueryUser]
   .where(_.name).eq("Alice")
   .build.sql
-// res82: String = "select * from query_users as query_users_ref_1 where query_users_ref_1.name = ?"
+// res89: String = "select * from query_users as query_users_ref_1 where query_users_ref_1.name = ?"
 ```
 
 ```scala
@@ -1564,7 +1673,7 @@ Query[QueryUser]
   .limit(10)
   .offset(20)
   .build.sql
-// res83: String = "select * from query_users as query_users_ref_1 where query_users_ref_1.age > ? order by name asc limit 10 offset 20"
+// res90: String = "select * from query_users as query_users_ref_1 where query_users_ref_1.age > ? order by name asc limit 10 offset 20"
 ```
 
 ### Type-Safe WHERE Clauses
@@ -1574,19 +1683,19 @@ Use selector syntax for type-safe column references:
 ```scala
 // Equality
 Query[QueryUser].where(_.name).eq("Alice").build.sql
-// res84: String = "select * from query_users as query_users_ref_1 where query_users_ref_1.name = ?"
+// res91: String = "select * from query_users as query_users_ref_1 where query_users_ref_1.name = ?"
 ```
 
 ```scala
 // Comparison operators
 Query[QueryUser].where(_.age).gt(21).build.sql
-// res85: String = "select * from query_users as query_users_ref_1 where query_users_ref_1.age > ?"
+// res92: String = "select * from query_users as query_users_ref_1 where query_users_ref_1.age > ?"
 ```
 
 ```scala
 // IS NULL / IS NOT NULL
 Query[QueryUser].where(_.email).isNotNull().build.sql
-// res86: String = "select * from query_users as query_users_ref_1 where query_users_ref_1.email IS NOT NULL"
+// res93: String = "select * from query_users as query_users_ref_1 where query_users_ref_1.email IS NOT NULL"
 ```
 
 You can also use raw `SqlFragment` for complex conditions:
@@ -1596,7 +1705,7 @@ You can also use raw `SqlFragment` for complex conditions:
 Query[QueryUser]
   .where(sql"${users.age} BETWEEN 18 AND 65")
   .build.sql
-// res87: String = "select * from query_users as query_users_ref_1 where age BETWEEN 18 AND 65"
+// res94: String = "select * from query_users as query_users_ref_1 where age BETWEEN 18 AND 65"
 ```
 
 ### Joins
@@ -1624,7 +1733,7 @@ Query[JoinUser]
   .innerJoin[JoinOrder].on(_.id).eq(_.userId)
   .all
   .build.sql
-// res89: String = "select * from join_users as join_users_ref_1 inner join join_orders as join_orders_ref_1 on join_users_ref_1.id = join_orders_ref_1.userId"
+// res96: String = "select * from join_users as join_users_ref_1 inner join join_orders as join_orders_ref_1 on join_users_ref_1.id = join_orders_ref_1.userId"
 ```
 
 ```scala
@@ -1633,7 +1742,7 @@ Query[JoinUser]
   .leftJoin[JoinOrder].on(_.id).eq(_.userId)
   .all
   .build.sql
-// res90: String = "select * from join_users as join_users_ref_1 left join join_orders as join_orders_ref_1 on join_users_ref_1.id = join_orders_ref_1.userId"
+// res97: String = "select * from join_users as join_users_ref_1 left join join_orders as join_orders_ref_1 on join_users_ref_1.id = join_orders_ref_1.userId"
 ```
 
 ```scala
@@ -1642,7 +1751,7 @@ Query[JoinUser]
   .rightJoin[JoinOrder].on(_.id).eq(_.userId)
   .all
   .build.sql
-// res91: String = "select * from join_users as join_users_ref_1 right join join_orders as join_orders_ref_1 on join_users_ref_1.id = join_orders_ref_1.userId"
+// res98: String = "select * from join_users as join_users_ref_1 right join join_orders as join_orders_ref_1 on join_users_ref_1.id = join_orders_ref_1.userId"
 ```
 
 ```scala
@@ -1651,7 +1760,7 @@ Query[JoinUser]
   .fullJoin[JoinOrder].on(_.id).eq(_.userId)
   .all
   .build.sql
-// res92: String = "select * from join_users as join_users_ref_1 full join join_orders as join_orders_ref_1 on join_users_ref_1.id = join_orders_ref_1.userId"
+// res99: String = "select * from join_users as join_users_ref_1 full join join_orders as join_orders_ref_1 on join_users_ref_1.id = join_orders_ref_1.userId"
 ```
 
 ### Finalizing Joins with `.endJoin`
@@ -1666,7 +1775,7 @@ Query[JoinUser]
   .innerJoin[JoinOrder].on(_.id).eq(_.userId)
   .where(_.name).eq("Alice")  // Convenience method
   .build.sql
-// res93: String = "select * from join_users as join_users_ref_1 inner join join_orders as join_orders_ref_1 on join_users_ref_1.id = join_orders_ref_1.userId where join_users_ref_1.name = ?"
+// res100: String = "select * from join_users as join_users_ref_1 inner join join_orders as join_orders_ref_1 on join_users_ref_1.id = join_orders_ref_1.userId where join_users_ref_1.name = ?"
 ```
 
 ```scala
@@ -1677,7 +1786,7 @@ Query[JoinUser]
   .orderBy(Table[JoinUser].name.asc)
   .all
   .build.sql
-// res94: String = "select * from join_users as join_users_ref_1 inner join join_orders as join_orders_ref_1 on join_users_ref_1.id = join_orders_ref_1.userId order by name asc"
+// res101: String = "select * from join_users as join_users_ref_1 inner join join_orders as join_orders_ref_1 on join_users_ref_1.id = join_orders_ref_1.userId order by name asc"
 ```
 
 The `.endJoin` method is useful when you want to add operations like `.orderBy()` that aren't available as convenience methods on the join chain.
@@ -1693,7 +1802,7 @@ Query[JoinUser]
   .innerJoin[JoinItem].onPrev(_.id).eq(_.orderId)
   .all
   .build.sql
-// res95: String = "select * from join_users as join_users_ref_1 inner join join_orders as join_orders_ref_1 on join_users_ref_1.id = join_orders_ref_1.userId inner join join_items as join_items_ref_1 on join_orders_ref_1.id = join_items_ref_1.orderId"
+// res102: String = "select * from join_users as join_users_ref_1 inner join join_orders as join_orders_ref_1 on join_users_ref_1.id = join_orders_ref_1.userId inner join join_items as join_items_ref_1 on join_orders_ref_1.id = join_items_ref_1.orderId"
 ```
 
 ### WHERE on Joined Queries
@@ -1706,7 +1815,7 @@ Query[JoinUser]
   .innerJoin[JoinOrder].on(_.id).eq(_.userId)
   .where(_.name).eq("Alice")
   .build.sql
-// res96: String = "select * from join_users as join_users_ref_1 inner join join_orders as join_orders_ref_1 on join_users_ref_1.id = join_orders_ref_1.userId where join_users_ref_1.name = ?"
+// res103: String = "select * from join_users as join_users_ref_1 inner join join_orders as join_orders_ref_1 on join_users_ref_1.id = join_orders_ref_1.userId where join_users_ref_1.name = ?"
 ```
 
 ```scala
@@ -1715,7 +1824,7 @@ Query[JoinUser]
   .innerJoin[JoinOrder].on(_.id).eq(_.userId)
   .whereFrom(_.amount).gt(BigDecimal(100))
   .build.sql
-// res97: String = "select * from join_users as join_users_ref_1 inner join join_orders as join_orders_ref_1 on join_users_ref_1.id = join_orders_ref_1.userId where join_orders_ref_1.amount > ?"
+// res104: String = "select * from join_users as join_users_ref_1 inner join join_orders as join_orders_ref_1 on join_users_ref_1.id = join_orders_ref_1.userId where join_orders_ref_1.amount > ?"
 ```
 
 ### ON Clause Operators
@@ -1758,7 +1867,7 @@ Query[Article]
   .limit(10)
   .offset(20)
   .build.sql
-// res99: String = "select * from page_articles as page_articles_ref_1 where page_articles_ref_1.published = ? order by views desc limit 10 offset 20"
+// res106: String = "select * from page_articles as page_articles_ref_1 where page_articles_ref_1.published = ? order by views desc limit 10 offset 20"
 ```
 
 #### Cursor/Seek Pagination
@@ -1771,7 +1880,7 @@ Query[Article]
   .seekAfter(articles.id, 100L)
   .limit(10)
   .build.sql
-// res100: String = "select * from page_articles as page_articles_ref_1 where id > ? order by id asc limit 10"
+// res107: String = "select * from page_articles as page_articles_ref_1 where id > ? order by id asc limit 10"
 ```
 
 ```scala
@@ -1780,7 +1889,7 @@ Query[Article]
   .seekBefore(articles.id, 50L)
   .limit(10)
   .build.sql
-// res101: String = "select * from page_articles as page_articles_ref_1 where id < ? order by id desc limit 10"
+// res108: String = "select * from page_articles as page_articles_ref_1 where id < ? order by id desc limit 10"
 ```
 
 ### Sorting
@@ -1793,7 +1902,7 @@ Query[Article]
   .orderBy(articles.title.asc)
   .all
   .build.sql
-// res102: String = "select * from page_articles as page_articles_ref_1 order by views desc, title asc"
+// res109: String = "select * from page_articles as page_articles_ref_1 order by views desc, title asc"
 ```
 
 Control NULL ordering:
@@ -1803,7 +1912,7 @@ Query[Article]
   .orderBy(articles.views.descNullsLast)
   .all
   .build.sql
-// res103: String = "select * from page_articles as page_articles_ref_1 order by views desc nulls last"
+// res110: String = "select * from page_articles as page_articles_ref_1 order by views desc nulls last"
 ```
 
 Available sorting extensions:
@@ -1845,7 +1954,7 @@ run {
       .query[ExecUser]
   yield result)
 }
-// res105: Seq[ExecUser] = Vector(
+// res112: Seq[ExecUser] = Vector(
 //   ExecUser(id = 1, name = "Alice"),
 //   ExecUser(id = 1, name = "Alice")
 // )
@@ -1919,7 +2028,7 @@ val activeUserIds = Query[SubOrder]
 //     wherePredicates = Vector(
 //       SqlFragment(
 //         sql = "sub_orders_ref_1.status = ?",
-//         writes = Vector(saferis.Write@24106a4a)
+//         writes = Vector(saferis.Write@39c53b55)
 //       )
 //     ),
 //     sorts = Vector(),
@@ -1932,7 +2041,7 @@ val activeUserIds = Query[SubOrder]
 Query[SubUser]
   .where(_.id).in(activeUserIds)  // Compiles: both are Int
   .build.sql
-// res107: String = "select * from sub_users as sub_users_ref_1 where sub_users_ref_1.id IN (select userId from sub_orders as sub_orders_ref_1 where sub_orders_ref_1.status = ?)"
+// res114: String = "select * from sub_users as sub_users_ref_1 where sub_users_ref_1.id IN (select userId from sub_orders as sub_orders_ref_1 where sub_orders_ref_1.status = ?)"
 ```
 
 ```scala
@@ -1940,7 +2049,7 @@ Query[SubUser]
 Query[SubUser]
   .where(_.id).notIn(activeUserIds)
   .build.sql
-// res108: String = "select * from sub_users as sub_users_ref_1 where sub_users_ref_1.id NOT IN (select userId from sub_orders as sub_orders_ref_1 where sub_orders_ref_1.status = ?)"
+// res115: String = "select * from sub_users as sub_users_ref_1 where sub_users_ref_1.id NOT IN (select userId from sub_orders as sub_orders_ref_1 where sub_orders_ref_1.status = ?)"
 ```
 
 The type safety is enforced at compile time - if the column types don't match, it won't compile.
@@ -1954,7 +2063,7 @@ Use `whereExists()` or `whereNotExists()`:
 Query[SubUser]
   .whereExists(Query[SubOrder].all)
   .build.sql
-// res109: String = "select * from sub_users as sub_users_ref_1 where EXISTS (select * from sub_orders as sub_orders_ref_1)"
+// res116: String = "select * from sub_users as sub_users_ref_1 where EXISTS (select * from sub_orders as sub_orders_ref_1)"
 ```
 
 ```scala
@@ -1962,7 +2071,7 @@ Query[SubUser]
 Query[SubUser]
   .whereNotExists(Query[SubOrder].where(_.status).eq("cancelled"))
   .build.sql
-// res110: String = "select * from sub_users as sub_users_ref_1 where NOT EXISTS (select * from sub_orders as sub_orders_ref_1 where sub_orders_ref_1.status = ?)"
+// res117: String = "select * from sub_users as sub_users_ref_1 where NOT EXISTS (select * from sub_orders as sub_orders_ref_1 where sub_orders_ref_1.status = ?)"
 ```
 
 ### Correlated Subqueries
@@ -2009,7 +2118,7 @@ Query[SubUser]
     Query[SubOrder].where(sql"userId = ${users.id}")
   )
   .build.sql
-// res111: String = "select * from sub_users as sub_users_ref_1 where EXISTS (select * from sub_orders as sub_orders_ref_1 where userId = id)"
+// res118: String = "select * from sub_users as sub_users_ref_1 where EXISTS (select * from sub_orders as sub_orders_ref_1 where userId = id)"
 ```
 
 ### Derived Tables
@@ -2092,7 +2201,7 @@ val highValueOrders = Query[DerivedOrder]
 Query.from(highValueOrders, "high_value")
   .where(_.userId).gt(0)
   .build.sql
-// res113: String = "select * from (select * from derived_orders as derived_orders_ref_1 where derived_orders_ref_1.amount > ?) as high_value where high_value.userId > ?"
+// res120: String = "select * from (select * from derived_orders as derived_orders_ref_1 where derived_orders_ref_1.amount > ?) as high_value where high_value.userId > ?"
 ```
 
 ```scala
@@ -2101,7 +2210,7 @@ Query.from(highValueOrders, "summary")
   .innerJoin[DerivedUser].on(_.userId).eq(_.id)
   .all
   .build.sql
-// res114: String = "select * from (select * from derived_orders as derived_orders_ref_1 where derived_orders_ref_1.amount > ?) as summary inner join derived_users as derived_users_ref_1 on summary.userId = derived_users_ref_1.id"
+// res121: String = "select * from (select * from derived_orders as derived_orders_ref_1 where derived_orders_ref_1.amount > ?) as summary inner join derived_users as derived_users_ref_1 on summary.userId = derived_users_ref_1.id"
 ```
 
 ### Complex Nested Subqueries
@@ -2159,7 +2268,7 @@ val electronicProductIds = Query[ComplexProduct]
 //     wherePredicates = Vector(
 //       SqlFragment(
 //         sql = "complex_products_ref_1.category = ?",
-//         writes = Vector(saferis.Write@452c551f)
+//         writes = Vector(saferis.Write@2dc27327)
 //       )
 //     ),
 //     sorts = Vector(),
@@ -2222,7 +2331,7 @@ val usersWithElectronics = Query[ComplexOrder]
 //     wherePredicates = Vector(
 //       SqlFragment(
 //         sql = "complex_orders_ref_1.productId IN (select id from complex_products as complex_products_ref_1 where complex_products_ref_1.category = ?)",
-//         writes = List(saferis.Write@452c551f)
+//         writes = List(saferis.Write@2dc27327)
 //       )
 //     ),
 //     sorts = Vector(),
@@ -2234,7 +2343,7 @@ val usersWithElectronics = Query[ComplexOrder]
 Query[ComplexUser]
   .where(_.id).in(usersWithElectronics)
   .build.sql
-// res116: String = "select * from complex_users as complex_users_ref_1 where complex_users_ref_1.id IN (select userId from complex_orders as complex_orders_ref_1 where complex_orders_ref_1.productId IN (select id from complex_products as complex_products_ref_1 where complex_products_ref_1.category = ?))"
+// res123: String = "select * from complex_users as complex_users_ref_1 where complex_users_ref_1.id IN (select userId from complex_orders as complex_orders_ref_1 where complex_orders_ref_1.productId IN (select id from complex_products as complex_products_ref_1 where complex_products_ref_1.category = ?))"
 ```
 
 ### Operator Reference
@@ -2256,6 +2365,442 @@ All available operators in `Operator`:
 | `RegexMatchCI` | `~*` | Case-insensitive regex (PostgreSQL) |
 | `IsNull` | `IS NULL` | Null check |
 | `IsNotNull` | `IS NOT NULL` | Non-null check |
+
+### Complex WHERE with OR and Grouping
+
+For queries with complex OR logic, use `andWhere` with a lambda:
+
+```scala
+import saferis.*
+import saferis.postgres.given
+
+@tableName("timeout_rows")
+case class TimeoutRow(
+  @generated @key id: Int,
+  deadline: java.time.Instant,
+  claimedBy: Option[String],
+  claimedUntil: Option[java.time.Instant]
+) derives Table
+```
+
+```scala
+// Find rows that are due AND either unclaimed or with expired claims
+val now = java.time.Instant.now()
+// now: Instant = 2026-02-05T17:56:04.609028085Z
+Query[TimeoutRow]
+  .where(_.deadline).lte(now)
+  .andWhere(w => w(_.claimedBy).isNull.or(_.claimedUntil).lt(Some(now)))
+  .build.sql
+// res125: String = "select * from timeout_rows as timeout_rows_ref_1 where timeout_rows_ref_1.deadline <= ? and (timeout_rows_ref_1.claimedBy IS NULL OR timeout_rows_ref_1.claimedUntil < ?)"
+```
+
+This generates: `SELECT ... WHERE deadline <= ? AND (claimed_by IS NULL OR claimed_until < ?)`
+
+The parentheses are automatically added around the grouped conditions.
+
+#### Building Complex Conditions
+
+The `andWhere` lambda provides a fluent builder:
+
+```scala
+// Multiple OR conditions
+Query[TimeoutRow]
+  .where(_.id).gt(0)
+  .andWhere(w =>
+    w(_.claimedBy).isNull
+      .or(_.claimedUntil).lt(Some(now))
+      .or(_.deadline).gt(now)
+  )
+  .build.sql
+// res126: String = "select * from timeout_rows as timeout_rows_ref_1 where timeout_rows_ref_1.id > ? and (timeout_rows_ref_1.claimedBy IS NULL OR timeout_rows_ref_1.claimedUntil < ? OR timeout_rows_ref_1.deadline > ?)"
+```
+
+```scala
+// AND within the group
+Query[TimeoutRow]
+  .where(_.id).gt(0)
+  .andWhere(w =>
+    w(_.claimedBy).isNotNull
+      .and(_.claimedUntil).gt(Some(now))
+  )
+  .build.sql
+// res127: String = "select * from timeout_rows as timeout_rows_ref_1 where timeout_rows_ref_1.id > ? and (timeout_rows_ref_1.claimedBy IS NOT NULL AND timeout_rows_ref_1.claimedUntil > ?)"
+```
+
+Available operations in the `andWhere` builder:
+
+| Method | Description |
+|--------|-------------|
+| `w(_.column)` | Start condition on a column |
+| `.eq(value)` | Equality check |
+| `.neq(value)` | Not equal |
+| `.lt(value)` / `.lte(value)` | Less than (or equal) |
+| `.gt(value)` / `.gte(value)` | Greater than (or equal) |
+| `.isNull` / `.isNotNull` | Null checks |
+| `.or(_.column)` | Chain with OR |
+| `.and(_.column)` | Chain with AND |
+
+---
+
+## Aggregate Functions
+
+Saferis provides type-safe aggregate functions with the `selectAggregate` method.
+
+### Basic Aggregates
+
+```scala
+import saferis.*
+import saferis.postgres.given
+import saferis.docs.DocTestContainer.{run, transactor as xa}
+
+@tableName("event_rows")
+case class EventRow(
+  @generated @key id: Int,
+  instanceId: String,
+  sequenceNr: Long,
+  amount: BigDecimal
+) derives Table
+```
+
+```scala
+// MAX aggregate
+Query[EventRow]
+  .where(_.instanceId).eq("instance-1")
+  .selectAggregate(_.sequenceNr)(_.max)
+  .build.sql
+// res129: String = "select max(sequenceNr) from event_rows as event_rows_ref_1 where event_rows_ref_1.instanceId = ?"
+```
+
+```scala
+// MIN aggregate
+Query[EventRow]
+  .where(_.instanceId).eq("instance-1")
+  .selectAggregate(_.amount)(_.min)
+  .build.sql
+// res130: String = "select min(amount) from event_rows as event_rows_ref_1 where event_rows_ref_1.instanceId = ?"
+```
+
+```scala
+// SUM aggregate
+Query[EventRow]
+  .where(_.instanceId).eq("instance-1")
+  .selectAggregate(_.amount)(_.sum)
+  .build.sql
+// res131: String = "select sum(amount) from event_rows as event_rows_ref_1 where event_rows_ref_1.instanceId = ?"
+```
+
+```scala
+// COUNT on a column
+Query[EventRow]
+  .where(_.instanceId).eq("instance-1")
+  .selectAggregate(_.sequenceNr)(_.count)
+  .build.sql
+// res132: String = "select count(sequenceNr) from event_rows as event_rows_ref_1 where event_rows_ref_1.instanceId = ?"
+```
+
+```scala
+// COUNT(*) - count all rows
+Query[EventRow]
+  .where(_.instanceId).eq("instance-1")
+  .selectAggregate(countAll)
+  .build.sql
+// res133: String = "select count(*) from event_rows as event_rows_ref_1 where event_rows_ref_1.instanceId = ?"
+```
+
+### COALESCE for Default Values
+
+Handle NULL results from aggregates with `coalesce`:
+
+```scala
+// MAX with COALESCE - returns 0 if no rows match
+Query[EventRow]
+  .where(_.instanceId).eq("instance-1")
+  .selectAggregate(_.sequenceNr)(_.max.coalesce(0L))
+  .build.sql
+// res134: String = "select coalesce(max(sequenceNr), ?) from event_rows as event_rows_ref_1 where event_rows_ref_1.instanceId = ?"
+```
+
+```scala
+// SUM with COALESCE
+Query[EventRow]
+  .where(_.instanceId).eq("nonexistent")
+  .selectAggregate(_.amount)(_.sum.coalesce(BigDecimal(0)))
+  .build.sql
+// res135: String = "select coalesce(sum(amount), ?) from event_rows as event_rows_ref_1 where event_rows_ref_1.instanceId = ?"
+```
+
+### Executing Aggregate Queries
+
+Use `queryValue[T]` to get the aggregate result:
+
+```scala
+run {
+  xa.run(for
+    _ <- ddl.createTable[EventRow]()
+    _ <- dml.insert(EventRow(-1, "test", 1L, BigDecimal(100)))
+    _ <- dml.insert(EventRow(-1, "test", 5L, BigDecimal(200)))
+    _ <- dml.insert(EventRow(-1, "test", 3L, BigDecimal(150)))
+    maxSeq <- Query[EventRow]
+      .where(_.instanceId).eq("test")
+      .selectAggregate(_.sequenceNr)(_.max.coalesce(0L))
+      .queryValue[Long]
+    total <- Query[EventRow]
+      .where(_.instanceId).eq("test")
+      .selectAggregate(_.amount)(_.sum)
+      .queryValue[BigDecimal]
+    count <- Query[EventRow]
+      .where(_.instanceId).eq("test")
+      .selectAggregate(countAll)
+      .queryValue[Long]
+  yield (maxSeq, total, count))
+}
+// res136: Tuple3[Option[Long], Option[BigDecimal], Option[Long]] = (
+//   Some(5L),
+//   Some(450),
+//   Some(3L)
+// )
+```
+
+### Available Aggregate Functions
+
+| Function | Description |
+|----------|-------------|
+| `_.max` | Maximum value |
+| `_.min` | Minimum value |
+| `_.sum` | Sum of values |
+| `_.count` | Count of non-null values |
+| `_.avg` | Average value |
+| `countAll` | Count all rows (`COUNT(*)`) |
+| `.coalesce(default)` | Return default if NULL |
+
+---
+
+## Conditional Upsert DSL
+
+Saferis provides a type-safe UPSERT (INSERT ... ON CONFLICT) builder for PostgreSQL.
+
+### Basic Upsert
+
+```scala
+import saferis.*
+import saferis.docs.DocTestContainer.{run, transactor as xa}
+
+@tableName("upsert_locks")
+case class UpsertLock(
+  @key instanceId: String,
+  nodeId: String,
+  acquiredAt: java.time.Instant,
+  expiresAt: java.time.Instant
+) derives Table
+```
+
+```scala
+// Basic upsert - update all non-key columns on conflict
+val now = java.time.Instant.now()
+// now: Instant = 2026-02-05T17:56:04.643218964Z
+val lock = UpsertLock("instance-1", "node-1", now, now.plusSeconds(60))
+// lock: UpsertLock = UpsertLock(
+//   instanceId = "instance-1",
+//   nodeId = "node-1",
+//   acquiredAt = 2026-02-05T17:56:04.643218964Z,
+//   expiresAt = 2026-02-05T17:57:04.643218964Z
+// )
+
+Upsert[UpsertLock]
+  .values(lock)
+  .onConflict(_.instanceId)
+  .doUpdateAll
+  .build.sql
+// res138: String = "insert into upsert_locks (instanceId, nodeId, acquiredAt, expiresAt) values (?, ?, ?, ?) on conflict (instanceId) do update set nodeId = ?, acquiredAt = ?, expiresAt = ?"
+```
+
+### Conditional Upsert with WHERE
+
+Add conditions to control when the update happens:
+
+```scala
+// Only update if the existing row has expired
+Upsert[UpsertLock]
+  .values(lock)
+  .onConflict(_.instanceId)
+  .doUpdateAll
+  .where(_.expiresAt).lt(now)
+  .build.sql
+// res139: String = "insert into upsert_locks (instanceId, nodeId, acquiredAt, expiresAt) values (?, ?, ?, ?) on conflict (instanceId) do update set nodeId = ?, acquiredAt = ?, expiresAt = ? WHERE upsert_locks.expiresAt < ?"
+```
+
+This generates: `INSERT INTO ... ON CONFLICT (instance_id) DO UPDATE SET ... WHERE upsert_locks.expires_at < ?`
+
+### Reference EXCLUDED Pseudo-Table
+
+Use `.eqExcluded` to compare with the value being inserted:
+
+```scala
+// Update only if we own the lock (same nodeId) OR it has expired
+Upsert[UpsertLock]
+  .values(lock)
+  .onConflict(_.instanceId)
+  .doUpdateAll
+  .where(_.expiresAt).lt(now)
+  .or(_.nodeId).eqExcluded
+  .build.sql
+// res140: String = "insert into upsert_locks (instanceId, nodeId, acquiredAt, expiresAt) values (?, ?, ?, ?) on conflict (instanceId) do update set nodeId = ?, acquiredAt = ?, expiresAt = ? WHERE upsert_locks.expiresAt < ? OR upsert_locks.nodeId = EXCLUDED.nodeId"
+```
+
+The `.eqExcluded` generates `table.column = EXCLUDED.column`, referencing the value from the INSERT.
+
+### Upsert with DO NOTHING
+
+Skip the update entirely on conflict:
+
+```scala
+// Insert only if no conflict
+Upsert[UpsertLock]
+  .values(lock)
+  .onConflict(_.instanceId)
+  .doNothing
+  .build.sql
+// res141: String = "insert into upsert_locks (instanceId, nodeId, acquiredAt, expiresAt) values (?, ?, ?, ?) on conflict (instanceId) do nothing"
+```
+
+### Upsert with RETURNING
+
+Get the resulting row back:
+
+```scala
+// Upsert with RETURNING - returns ReturningQuery which wraps SqlFragment
+Upsert[UpsertLock]
+  .values(lock)
+  .onConflict(_.instanceId)
+  .doUpdateAll
+  .returning
+  .build.sql
+// res142: String = "insert into upsert_locks (instanceId, nodeId, acquiredAt, expiresAt) values (?, ?, ?, ?) on conflict (instanceId) do update set nodeId = ?, acquiredAt = ?, expiresAt = ? returning *"
+```
+
+```scala
+// Type-safe returning with WHERE clause
+Upsert[UpsertLock]
+  .values(lock)
+  .onConflict(_.instanceId)
+  .doUpdateAll
+  .where(_.expiresAt).lt(now)
+  .returning
+  .build.sql
+// res143: String = "insert into upsert_locks (instanceId, nodeId, acquiredAt, expiresAt) values (?, ?, ?, ?) on conflict (instanceId) do update set nodeId = ?, acquiredAt = ?, expiresAt = ? WHERE upsert_locks.expiresAt < ? returning *"
+```
+
+### Compound Conflict Columns
+
+Specify multiple columns for the conflict target:
+
+```scala
+import saferis.*
+
+@tableName("upsert_items")
+case class UpsertItem(
+  @key tenantId: String,
+  @key sku: String,
+  name: String,
+  quantity: Int
+) derives Table
+```
+
+```scala
+// Conflict on compound key
+val item = UpsertItem("tenant-1", "SKU-001", "Widget", 10)
+// item: UpsertItem = UpsertItem(
+//   tenantId = "tenant-1",
+//   sku = "SKU-001",
+//   name = "Widget",
+//   quantity = 10
+// )
+
+Upsert[UpsertItem]
+  .values(item)
+  .onConflict(_.tenantId).and(_.sku)
+  .doUpdateAll
+  .build.sql
+// res145: String = "insert into upsert_items (tenantId, sku, name, quantity) values (?, ?, ?, ?) on conflict (tenantId, sku) do update set name = ?, quantity = ?"
+```
+
+### Full Atomic Lock Acquisition Example
+
+Here's a complete example of atomic lock acquisition:
+
+```scala
+import saferis.*
+import saferis.docs.DocTestContainer.{run, transactor as xa}
+
+@tableName("atomic_locks")
+case class AtomicLock(
+  @key instanceId: String,
+  nodeId: String,
+  acquiredAt: java.time.Instant,
+  expiresAt: java.time.Instant
+) derives Table
+```
+
+```scala
+run {
+  xa.run(for
+    _ <- ddl.createTable[AtomicLock]()
+    now = java.time.Instant.now()
+    lock = AtomicLock("lock-1", "node-A", now, now.plusSeconds(60))
+
+    // First acquisition - should succeed
+    result1 <- Upsert[AtomicLock]
+      .values(lock)
+      .onConflict(_.instanceId)
+      .doUpdateAll
+      .where(_.expiresAt).lt(now)         // Only if expired
+      .or(_.nodeId).eqExcluded            // Or we own it
+      .returning
+      .queryOne
+
+    // Second acquisition by same node - should succeed (we own it)
+    result2 <- Upsert[AtomicLock]
+      .values(lock.copy(expiresAt = now.plusSeconds(120)))
+      .onConflict(_.instanceId)
+      .doUpdateAll
+      .where(_.expiresAt).lt(now)
+      .or(_.nodeId).eqExcluded
+      .returning
+      .queryOne
+
+  yield (result1, result2))
+}
+// res147: Tuple2[Option[AtomicLock], Option[AtomicLock]] = (
+//   Some(
+//     AtomicLock(
+//       instanceId = "lock-1",
+//       nodeId = "node-A",
+//       acquiredAt = 2026-02-05T17:56:04.657861Z,
+//       expiresAt = 2026-02-05T17:57:04.657861Z
+//     )
+//   ),
+//   Some(
+//     AtomicLock(
+//       instanceId = "lock-1",
+//       nodeId = "node-A",
+//       acquiredAt = 2026-02-05T17:56:04.657861Z,
+//       expiresAt = 2026-02-05T17:58:04.657861Z
+//     )
+//   )
+// )
+```
+
+### Capability Requirements
+
+The Upsert DSL requires `UpsertSupport`:
+- PostgreSQL: Full support
+- MySQL: Not supported (use `ON DUPLICATE KEY UPDATE` syntax via raw SQL)
+- SQLite: Not supported
+
+For `returningAs`, also requires `ReturningSupport`:
+- PostgreSQL: Full support
+- SQLite: Supported
+- MySQL: Not supported
 
 ---
 
@@ -2297,7 +2842,7 @@ run {
     all <- sql"SELECT * FROM ${Table[SpecializedItem]}".query[SpecializedItem]
   yield (inserted, all))
 }
-// res118: Tuple2[SpecializedItem, Seq[SpecializedItem]] = (
+// res149: Tuple2[SpecializedItem, Seq[SpecializedItem]] = (
 //   SpecializedItem(id = 1, name = "Widget", category = "hardware"),
 //   Vector(
 //     SpecializedItem(id = 1, name = "Widget", category = "hardware"),
@@ -2315,7 +2860,7 @@ The `SpecializedDML` object provides operations that require specific dialect ca
 run {
   xa.run(sql"SELECT * FROM ${Table[SpecializedItem]} ORDER BY ${Table[SpecializedItem].id}".query[SpecializedItem])
 }
-// res119: Seq[SpecializedItem] = Vector(
+// res150: Seq[SpecializedItem] = Vector(
 //   SpecializedItem(id = 1, name = "Widget", category = "hardware"),
 //   SpecializedItem(id = 2, name = "Gadget", category = "electronics")
 // )
@@ -2352,7 +2897,7 @@ Write functions that require specific capabilities using intersection types:
 run {
   xa.run(dml.insertReturning(SpecializedItem(-1, "Capability Demo", "demo")))
 }
-// res120: SpecializedItem = SpecializedItem(
+// res151: SpecializedItem = SpecializedItem(
 //   id = 3,
 //   name = "Capability Demo",
 //   category = "demo"
@@ -2404,18 +2949,18 @@ run {
     all <- sql"SELECT * FROM $events".query[Event]
   yield all)
 }
-// res122: Seq[Event] = Vector(
+// res153: Seq[Event] = Vector(
 //   Event(
 //     id = 1,
 //     name = "Conference",
-//     occurredAt = 2026-02-05T16:42:35.819654Z,
-//     scheduledFor = Some(2026-02-12T10:42:35.819689),
+//     occurredAt = 2026-02-05T17:56:04.705290Z,
+//     scheduledFor = Some(2026-02-12T11:56:04.705322),
 //     eventDate = 2026-02-05
 //   ),
 //   Event(
 //     id = 2,
 //     name = "Meeting",
-//     occurredAt = 2026-02-05T16:42:35.823919Z,
+//     occurredAt = 2026-02-05T17:56:04.709533Z,
 //     scheduledFor = None,
 //     eventDate = 2026-02-06
 //   )
@@ -2447,8 +2992,8 @@ run {
     found <- sql"SELECT * FROM $entities WHERE ${entities.id} = $id1".queryOne[Entity]
   yield found)
 }
-// res124: Option[Entity] = Some(
-//   Entity(id = 0b8625ef-5a83-4267-92fd-64fdd1782b6b, name = "First Entity")
+// res155: Option[Entity] = Some(
+//   Entity(id = 901ed1c8-5ec2-41ef-b64f-1c426f22e6e5, name = "First Entity")
 // )
 ```
 
@@ -2498,7 +3043,7 @@ run {
     all <- sql"SELECT * FROM $events".query[JsonEvent]
   yield all)
 }
-// res126: Seq[JsonEvent] = Vector(
+// res157: Seq[JsonEvent] = Vector(
 //   JsonEvent(
 //     id = 1,
 //     name = "Deploy",
@@ -2555,7 +3100,7 @@ run {
     avgPrice <- sql"SELECT AVG(${items.price}) FROM $items".queryValue[Double]
   yield (count, maxPrice, avgPrice))
 }
-// res128: Tuple3[Option[Int], Option[Double], Option[Double]] = (
+// res159: Tuple3[Option[Int], Option[Double], Option[Double]] = (
 //   Some(3),
 //   Some(25.0),
 //   Some(16.666666666666668)
@@ -2594,7 +3139,7 @@ run {
     result <- sql"SELECT * FROM ${Table[ExecItem]}".query[ExecItem]
   yield (insertCount, updateCount, result))
 }
-// res130: Tuple3[Int, Int, Seq[ExecItem]] = (
+// res161: Tuple3[Int, Int, Seq[ExecItem]] = (
 //   1,
 //   1,
 //   Vector(ExecItem(id = 1, name = "Widget", quantity = 20))

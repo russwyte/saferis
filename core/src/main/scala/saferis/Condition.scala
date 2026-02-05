@@ -54,6 +54,22 @@ final case class LiteralCondition(
   def writes: Seq[Write[?]] = Seq(write)
 end LiteralCondition
 
+/** Condition comparing a column to the EXCLUDED pseudo-table (for upsert WHERE clauses).
+  *
+  * In PostgreSQL: `ON CONFLICT (id) DO UPDATE SET ... WHERE table.column = EXCLUDED.column`
+  */
+final case class ExcludedCondition(
+    alias: Alias,
+    column: Column[?],
+    operator: Operator,
+    excludedColumn: Column[?],
+) extends Condition:
+  def toSql: String =
+    s"${alias.toSql}.${column.label} ${operator.sql} EXCLUDED.${excludedColumn.label}"
+
+  def writes: Seq[Write[?]] = Seq.empty
+end ExcludedCondition
+
 object Condition:
   /** Convert a sequence of conditions to SQL with AND between them */
   def toSqlFragment(conditions: Seq[Condition]): SqlFragment =

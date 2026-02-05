@@ -216,6 +216,9 @@ object Dialect:
   /** Default PostgreSQL dialect - provided as a low priority given. This allows users to work with Postgres out of the
     * box with just `import saferis.*` Users can override this by providing their own given Dialect with higher
     * priority.
+    *
+    * Using the singleton type `PostgresDialect.type` ensures this given satisfies all capability intersection types
+    * like `Dialect & UpsertSupport & ReturningSupport`.
     */
-  given defaultDialect: Dialect = postgres.PostgresDialect
+  given defaultDialect: postgres.PostgresDialect.type = postgres.PostgresDialect
 end Dialect

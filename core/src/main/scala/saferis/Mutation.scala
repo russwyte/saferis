@@ -1,5 +1,7 @@
 package saferis
 
+import zio.Trace
+
 // ============================================================================
 // Clause types for INSERT and UPDATE
 // ============================================================================
@@ -9,6 +11,35 @@ final case class ValueClause(columnLabel: String, write: Write[?])
 
 /** A column/value pair for UPDATE SET clauses */
 final case class SetClause(columnLabel: String, write: Write[?])
+
+// ============================================================================
+// ReturningQuery - Type-safe wrapper for mutations with RETURNING
+// ============================================================================
+
+/** A mutation query with RETURNING clause, ready to execute with type safety.
+  *
+  * Created by calling `.returningAs` on UpdateReady or DeleteReady when a ReturningSupport dialect is in scope.
+  *
+  * Usage:
+  * {{{
+  *   given dialect: Dialect & ReturningSupport = PostgresDialect
+  *
+  *   Update[User]
+  *     .set(_.status, "active")
+  *     .where(_.id).eq(123)
+  *     .returningAs
+  *     .queryOne[User]  // Option[User]
+  * }}}
+  */
+final case class ReturningQuery[A <: Product: Table](fragment: SqlFragment):
+  /** Execute query and return all matching rows */
+  inline def query(using Trace): ScopedQuery[Seq[A]] = fragment.query[A]
+
+  /** Execute query and return the first row (if any) */
+  inline def queryOne(using Trace): ScopedQuery[Option[A]] = fragment.queryOne[A]
+
+  /** Get the underlying SQL fragment */
+  def build: SqlFragment = fragment
 
 // ============================================================================
 // Insert Builder
@@ -131,6 +162,25 @@ final case class UpdateReady[A <: Product: Table](
   def where(predicate: SqlFragment): UpdateReady[A] =
     copy(wherePredicates = wherePredicates :+ predicate)
 
+  /** Add a grouped WHERE condition using lambda syntax for complex OR/AND expressions.
+    *
+    * Usage:
+    * {{{
+    *   Update[User]
+    *     .set(_.status, "claimed")
+    *     .where(_.id).eq(123)
+    *     .andWhere(w => w(_.claimedBy).isNull.or(_.claimedUntil).lt(now))
+    *     .build
+    * }}}
+    *
+    * Generates: `UPDATE users SET status = ? WHERE id = ? AND (claimed_by IS NULL OR claimed_until < ?)`
+    */
+  def andWhere(builder: WhereGroupBuilder[A] => WhereGroupChain[A]): UpdateReady[A] =
+    val groupBuilder = WhereGroupBuilder[A](fieldNamesToColumns, Alias.unsafe(tableName))
+    val chain        = builder(groupBuilder)
+    val whereFrag    = chain.toWhereGroup.toSqlFragment
+    copy(wherePredicates = wherePredicates :+ whereFrag)
+
   /** Build the UPDATE SQL fragment */
   def build: SqlFragment =
     require(setClauses.nonEmpty, "UPDATE requires at least one SET clause")
@@ -149,6 +199,24 @@ final case class UpdateReady[A <: Product: Table](
   /** Build UPDATE with RETURNING clause (for dialects that support it) */
   def returning: SqlFragment =
     build :+ SqlFragment(" returning *", Seq.empty)
+
+  /** Build UPDATE with RETURNING clause, with compile-time capability check.
+    *
+    * Only compiles if the dialect supports RETURNING (PostgreSQL, SQLite).
+    *
+    * Usage:
+    * {{{
+    *   given dialect: Dialect & ReturningSupport = PostgresDialect
+    *
+    *   Update[User]
+    *     .set(_.status, "active")
+    *     .where(_.id).eq(123)
+    *     .returningAs
+    *     .queryOne[User]  // Option[User]
+    * }}}
+    */
+  def returningAs(using Dialect & ReturningSupport): ReturningQuery[A] =
+    ReturningQuery[A](build :+ SqlFragment(" returning *", Seq.empty))
 
 end UpdateReady
 
@@ -261,6 +329,24 @@ final case class DeleteReady[A <: Product: Table](
   def where(predicate: SqlFragment): DeleteReady[A] =
     copy(wherePredicates = wherePredicates :+ predicate)
 
+  /** Add a grouped WHERE condition using lambda syntax for complex OR/AND expressions.
+    *
+    * Usage:
+    * {{{
+    *   Delete[User]
+    *     .where(_.status).eq("inactive")
+    *     .andWhere(w => w(_.deletedAt).isNotNull.or(_.lastLogin).lt(cutoffDate))
+    *     .build
+    * }}}
+    *
+    * Generates: `DELETE FROM users WHERE status = ? AND (deleted_at IS NOT NULL OR last_login < ?)`
+    */
+  def andWhere(builder: WhereGroupBuilder[A] => WhereGroupChain[A]): DeleteReady[A] =
+    val groupBuilder = WhereGroupBuilder[A](fieldNamesToColumns, Alias.unsafe(tableName))
+    val chain        = builder(groupBuilder)
+    val whereFrag    = chain.toWhereGroup.toSqlFragment
+    copy(wherePredicates = wherePredicates :+ whereFrag)
+
   /** Build the DELETE SQL fragment */
   def build: SqlFragment =
     var result = SqlFragment(s"delete from $tableName", Seq.empty)
@@ -274,6 +360,23 @@ final case class DeleteReady[A <: Product: Table](
   /** Build DELETE with RETURNING clause (for dialects that support it) */
   def returning: SqlFragment =
     build :+ SqlFragment(" returning *", Seq.empty)
+
+  /** Build DELETE with RETURNING clause, with compile-time capability check.
+    *
+    * Only compiles if the dialect supports RETURNING (PostgreSQL, SQLite).
+    *
+    * Usage:
+    * {{{
+    *   given dialect: Dialect & ReturningSupport = PostgresDialect
+    *
+    *   Delete[User]
+    *     .where(_.status).eq("deleted")
+    *     .returningAs
+    *     .queryOne[User]  // Option[User]
+    * }}}
+    */
+  def returningAs(using Dialect & ReturningSupport): ReturningQuery[A] =
+    ReturningQuery[A](build :+ SqlFragment(" returning *", Seq.empty))
 
 end DeleteReady
 

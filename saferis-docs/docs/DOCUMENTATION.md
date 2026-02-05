@@ -13,6 +13,8 @@ A comprehensive guide to Saferis - the type-safe, resource-safe SQL client libra
 - [Data Manipulation Layer (DML)](#data-manipulation-layer-dml)
 - [Query Builder](#query-builder)
 - [Subqueries](#subqueries)
+- [Aggregate Functions](#aggregate-functions)
+- [Conditional Upsert DSL](#conditional-upsert-dsl)
 - [Type-Safe Capabilities](#type-safe-capabilities)
 
 ---
@@ -1186,6 +1188,107 @@ Update[BuilderUser]
   .build.sql
 ```
 
+#### Complex WHERE with OR and Grouping
+
+Use `andWhere` with a lambda for complex conditions with OR logic:
+
+```scala mdoc:reset:silent
+import saferis.*
+import saferis.docs.DocTestContainer.{run, transactor as xa}
+
+@tableName("claim_tasks")
+case class ClaimTask(
+  @generated @key id: Int,
+  deadline: java.time.Instant,
+  claimedBy: Option[String],
+  claimedUntil: Option[java.time.Instant]
+) derives Table
+```
+
+```scala mdoc
+// Query for unclaimed or expired claims
+val now = java.time.Instant.now()
+Update[ClaimTask]
+  .set(_.claimedBy, Some("worker-1"))
+  .where(_.deadline).lte(now)
+  .andWhere(w => w(_.claimedBy).isNull.or(_.claimedUntil).lt(Some(now)))
+  .build.sql
+```
+
+This generates: `UPDATE ... WHERE deadline <= ? AND (claimed_by IS NULL OR claimed_until < ?)`
+
+The `andWhere` lambda provides a builder that supports:
+- `w(_.column)` - Start a condition on a column
+- `.isNull` / `.isNotNull` - Null checks
+- `.eq(value)` / `.lt(value)` / etc. - Comparisons
+- `.or(_.column)` - Chain with OR
+- `.and(_.column)` - Chain with AND
+
+Delete also supports `andWhere`:
+
+```scala mdoc
+Delete[ClaimTask]
+  .where(_.deadline).lt(now)
+  .andWhere(w => w(_.claimedBy).isNotNull.or(_.claimedUntil).lt(Some(now)))
+  .build.sql
+```
+
+#### Type-Safe UPDATE with RETURNING
+
+Return updated rows atomically using `returningAs`:
+
+```scala mdoc:reset:silent
+import saferis.*
+import saferis.docs.DocTestContainer.{run, transactor as xa}
+
+@tableName("lock_rows")
+case class LockRow(
+  @key instanceId: String,
+  nodeId: String,
+  expiresAt: java.time.Instant
+) derives Table
+```
+
+```scala mdoc
+// returningAs provides type-safe query execution
+val newExpiry = java.time.Instant.now().plusSeconds(60)
+Update[LockRow]
+  .set(_.expiresAt, newExpiry)
+  .where(_.instanceId).eq("instance-1")
+  .where(_.nodeId).eq("node-1")
+  .returningAs
+  .build.sql
+```
+
+The `returningAs` method:
+- Returns `ReturningQuery[A]` with type-safe `query` and `queryOne` methods
+- Only compiles when the dialect supports RETURNING (PostgreSQL, SQLite)
+- Uses capability constraint: requires `Dialect & ReturningSupport`
+
+```scala mdoc:compile-only
+import saferis.*
+import zio.*
+
+@tableName("lock_rows")
+case class LockRow(@key instanceId: String, nodeId: String, expiresAt: java.time.Instant) derives Table
+
+// Execute and get the updated row
+val result: ScopedQuery[Option[LockRow]] = Update[LockRow]
+  .set(_.expiresAt, java.time.Instant.now())
+  .where(_.instanceId).eq("id")
+  .returningAs
+  .queryOne  // Returns ScopedQuery[Option[LockRow]]
+```
+
+Delete also supports `returningAs`:
+
+```scala mdoc
+Delete[LockRow]
+  .where(_.instanceId).eq("instance-1")
+  .returningAs
+  .build.sql
+```
+
 ---
 
 ## Query Builder
@@ -1682,6 +1785,388 @@ All available operators in `Operator`:
 | `RegexMatchCI` | `~*` | Case-insensitive regex (PostgreSQL) |
 | `IsNull` | `IS NULL` | Null check |
 | `IsNotNull` | `IS NOT NULL` | Non-null check |
+
+### Complex WHERE with OR and Grouping
+
+For queries with complex OR logic, use `andWhere` with a lambda:
+
+```scala mdoc:reset:silent
+import saferis.*
+import saferis.postgres.given
+
+@tableName("timeout_rows")
+case class TimeoutRow(
+  @generated @key id: Int,
+  deadline: java.time.Instant,
+  claimedBy: Option[String],
+  claimedUntil: Option[java.time.Instant]
+) derives Table
+```
+
+```scala mdoc
+// Find rows that are due AND either unclaimed or with expired claims
+val now = java.time.Instant.now()
+Query[TimeoutRow]
+  .where(_.deadline).lte(now)
+  .andWhere(w => w(_.claimedBy).isNull.or(_.claimedUntil).lt(Some(now)))
+  .build.sql
+```
+
+This generates: `SELECT ... WHERE deadline <= ? AND (claimed_by IS NULL OR claimed_until < ?)`
+
+The parentheses are automatically added around the grouped conditions.
+
+#### Building Complex Conditions
+
+The `andWhere` lambda provides a fluent builder:
+
+```scala mdoc
+// Multiple OR conditions
+Query[TimeoutRow]
+  .where(_.id).gt(0)
+  .andWhere(w =>
+    w(_.claimedBy).isNull
+      .or(_.claimedUntil).lt(Some(now))
+      .or(_.deadline).gt(now)
+  )
+  .build.sql
+```
+
+```scala mdoc
+// AND within the group
+Query[TimeoutRow]
+  .where(_.id).gt(0)
+  .andWhere(w =>
+    w(_.claimedBy).isNotNull
+      .and(_.claimedUntil).gt(Some(now))
+  )
+  .build.sql
+```
+
+Available operations in the `andWhere` builder:
+
+| Method | Description |
+|--------|-------------|
+| `w(_.column)` | Start condition on a column |
+| `.eq(value)` | Equality check |
+| `.neq(value)` | Not equal |
+| `.lt(value)` / `.lte(value)` | Less than (or equal) |
+| `.gt(value)` / `.gte(value)` | Greater than (or equal) |
+| `.isNull` / `.isNotNull` | Null checks |
+| `.or(_.column)` | Chain with OR |
+| `.and(_.column)` | Chain with AND |
+
+---
+
+## Aggregate Functions
+
+Saferis provides type-safe aggregate functions with the `selectAggregate` method.
+
+### Basic Aggregates
+
+```scala mdoc:reset:silent
+import saferis.*
+import saferis.postgres.given
+import saferis.docs.DocTestContainer.{run, transactor as xa}
+
+@tableName("event_rows")
+case class EventRow(
+  @generated @key id: Int,
+  instanceId: String,
+  sequenceNr: Long,
+  amount: BigDecimal
+) derives Table
+```
+
+```scala mdoc
+// MAX aggregate
+Query[EventRow]
+  .where(_.instanceId).eq("instance-1")
+  .selectAggregate(_.sequenceNr)(_.max)
+  .build.sql
+```
+
+```scala mdoc
+// MIN aggregate
+Query[EventRow]
+  .where(_.instanceId).eq("instance-1")
+  .selectAggregate(_.amount)(_.min)
+  .build.sql
+```
+
+```scala mdoc
+// SUM aggregate
+Query[EventRow]
+  .where(_.instanceId).eq("instance-1")
+  .selectAggregate(_.amount)(_.sum)
+  .build.sql
+```
+
+```scala mdoc
+// COUNT on a column
+Query[EventRow]
+  .where(_.instanceId).eq("instance-1")
+  .selectAggregate(_.sequenceNr)(_.count)
+  .build.sql
+```
+
+```scala mdoc
+// COUNT(*) - count all rows
+Query[EventRow]
+  .where(_.instanceId).eq("instance-1")
+  .selectAggregate(countAll)
+  .build.sql
+```
+
+### COALESCE for Default Values
+
+Handle NULL results from aggregates with `coalesce`:
+
+```scala mdoc
+// MAX with COALESCE - returns 0 if no rows match
+Query[EventRow]
+  .where(_.instanceId).eq("instance-1")
+  .selectAggregate(_.sequenceNr)(_.max.coalesce(0L))
+  .build.sql
+```
+
+```scala mdoc
+// SUM with COALESCE
+Query[EventRow]
+  .where(_.instanceId).eq("nonexistent")
+  .selectAggregate(_.amount)(_.sum.coalesce(BigDecimal(0)))
+  .build.sql
+```
+
+### Executing Aggregate Queries
+
+Use `queryValue[T]` to get the aggregate result:
+
+```scala mdoc
+run {
+  xa.run(for
+    _ <- ddl.createTable[EventRow]()
+    _ <- dml.insert(EventRow(-1, "test", 1L, BigDecimal(100)))
+    _ <- dml.insert(EventRow(-1, "test", 5L, BigDecimal(200)))
+    _ <- dml.insert(EventRow(-1, "test", 3L, BigDecimal(150)))
+    maxSeq <- Query[EventRow]
+      .where(_.instanceId).eq("test")
+      .selectAggregate(_.sequenceNr)(_.max.coalesce(0L))
+      .queryValue[Long]
+    total <- Query[EventRow]
+      .where(_.instanceId).eq("test")
+      .selectAggregate(_.amount)(_.sum)
+      .queryValue[BigDecimal]
+    count <- Query[EventRow]
+      .where(_.instanceId).eq("test")
+      .selectAggregate(countAll)
+      .queryValue[Long]
+  yield (maxSeq, total, count))
+}
+```
+
+### Available Aggregate Functions
+
+| Function | Description |
+|----------|-------------|
+| `_.max` | Maximum value |
+| `_.min` | Minimum value |
+| `_.sum` | Sum of values |
+| `_.count` | Count of non-null values |
+| `_.avg` | Average value |
+| `countAll` | Count all rows (`COUNT(*)`) |
+| `.coalesce(default)` | Return default if NULL |
+
+---
+
+## Conditional Upsert DSL
+
+Saferis provides a type-safe UPSERT (INSERT ... ON CONFLICT) builder for PostgreSQL.
+
+### Basic Upsert
+
+```scala mdoc:reset:silent
+import saferis.*
+import saferis.docs.DocTestContainer.{run, transactor as xa}
+
+@tableName("upsert_locks")
+case class UpsertLock(
+  @key instanceId: String,
+  nodeId: String,
+  acquiredAt: java.time.Instant,
+  expiresAt: java.time.Instant
+) derives Table
+```
+
+```scala mdoc
+// Basic upsert - update all non-key columns on conflict
+val now = java.time.Instant.now()
+val lock = UpsertLock("instance-1", "node-1", now, now.plusSeconds(60))
+
+Upsert[UpsertLock]
+  .values(lock)
+  .onConflict(_.instanceId)
+  .doUpdateAll
+  .build.sql
+```
+
+### Conditional Upsert with WHERE
+
+Add conditions to control when the update happens:
+
+```scala mdoc
+// Only update if the existing row has expired
+Upsert[UpsertLock]
+  .values(lock)
+  .onConflict(_.instanceId)
+  .doUpdateAll
+  .where(_.expiresAt).lt(now)
+  .build.sql
+```
+
+This generates: `INSERT INTO ... ON CONFLICT (instance_id) DO UPDATE SET ... WHERE upsert_locks.expires_at < ?`
+
+### Reference EXCLUDED Pseudo-Table
+
+Use `.eqExcluded` to compare with the value being inserted:
+
+```scala mdoc
+// Update only if we own the lock (same nodeId) OR it has expired
+Upsert[UpsertLock]
+  .values(lock)
+  .onConflict(_.instanceId)
+  .doUpdateAll
+  .where(_.expiresAt).lt(now)
+  .or(_.nodeId).eqExcluded
+  .build.sql
+```
+
+The `.eqExcluded` generates `table.column = EXCLUDED.column`, referencing the value from the INSERT.
+
+### Upsert with DO NOTHING
+
+Skip the update entirely on conflict:
+
+```scala mdoc
+// Insert only if no conflict
+Upsert[UpsertLock]
+  .values(lock)
+  .onConflict(_.instanceId)
+  .doNothing
+  .build.sql
+```
+
+### Upsert with RETURNING
+
+Get the resulting row back:
+
+```scala mdoc
+// Upsert with RETURNING - returns ReturningQuery which wraps SqlFragment
+Upsert[UpsertLock]
+  .values(lock)
+  .onConflict(_.instanceId)
+  .doUpdateAll
+  .returning
+  .build.sql
+```
+
+```scala mdoc
+// Type-safe returning with WHERE clause
+Upsert[UpsertLock]
+  .values(lock)
+  .onConflict(_.instanceId)
+  .doUpdateAll
+  .where(_.expiresAt).lt(now)
+  .returning
+  .build.sql
+```
+
+### Compound Conflict Columns
+
+Specify multiple columns for the conflict target:
+
+```scala mdoc:reset:silent
+import saferis.*
+
+@tableName("upsert_items")
+case class UpsertItem(
+  @key tenantId: String,
+  @key sku: String,
+  name: String,
+  quantity: Int
+) derives Table
+```
+
+```scala mdoc
+// Conflict on compound key
+val item = UpsertItem("tenant-1", "SKU-001", "Widget", 10)
+
+Upsert[UpsertItem]
+  .values(item)
+  .onConflict(_.tenantId).and(_.sku)
+  .doUpdateAll
+  .build.sql
+```
+
+### Full Atomic Lock Acquisition Example
+
+Here's a complete example of atomic lock acquisition:
+
+```scala mdoc:reset:silent
+import saferis.*
+import saferis.docs.DocTestContainer.{run, transactor as xa}
+
+@tableName("atomic_locks")
+case class AtomicLock(
+  @key instanceId: String,
+  nodeId: String,
+  acquiredAt: java.time.Instant,
+  expiresAt: java.time.Instant
+) derives Table
+```
+
+```scala mdoc
+run {
+  xa.run(for
+    _ <- ddl.createTable[AtomicLock]()
+    now = java.time.Instant.now()
+    lock = AtomicLock("lock-1", "node-A", now, now.plusSeconds(60))
+
+    // First acquisition - should succeed
+    result1 <- Upsert[AtomicLock]
+      .values(lock)
+      .onConflict(_.instanceId)
+      .doUpdateAll
+      .where(_.expiresAt).lt(now)         // Only if expired
+      .or(_.nodeId).eqExcluded            // Or we own it
+      .returning
+      .queryOne
+
+    // Second acquisition by same node - should succeed (we own it)
+    result2 <- Upsert[AtomicLock]
+      .values(lock.copy(expiresAt = now.plusSeconds(120)))
+      .onConflict(_.instanceId)
+      .doUpdateAll
+      .where(_.expiresAt).lt(now)
+      .or(_.nodeId).eqExcluded
+      .returning
+      .queryOne
+
+  yield (result1, result2))
+}
+```
+
+### Capability Requirements
+
+The Upsert DSL requires `UpsertSupport`:
+- PostgreSQL: Full support
+- MySQL: Not supported (use `ON DUPLICATE KEY UPDATE` syntax via raw SQL)
+- SQLite: Not supported
+
+For `returningAs`, also requires `ReturningSupport`:
+- PostgreSQL: Full support
+- SQLite: Supported
+- MySQL: Not supported
 
 ---
 
