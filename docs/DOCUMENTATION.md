@@ -26,7 +26,7 @@ A comprehensive guide to Saferis - the type-safe, resource-safe SQL client libra
 Add Saferis to your `build.sbt`:
 
 ```scala
-libraryDependencies += "io.github.russwyte" %% "saferis" % "0.8.0"
+libraryDependencies += "io.github.russwyte" %% "saferis" % "0.9.0"
 ```
 
 Saferis requires ZIO as a provided dependency:
@@ -195,7 +195,7 @@ val minPrice = 10.0
 val query = sql"SELECT * FROM $products WHERE ${products.price} > $minPrice"
 // query: SqlFragment = SqlFragment(
 //   sql = "SELECT * FROM products WHERE price > ?",
-//   writes = Vector(saferis.Write@52c67efb)
+//   writes = Vector(saferis.Write@63c38dbe)
 // )
 query.show
 // res8: String = "SELECT * FROM products WHERE price > 10.0"
@@ -746,7 +746,7 @@ run {
   yield jobs)
 }
 // res39: Seq[Job] = Vector(
-//   Job(id = 1, status = "pending", retryAt = Some(2026-02-05T22:38:28.708306Z)),
+//   Job(id = 1, status = "pending", retryAt = Some(2026-02-05T23:24:53.058098Z)),
 //   Job(id = 2, status = "completed", retryAt = None)
 // )
 ```
@@ -825,14 +825,19 @@ val orders = Schema[FkOrder]
 //       fromColumns = List("userId"),
 //       toTable = "fk_users",
 //       toColumns = List("id"),
-//       onDelete = NoAction,
-//       onUpdate = NoAction,
-//       constraintName = None
-//     )
-//   ),
-//   indexes = Vector(),
-//   uniqueConstraints = Vector()
-// )
+//       toColumnMap = Map(
+//         "id" -> Column(
+//           name = "id",
+//           label = "id",
+//           isKey = true,
+//           isGenerated = true,
+//           isNullable = false,
+//           defaultValue = None,
+//           tableAlias = None
+//         ),
+//         "name" -> Column(
+//           name = "name",
+// ...
 
 // Create tables with foreign key constraint
 run {
@@ -1001,9 +1006,9 @@ val inventory = Schema[CompoundInventory]
 //       fromColumns = List("tenantId", "productSku"),
 //       toTable = "compound_products",
 //       toColumns = List("tenantId", "sku"),
-//       onDelete = Cascade,
-//       onUpdate = NoAction,
-//       constraintName = None
+//       toColumnMap = Map(
+//         "tenantId" -> Column(
+//           name = "tenantId",
 // ...
 
 run {
@@ -1520,7 +1525,7 @@ case class ClaimTask(
 ```scala
 // Query for unclaimed or expired claims
 val now = java.time.Instant.now()
-// now: Instant = 2026-02-05T22:38:28.947345010Z
+// now: Instant = 2026-02-05T23:24:53.322957536Z
 Update[ClaimTask]
   .set(_.claimedBy, Some("worker-1"))
   .where(_.deadline).lte(now)
@@ -1567,7 +1572,7 @@ case class LockRow(
 ```scala
 // returningAs provides type-safe query execution
 val newExpiry = java.time.Instant.now().plusSeconds(60)
-// newExpiry: Instant = 2026-02-05T22:39:28.950458339Z
+// newExpiry: Instant = 2026-02-05T23:25:53.327072952Z
 Update[LockRow]
   .set(_.expiresAt, newExpiry)
   .where(_.instanceId).eq("instance-1")
@@ -2028,7 +2033,7 @@ val activeUserIds = Query[SubOrder]
 //     wherePredicates = Vector(
 //       SqlFragment(
 //         sql = "sub_orders_ref_1.status = ?",
-//         writes = Vector(saferis.Write@594dd86a)
+//         writes = Vector(saferis.Write@687bbb5c)
 //       )
 //     ),
 //     sorts = Vector(),
@@ -2268,7 +2273,7 @@ val electronicProductIds = Query[ComplexProduct]
 //     wherePredicates = Vector(
 //       SqlFragment(
 //         sql = "complex_products_ref_1.category = ?",
-//         writes = Vector(saferis.Write@502c17d4)
+//         writes = Vector(saferis.Write@1d76da31)
 //       )
 //     ),
 //     sorts = Vector(),
@@ -2331,7 +2336,7 @@ val usersWithElectronics = Query[ComplexOrder]
 //     wherePredicates = Vector(
 //       SqlFragment(
 //         sql = "complex_orders_ref_1.productId IN (select id from complex_products as complex_products_ref_1 where complex_products_ref_1.category = ?)",
-//         writes = List(saferis.Write@502c17d4)
+//         writes = List(saferis.Write@1d76da31)
 //       )
 //     ),
 //     sorts = Vector(),
@@ -2386,7 +2391,7 @@ case class TimeoutRow(
 ```scala
 // Find rows that are due AND either unclaimed or with expired claims
 val now = java.time.Instant.now()
-// now: Instant = 2026-02-05T22:38:28.996966239Z
+// now: Instant = 2026-02-05T23:24:53.403462358Z
 Query[TimeoutRow]
   .where(_.deadline).lte(now)
   .andWhere(w => w(_.claimedBy).isNull.or(_.claimedUntil).lt(Some(now)))
@@ -2597,13 +2602,13 @@ case class UpsertLock(
 ```scala
 // Basic upsert - update all non-key columns on conflict
 val now = java.time.Instant.now()
-// now: Instant = 2026-02-05T22:38:29.029839414Z
+// now: Instant = 2026-02-05T23:24:53.440533615Z
 val lock = UpsertLock("instance-1", "node-1", now, now.plusSeconds(60))
 // lock: UpsertLock = UpsertLock(
 //   instanceId = "instance-1",
 //   nodeId = "node-1",
-//   acquiredAt = 2026-02-05T22:38:29.029839414Z,
-//   expiresAt = 2026-02-05T22:39:29.029839414Z
+//   acquiredAt = 2026-02-05T23:24:53.440533615Z,
+//   expiresAt = 2026-02-05T23:25:53.440533615Z
 // )
 
 Upsert[UpsertLock]
@@ -2775,16 +2780,16 @@ run {
 //     AtomicLock(
 //       instanceId = "lock-1",
 //       nodeId = "node-A",
-//       acquiredAt = 2026-02-05T22:38:29.042724Z,
-//       expiresAt = 2026-02-05T22:39:29.042724Z
+//       acquiredAt = 2026-02-05T23:24:53.454808Z,
+//       expiresAt = 2026-02-05T23:25:53.454808Z
 //     )
 //   ),
 //   Some(
 //     AtomicLock(
 //       instanceId = "lock-1",
 //       nodeId = "node-A",
-//       acquiredAt = 2026-02-05T22:38:29.042724Z,
-//       expiresAt = 2026-02-05T22:40:29.042724Z
+//       acquiredAt = 2026-02-05T23:24:53.454808Z,
+//       expiresAt = 2026-02-05T23:26:53.454808Z
 //     )
 //   )
 // )
@@ -2953,14 +2958,14 @@ run {
 //   Event(
 //     id = 1,
 //     name = "Conference",
-//     occurredAt = 2026-02-05T22:38:29.088905Z,
-//     scheduledFor = Some(2026-02-12T16:38:29.088940),
+//     occurredAt = 2026-02-05T23:24:53.506499Z,
+//     scheduledFor = Some(2026-02-12T17:24:53.506536),
 //     eventDate = 2026-02-05
 //   ),
 //   Event(
 //     id = 2,
 //     name = "Meeting",
-//     occurredAt = 2026-02-05T22:38:29.092845Z,
+//     occurredAt = 2026-02-05T23:24:53.511118Z,
 //     scheduledFor = None,
 //     eventDate = 2026-02-06
 //   )
@@ -2993,7 +2998,7 @@ run {
   yield found)
 }
 // res155: Option[Entity] = Some(
-//   Entity(id = e0866b36-b507-454f-82ba-2085f67614aa, name = "First Entity")
+//   Entity(id = 90dd4791-bef6-41f6-ae6a-7d7d9c8c4bbb, name = "First Entity")
 // )
 ```
 
