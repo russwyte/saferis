@@ -740,5 +740,164 @@ object SchemaSpecs extends ZIOSpecDefault:
         )
       },
     ),
+    // === @label Annotation Support ===
+    suite("@label annotation support")(
+      test("index uses @label for column name") {
+        @tableName("label_test_events")
+        final case class LabeledEvent(
+            @generated @key id: Int,
+            @label("instance_id") instanceId: String,
+            @label("sequence_nr") sequenceNr: Long,
+        ) derives Table
+
+        val sql = Schema[LabeledEvent]
+          .withIndex(_.instanceId)
+          .ddl(ifNotExists = false)
+          .sql
+        assertTrue(
+          sql.contains("idx_label_test_events_instance_id"),
+          sql.contains("(\"instance_id\")"),
+          !sql.contains("instanceId"),
+        )
+      },
+      test("compound index uses @label for column names") {
+        @tableName("label_test_events2")
+        final case class LabeledEvent2(
+            @generated @key id: Int,
+            @label("instance_id") instanceId: String,
+            @label("sequence_nr") sequenceNr: Long,
+        ) derives Table
+
+        val sql = Schema[LabeledEvent2]
+          .withIndex(_.instanceId)
+          .and(_.sequenceNr)
+          .ddl(ifNotExists = false)
+          .sql
+        assertTrue(
+          sql.contains("idx_label_test_events2_instance_id_sequence_nr"),
+          sql.contains("(\"instance_id\", \"sequence_nr\")"),
+          !sql.contains("instanceId"),
+          !sql.contains("sequenceNr"),
+        )
+      },
+      test("partial index WHERE uses @label for column name") {
+        @tableName("label_test_events3")
+        final case class LabeledEvent3(
+            @generated @key id: Int,
+            @label("instance_id") instanceId: String,
+            @label("sequence_nr") sequenceNr: Long,
+        ) derives Table
+
+        val sql = Schema[LabeledEvent3]
+          .withIndex(_.sequenceNr)
+          .where(_.instanceId)
+          .eql("test")
+          .ddl(ifNotExists = false)
+          .sql
+        assertTrue(
+          sql.contains("where instance_id = 'test'"),
+          !sql.contains("instanceId"),
+        )
+      },
+      test("unique constraint uses @label for column name") {
+        @tableName("label_test_events4")
+        final case class LabeledEvent4(
+            @generated @key id: Int,
+            @label("instance_id") instanceId: String,
+            @label("sequence_nr") sequenceNr: Long,
+        ) derives Table
+
+        val sql = Schema[LabeledEvent4]
+          .withUniqueConstraint(_.instanceId)
+          .ddl(ifNotExists = false)
+          .sql
+        assertTrue(
+          sql.contains("unique (instance_id)"),
+          !sql.contains("instanceId"),
+        )
+      },
+      test("compound unique constraint uses @label for column names") {
+        @tableName("label_test_events5")
+        final case class LabeledEvent5(
+            @generated @key id: Int,
+            @label("instance_id") instanceId: String,
+            @label("sequence_nr") sequenceNr: Long,
+        ) derives Table
+
+        val sql = Schema[LabeledEvent5]
+          .withUniqueConstraint(_.instanceId)
+          .and(_.sequenceNr)
+          .ddl(ifNotExists = false)
+          .sql
+        assertTrue(
+          sql.contains("unique (instance_id, sequence_nr)"),
+          !sql.contains("instanceId"),
+          !sql.contains("sequenceNr"),
+        )
+      },
+      test("foreign key uses @label for source column name") {
+        @tableName("label_test_refs")
+        final case class LabeledRef(
+            @generated @key id: Int,
+            @label("user_ref_id") userRefId: Int,
+        ) derives Table
+
+        val sql = Schema[LabeledRef]
+          .withForeignKey(_.userRefId)
+          .references[User](_.id)
+          .ddl(ifNotExists = false)
+          .sql
+        assertTrue(
+          sql.contains("foreign key (user_ref_id)"),
+          !sql.contains("userRefId"),
+        )
+      },
+      test("foreign key uses @label for target column name") {
+        @tableName("label_test_target")
+        final case class LabeledTarget(
+            @generated @key @label("target_id") targetId: Int,
+            name: String,
+        ) derives Table
+
+        @tableName("label_test_source")
+        final case class LabeledSource(
+            @generated @key id: Int,
+            @label("target_ref") targetRef: Int,
+        ) derives Table
+
+        val sql = Schema[LabeledSource]
+          .withForeignKey(_.targetRef)
+          .references[LabeledTarget](_.targetId)
+          .ddl(ifNotExists = false)
+          .sql
+        assertTrue(
+          sql.contains("foreign key (target_ref)"),
+          sql.contains("references label_test_target (target_id)"),
+          !sql.contains("targetRef"),
+          !sql.contains("targetId"),
+        )
+      },
+      test("grouped WHERE condition uses @label") {
+        @tableName("label_test_events6")
+        final case class LabeledEvent6(
+            @generated @key id: Int,
+            @label("instance_id") instanceId: String,
+            @label("sequence_nr") sequenceNr: Long,
+        ) derives Table
+
+        val sql = Schema[LabeledEvent6]
+          .withIndex(_.instanceId)
+          .where(_.sequenceNr)
+          .gt(0L)
+          .andGroup(g => g.where(_.instanceId).eql("a").or(_.instanceId).eql("b"))
+          .ddl(ifNotExists = false)
+          .sql
+        assertTrue(
+          sql.contains("where sequence_nr > 0 and (instance_id = 'a' or instance_id = 'b')"),
+          !sql.contains("instanceId"),
+          !sql.contains("sequenceNr"),
+        )
+      },
+    ),
   )
 end SchemaSpecs

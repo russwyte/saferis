@@ -109,14 +109,15 @@ object DataDefinitionLayer:
 
     // Create indexes from Schema-defined IndexSpecs
     val aspectIndexes = instance.indexes.map { spec =>
-      val createSql = spec.toCreateSql(tableName)
-      val sql       = dialect match
+      val columnLabels = spec.columns.map(instance.fieldToLabel)
+      val createSql    = spec.toCreateSql(tableName, instance.fieldToLabel)
+      val sql          = dialect match
         case d: IndexIfNotExistsSupport =>
-          val indexName = spec.name.getOrElse(s"idx_${tableName}_${spec.columns.mkString("_")}")
+          val indexName = spec.name.getOrElse(s"idx_${tableName}_${columnLabels.mkString("_")}")
           SqlFragment(
             if spec.unique then
-              d.createIndexIfNotExistsSql(indexName, tableName, spec.columns, unique = true, where = spec.where)
-            else d.createIndexIfNotExistsSql(indexName, tableName, spec.columns, unique = false, where = spec.where),
+              d.createIndexIfNotExistsSql(indexName, tableName, columnLabels, unique = true, where = spec.where)
+            else d.createIndexIfNotExistsSql(indexName, tableName, columnLabels, unique = false, where = spec.where),
             Seq.empty,
           )
         case _ => SqlFragment(createSql, Seq.empty)
