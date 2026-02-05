@@ -13,7 +13,7 @@ trait Placeholder:
 
 object Placeholder:
   /** Create a placeholder from a value with an encoder */
-  def apply[A: Encoder as sw](a: A): Placeholder = Derived(Seq(sw(a)), sw.placeholder(a))
+  def apply[A](a: A)(using sw: Encoder[A]): Placeholder = Derived(Seq(sw(a)), sw.placeholder(a))
 
   /** Identity function for placeholders */
   def apply(p: Placeholder): Placeholder = p
@@ -56,7 +56,7 @@ object Placeholder:
 
   final private case class Derived(override private[saferis] val writes: Seq[Write[?]], sql: String) extends Placeholder
 
-  given convertToPlaceholder[A: Encoder as sw]: Conversion[A, Placeholder] with
+  given convertToPlaceholder[A](using sw: Encoder[A]): Conversion[A, Placeholder] with
     def apply(a: A): Placeholder =
       Derived(Vector(sw(a)), sw.placeholder(a))
 

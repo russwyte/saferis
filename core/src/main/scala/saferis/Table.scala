@@ -53,8 +53,8 @@ sealed trait Table[A <: Product]:
 end Table
 
 object Table:
-  transparent inline def apply[A <: Product: Table as table]                = table.instance
-  transparent inline def apply(alias: String)[A <: Product: Table as table] = table.instance(alias)
+  transparent inline def apply[A <: Product: Table](using table: Table[A])                = table.instance
+  transparent inline def apply[A <: Product: Table](alias: String)(using table: Table[A]) = table.instance(alias)
 
   final case class Derived[A <: Product](name: String, columns: Seq[Column[?]]) extends Table[A]
 

@@ -87,7 +87,7 @@ trait Encoder[A]:
 end Encoder
 
 object Encoder:
-  given option[A: Encoder as encoder]: Encoder[Option[A]] with
+  given option[A](using encoder: Encoder[A]): Encoder[Option[A]] with
     def encode(a: Option[A], stmt: PreparedStatement, idx: Int)(using Trace): Task[Unit] =
       a.fold(ZIO.attempt(stmt.setObject(idx, null, jdbcType))): a =>
         encoder.encode(a, stmt, idx)

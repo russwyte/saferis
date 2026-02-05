@@ -6,10 +6,10 @@ import zio.*
 object SpecializedDML:
 
   /** Insert with RETURNING clause - only available for dialects that support it */
-  inline def insertReturning[A <: Product: Table as table](entity: A)(using
+  inline def insertReturning[A <: Product](entity: A)(using
+      table: Table[A],
       dialect: Dialect & ReturningSupport,
-      trace: Trace,
-  ): ZIO[ConnectionProvider & Scope, Throwable, Option[A]] =
+  )(using trace: Trace): ZIO[ConnectionProvider & Scope, Throwable, Option[A]] =
     val tableName        = table.name
     val insertColumns    = table.insertColumnsSql.sql
     val returningColumns = table.returningColumnsSql.sql
@@ -22,10 +22,10 @@ object SpecializedDML:
   end insertReturning
 
   /** Update with RETURNING clause - only available for dialects that support it */
-  inline def updateReturning[A <: Product: Table as table](entity: A)(using
+  inline def updateReturning[A <: Product](entity: A)(using
+      table: Table[A],
       dialect: Dialect & ReturningSupport,
-      trace: Trace,
-  ): ZIO[ConnectionProvider & Scope, Throwable, Option[A]] =
+  )(using trace: Trace): ZIO[ConnectionProvider & Scope, Throwable, Option[A]] =
     val tableName        = table.name
     val setClause        = table.updateSetClause(entity).sql
     val whereClause      = table.updateWhereClause(entity).sql
@@ -40,10 +40,10 @@ object SpecializedDML:
   end updateReturning
 
   /** Delete with RETURNING clause - only available for dialects that support it */
-  inline def deleteReturning[A <: Product: Table as table](entity: A)(using
+  inline def deleteReturning[A <: Product](entity: A)(using
+      table: Table[A],
       dialect: Dialect & ReturningSupport,
-      trace: Trace,
-  ): ZIO[ConnectionProvider & Scope, Throwable, Option[A]] =
+  )(using trace: Trace): ZIO[ConnectionProvider & Scope, Throwable, Option[A]] =
     val tableName        = table.name
     val whereClause      = table.updateWhereClause(entity).sql
     val returningColumns = table.returningColumnsSql.sql
@@ -56,10 +56,10 @@ object SpecializedDML:
   end deleteReturning
 
   /** UPSERT operation - only available for dialects that support it */
-  inline def upsert[A <: Product: Table as table](entity: A, conflictColumns: Seq[String])(using
+  inline def upsert[A <: Product](entity: A, conflictColumns: Seq[String])(using
+      table: Table[A],
       dialect: Dialect & UpsertSupport,
-      trace: Trace,
-  ): ZIO[ConnectionProvider & Scope, Throwable, Int] =
+  )(using trace: Trace): ZIO[ConnectionProvider & Scope, Throwable, Int] =
     val tableName     = table.name
     val insertColumns = table.insertColumnsSql.sql
     val updateColumns = table.updateSetClause(entity).sql
@@ -73,14 +73,14 @@ object SpecializedDML:
   end upsert
 
   /** Create index with IF NOT EXISTS - only available for dialects that support it */
-  inline def createIndexIfNotExists[A <: Product: Table as table](
+  inline def createIndexIfNotExists[A <: Product](
       indexName: String,
       columnNames: Seq[String],
       unique: Boolean = false,
   )(using
+      table: Table[A],
       dialect: Dialect & IndexIfNotExistsSupport,
-      trace: Trace,
-  ): ZIO[ConnectionProvider & Scope, Throwable, Int] =
+  )(using trace: Trace): ZIO[ConnectionProvider & Scope, Throwable, Int] =
     val tableName = table.name
     val sql       = SqlFragment(dialect.createIndexIfNotExistsSql(indexName, tableName, columnNames, unique), Seq.empty)
     sql.dml
@@ -95,11 +95,11 @@ object SpecializedDML:
     SqlFragment(dialect.arrayContainsSql(columnName, value), Seq.empty)
 
   /** Get SQL for UPSERT operation - only available for dialects that support it */
-  def upsertSql[A <: Product: Table as table](
+  def upsertSql[A <: Product](
       insertColumns: String,
       conflictColumns: Seq[String],
       updateColumns: String,
-  )(using dialect: Dialect & UpsertSupport): String =
+  )(using table: Table[A], dialect: Dialect & UpsertSupport): String =
     val tableName = summon[Table[A]].name
     dialect.upsertSql(tableName, insertColumns, conflictColumns, updateColumns)
 

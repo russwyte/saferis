@@ -34,7 +34,7 @@ class key extends StaticAnnotation
   *   the column name/label in the result set
   * @param reader
   */
-final case class Column[R: Decoder as readable: Encoder as writable](
+final case class Column[R](
     name: String,
     label: String,
     isKey: Boolean,
@@ -42,7 +42,8 @@ final case class Column[R: Decoder as readable: Encoder as writable](
     isNullable: Boolean,
     defaultValue: Option[R],
     tableAlias: Option[Alias],
-) extends Placeholder:
+)(using readable: Decoder[R], writable: Encoder[R])
+    extends Placeholder:
   type ColumnType = R
   val writes = Seq.empty
   // Note: We cannot access dialect here as Column is constructed at compile-time

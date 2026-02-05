@@ -7,13 +7,15 @@ import zio.ZIO
 val dml = DataManipulationLayer
 
 object DataManipulationLayer:
-  inline def insert[A <: Product: Table as table](a: A)(using Trace): ZIO[ConnectionProvider & Scope, Throwable, Int] =
+  inline def insert[A <: Product](a: A)(using
+      table: Table[A]
+  )(using trace: Trace): ZIO[ConnectionProvider & Scope, Throwable, Int] =
     (sql"insert into ${table.instance} ${table.insertColumnsSql} values " :+ table.insertPlaceholdersSql(a)).insert
   end insert
 
-  inline def insertReturning[A <: Product: Table as table](a: A)(using
-      Trace
-  ): ZIO[ConnectionProvider & Scope, Throwable, A] =
+  inline def insertReturning[A <: Product](a: A)(using
+      table: Table[A]
+  )(using trace: Trace): ZIO[ConnectionProvider & Scope, Throwable, A] =
     val sql = sql"insert into ${table.instance}${table.insertColumnsSql} values " :+ table.insertPlaceholdersSql(
       a
     ) :+ sql" returning ${table.returningColumnsSql}"
@@ -23,19 +25,21 @@ object DataManipulationLayer:
     yield a
   end insertReturning
 
-  inline def update[A <: Product: Table as table](a: A)(using Trace): ZIO[ConnectionProvider & Scope, Throwable, Int] =
+  inline def update[A <: Product](a: A)(using
+      table: Table[A]
+  )(using trace: Trace): ZIO[ConnectionProvider & Scope, Throwable, Int] =
     val sql = sql"update ${table.instance} set " :+ table.updateSetClause(a) :+ table.updateWhereClause(a)
     sql.update
 
-  inline def updateWhere[A <: Product: Table as table](a: A, whereClause: SqlFragment)(using
-      Trace
-  ): ZIO[ConnectionProvider & Scope, Throwable, Int] =
+  inline def updateWhere[A <: Product](a: A, whereClause: SqlFragment)(using
+      table: Table[A]
+  )(using trace: Trace): ZIO[ConnectionProvider & Scope, Throwable, Int] =
     val sql = sql"update ${table.instance} set " :+ table.updateSetClause(a) :+ sql" where " :+ whereClause
     sql.update
 
-  inline def updateReturning[A <: Product: Table as table](a: A)(using
-      Trace
-  ): ZIO[ConnectionProvider & Scope, Throwable, A] =
+  inline def updateReturning[A <: Product](a: A)(using
+      table: Table[A]
+  )(using trace: Trace): ZIO[ConnectionProvider & Scope, Throwable, A] =
     val sql = sql"update ${table.instance} set " :+ table.updateSetClause(a) :+ table.updateWhereClause(
       a
     ) :+ sql" returning ${table.returningColumnsSql}"
@@ -45,9 +49,9 @@ object DataManipulationLayer:
     yield a
   end updateReturning
 
-  inline def updateWhereReturning[A <: Product: Table as table](a: A, whereClause: SqlFragment)(using
-      Trace
-  ): ZIO[ConnectionProvider & Scope, Throwable, A] =
+  inline def updateWhereReturning[A <: Product](a: A, whereClause: SqlFragment)(using
+      table: Table[A]
+  )(using trace: Trace): ZIO[ConnectionProvider & Scope, Throwable, A] =
     val sql = sql"update ${table.instance} set " :+ table.updateSetClause(
       a
     ) :+ sql" where " :+ whereClause :+ sql" returning ${table.returningColumnsSql}"
@@ -57,19 +61,21 @@ object DataManipulationLayer:
     yield a
   end updateWhereReturning
 
-  inline def delete[A <: Product: Table as table](a: A)(using Trace): ZIO[ConnectionProvider & Scope, Throwable, Int] =
+  inline def delete[A <: Product](a: A)(using
+      table: Table[A]
+  )(using trace: Trace): ZIO[ConnectionProvider & Scope, Throwable, Int] =
     val sql = sql"delete from ${table.instance}" :+ table.updateWhereClause(a)
     sql.delete
 
-  inline def deleteWhere[A <: Product: Table as table](whereClause: SqlFragment)(using
-      Trace
-  ): ZIO[ConnectionProvider & Scope, Throwable, Int] =
+  inline def deleteWhere[A <: Product](whereClause: SqlFragment)(using
+      table: Table[A]
+  )(using trace: Trace): ZIO[ConnectionProvider & Scope, Throwable, Int] =
     val sql = sql"delete from ${table.instance} where " :+ whereClause
     sql.delete
 
-  inline def deleteReturning[A <: Product: Table as table](a: A)(using
-      Trace
-  ): ZIO[ConnectionProvider & Scope, Throwable, A] =
+  inline def deleteReturning[A <: Product](a: A)(using
+      table: Table[A]
+  )(using trace: Trace): ZIO[ConnectionProvider & Scope, Throwable, A] =
     val sql = sql"delete from ${table.instance}" :+ table.updateWhereClause(
       a
     ) :+ sql" returning ${table.returningColumnsSql}"
@@ -79,9 +85,9 @@ object DataManipulationLayer:
     yield a
   end deleteReturning
 
-  inline def deleteWhereReturning[A <: Product: Table as table](whereClause: SqlFragment)(using
-      Trace
-  ): ZIO[ConnectionProvider & Scope, Throwable, Seq[A]] =
+  inline def deleteWhereReturning[A <: Product](whereClause: SqlFragment)(using
+      table: Table[A]
+  )(using trace: Trace): ZIO[ConnectionProvider & Scope, Throwable, Seq[A]] =
     val sql = sql"delete from ${table.instance} where " :+ whereClause :+ sql" returning ${table.returningColumnsSql}"
     sql.query[A]
 

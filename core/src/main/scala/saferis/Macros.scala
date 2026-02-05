@@ -86,10 +86,8 @@ object Macros:
     val caseClassFieldNamesAndTypes = caseClassFields.map(f => (f.name, tpe.memberType(f)))
     val refined                     = refinementForLabels(TypeRepr.of[Instance[A]], caseClassFieldNamesAndTypes)
     val keys                        = elemsWithAnnotation[A, key]
-    val x                           = MethodType(MethodTypeKind.Plain)(keys.map((name, _) => name))(
-      _ =>
-        keys.map: (_, tpe) =>
-          tpe,
+    val x                           = MethodType(keys.map(_._1))(
+      _ => keys.map(_._2),
       _ => TypeRepr.of[Instance[A]#TypedFragment],
     )
 
