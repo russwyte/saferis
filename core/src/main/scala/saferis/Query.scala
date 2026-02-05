@@ -1582,7 +1582,7 @@ object Query:
     *     .query[UserWithOrder]
     * }}}
     */
-  def apply[A <: Product: Table]: Query1Builder[A] =
+  inline def apply[A <: Product: Table]: Query1Builder[A] =
     val gen      = AliasGenerator.create()
     val instance = gen.aliasedInstance[A]
     Query1Builder(gen, instance)

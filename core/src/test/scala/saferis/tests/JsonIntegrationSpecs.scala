@@ -21,6 +21,14 @@ object JsonIntegrationSpecs extends ZIOSpecDefault:
   final case class UserData(email: String, verified: Boolean, role: String) derives JsonCodec
   final case class Settings(theme: String, notifications: Boolean) derives JsonCodec
 
+  // Generic Json[E] test types - defined at class level for macro compatibility
+  final case class QueryTestEvent(name: String, value: Int) derives JsonCodec
+
+  @tableName("query_generic_events")
+  case class QueryEventRow[E: JsonCodec](@generated @key id: Long, name: String, data: Json[E])
+  object QueryEventRow:
+    given [E: JsonCodec]: Table[QueryEventRow[E]] = Table.derived
+
   // === Test Tables ===
 
   @tableName("json_test_profiles")
@@ -410,29 +418,22 @@ object JsonIntegrationSpecs extends ZIOSpecDefault:
     // === Generic Json[E] Type Derivation Tests ===
     suite("Generic Json[E] table derivation")(
       test("derive Table for generic case class with Json[E] field"):
-        // This tests the fix for path-dependent type codec resolution
-        // When E is a type parameter, the macro resolves it using type parameter substitution
         final case class GenericEvent(kind: String, value: Int) derives JsonCodec
 
-        // Json[E] now requires JsonCodec[E] as a context bound, which captures the evidence
+        // For generic types with Json[E] fields, provide a polymorphic given in the companion
         @tableName("generic_json_events")
         case class GenericRow[E: JsonCodec](@generated @key id: Long, data: Json[E])
-
-        // The JsonCodec[E] context bound on GenericRow ensures the evidence is available
-        class GenericStore[E: JsonCodec](xa: Transactor):
-          given Table[GenericRow[E]]                    = Table.derived[GenericRow[E]]
-          def insert(row: GenericRow[E])(using Dialect) = xa.run(saferis.dml.insert(row))
+        object GenericRow:
+          given [E: JsonCodec]: Table[GenericRow[E]] = Table.derived
 
         // Helper to read raw JSON data
         case class RawJsonRow(id: Long, data: String) derives Table
 
-        for
+        val t = for
           xa <- ZIO.service[Transactor]
-          store                                 = new GenericStore[GenericEvent](xa)
-          given Table[GenericRow[GenericEvent]] = store.given_Table_GenericRow
-          _ <- xa.run(dropTable[GenericRow[GenericEvent]](ifExists = true))
-          _ <- xa.run(createTable[GenericRow[GenericEvent]]())
-          _ <- store.insert(GenericRow(0, Json(GenericEvent("test", 42))))
+          _  <- xa.run(dropTable[GenericRow[GenericEvent]](ifExists = true))
+          _  <- xa.run(createTable[GenericRow[GenericEvent]]())
+          _  <- xa.run(dml.insert(GenericRow(0, Json(GenericEvent("test", 42)))))
           // Use raw SQL query to verify the data was inserted correctly
           rows <- xa.run(sql"SELECT id, data FROM generic_json_events".query[RawJsonRow])
         yield assertTrue(
@@ -440,7 +441,29 @@ object JsonIntegrationSpecs extends ZIOSpecDefault:
           rows.head.data.contains("test"), // JSON contains "test"
           rows.head.data.contains("42"),   // JSON contains 42
         )
-        end for
+        t
+      ,
+      test("Query DSL works with polymorphic given from companion object"):
+        // Uses QueryEventRow and QueryTestEvent defined at class level
+        val t =
+          for
+            xa <- ZIO.service[Transactor]
+            _  <- xa.run(dropTable[QueryEventRow[QueryTestEvent]](ifExists = true))
+            _  <- xa.run(createTable[QueryEventRow[QueryTestEvent]]())
+            _  <- xa.run(dml.insert(QueryEventRow(0, "first", Json(QueryTestEvent("event1", 10)))))
+            _  <- xa.run(dml.insert(QueryEventRow(0, "second", Json(QueryTestEvent("event2", 20)))))
+            // Query DSL should find the Table from companion object's polymorphic given
+            all    <- xa.run(Query[QueryEventRow[QueryTestEvent]].all.query[QueryEventRow[QueryTestEvent]])
+            byName <- xa.run(
+              Query[QueryEventRow[QueryTestEvent]].where(_.name).eq("first").query[QueryEventRow[QueryTestEvent]]
+            )
+          yield assertTrue(
+            all.length == 2,
+            byName.length == 1,
+            byName.head.name == "first",
+            byName.head.data.value.name == "event1",
+          )
+        t,
     ),
   ).provideShared(xaLayer) @@ TestAspect.sequential
 
