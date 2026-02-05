@@ -360,7 +360,61 @@ object Macros:
       end match
     }
 
-    Apply(Select(Ref(companion), applyMethod), argsExprs.map(_.asTerm).toList).asExprOf[A]
+    // Handle generic case classes with type parameters and context bounds
+    val typeArgs = tpe.typeArgs
+
+    // Build the apply call with type arguments if needed
+    val baseSelect   = Select(Ref(companion), applyMethod)
+    val withTypeArgs =
+      if typeArgs.nonEmpty then TypeApply(baseSelect, typeArgs.map(Inferred(_)))
+      else baseSelect
+
+    // Check if the apply method has additional parameter lists (using clauses)
+    // paramSymss includes all parameter lists; we need to find using/given clauses
+    val paramLists = applyMethod.paramSymss
+
+    // Filter out type parameter lists (they only contain type param symbols)
+    val termParamLists = paramLists.filter(_.forall(!_.isTypeParam))
+
+    // First term param list is the regular parameters, rest may be using clauses
+    // Check both Given and Implicit flags (context bounds may use either)
+    val usingParamLists =
+      termParamLists.drop(1).filter(_.exists(p => p.flags.is(Flags.Given) || p.flags.is(Flags.Implicit)))
+
+    val result =
+      if usingParamLists.nonEmpty then
+        // Build type substitution map for resolving generic parameter types
+        // Get type params from the apply method's type param list
+        val typeParamNames = paramLists.headOption
+          .filter(_.forall(_.isTypeParam))
+          .map(_.map(_.name))
+          .getOrElse(Nil)
+        val typeSubstitution = typeParamNames.zip(typeArgs).toMap
+
+        // Helper to substitute type parameters in a TypeRepr
+        def substituteTypeParams(t: TypeRepr): TypeRepr =
+          t match
+            case tr if tr.typeSymbol.isTypeParam =>
+              typeSubstitution.getOrElse(tr.typeSymbol.name, tr)
+            case AppliedType(tycon, args) =>
+              tycon.appliedTo(args.map(substituteTypeParams))
+            case _ => t
+
+        // Search for and provide the context bound implicits
+        val usingArgs = usingParamLists.flatten.map { param =>
+          // Get the parameter's declared type and substitute type parameters
+          val rawType   = param.tree.asInstanceOf[ValDef].tpt.tpe
+          val paramType = substituteTypeParams(rawType)
+
+          Implicits.search(paramType) match
+            case iss: ImplicitSearchSuccess => iss.tree
+            case _: ImplicitSearchFailure   =>
+              report.errorAndAbort(s"Could not find implicit for ${paramType.show} in makeImpl")
+        }
+        Apply(Apply(withTypeArgs, argsExprs.map(_.asTerm).toList), usingArgs)
+      else Apply(withTypeArgs, argsExprs.map(_.asTerm).toList)
+
+    result.asExprOf[A]
   end makeImpl
 
   // This method is used to refine the Instance type with the field names/labels
