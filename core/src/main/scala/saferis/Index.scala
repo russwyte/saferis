@@ -5,7 +5,7 @@ package saferis
   * @tparam A
   *   The table type this index belongs to
   * @param columns
-  *   Column name(s) for the index
+  *   Column field names for the index (will be converted to labels at SQL generation time)
   * @param name
   *   Optional custom index name (auto-generated if None)
   * @param unique
@@ -19,9 +19,16 @@ final case class IndexSpec[A <: Product](
     unique: Boolean = false,
     where: Option[String] = None,
 ):
-  /** Generate CREATE INDEX SQL for this spec */
-  def toCreateSql(tableName: String)(using dialect: Dialect): String =
-    val indexName = name.getOrElse(s"idx_${tableName}_${columns.mkString("_")}")
-    if unique then dialect.createUniqueIndexSql(indexName, tableName, columns, false, where)
-    else dialect.createIndexSql(indexName, tableName, columns, false, where)
+  /** Generate CREATE INDEX SQL for this spec
+    *
+    * @param tableName
+    *   The table name
+    * @param fieldToLabel
+    *   Function to convert field names to column labels (respects @label annotations)
+    */
+  def toCreateSql(tableName: String, fieldToLabel: String => String)(using dialect: Dialect): String =
+    val columnLabels = columns.map(fieldToLabel)
+    val indexName    = name.getOrElse(s"idx_${tableName}_${columnLabels.mkString("_")}")
+    if unique then dialect.createUniqueIndexSql(indexName, tableName, columnLabels, false, where)
+    else dialect.createIndexSql(indexName, tableName, columnLabels, false, where)
 end IndexSpec

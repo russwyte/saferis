@@ -34,18 +34,20 @@ final case class Instance[A <: Product](
     private[saferis] val foreignKeys: Vector[ForeignKeySpec[A, ?]] = Vector.empty,
     private[saferis] val indexes: Vector[IndexSpec[?]] = Vector.empty,
     private[saferis] val uniqueConstraints: Vector[UniqueConstraintSpec[?]] = Vector.empty,
-)(using table: Table[A])
+)(using val tableEvidence: Table[A])
     extends Selectable:
   private[saferis] val fieldNamesToColumns: Map[String, Column[?]] = columns.map(c => c.name -> c).toMap
 
-  /** Exposes the Table[A] evidence for use in builder classes */
-  private[saferis] def tableEvidence: Table[A] = table
+  private[saferis] val fieldToLabel: Map[String, String] =
+    columns.map(c => c.name -> c.label).toMap
 
   /** Get foreign key constraint SQL - use via `foreignKeyConstraints(instance)` */
-  private[saferis] def foreignKeyConstraints: Seq[String] = foreignKeys.map(_.toConstraintSql).toSeq
+  private[saferis] def foreignKeyConstraints: Seq[String] =
+    foreignKeys.map(_.toConstraintSql(fieldToLabel)).toSeq
 
   /** Get unique constraint SQL - use via `uniqueConstraints(instance)` */
-  private[saferis] def uniqueConstraintsSql: Seq[String] = uniqueConstraints.map(_.toConstraintSql).toSeq
+  private[saferis] def uniqueConstraintsSql: Seq[String] =
+    uniqueConstraints.map(_.toConstraintSql(fieldToLabel)).toSeq
 
   /** Column access via field name - the ONLY public method besides applyDynamic */
   def selectDynamic(name: String) = fieldNamesToColumns(name)

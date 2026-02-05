@@ -89,7 +89,7 @@ final case class Schema[A <: Product](instance: Instance[A]):
 
     // Index creation statements
     val indexStatements = instance.indexes.map { spec =>
-      spec.toCreateSql(tableName)
+      spec.toCreateSql(tableName, instance.fieldToLabel)
     }
 
     // Compound key index (if more than one key column)
@@ -618,6 +618,7 @@ object Schema:
         b.fromColumns,
         toTableInstance.name,
         Seq(${ Expr(toColumnName) }),
+        toTableInstance.columnMap,
       )
     }
   end instanceFKReferencesImpl
@@ -629,7 +630,13 @@ object Schema:
     val columnName = extractFieldName(selector)
     '{
       val b = $builder
-      InstanceFKRefBuilder[A, To, Any](b.instance, b.fromColumns, b.toTable, b.toColumns :+ ${ Expr(columnName) })
+      InstanceFKRefBuilder[A, To, Any](
+        b.instance,
+        b.fromColumns,
+        b.toTable,
+        b.toColumns :+ ${ Expr(columnName) },
+        b.toColumnMap,
+      )
     }
   end instanceFKRefAndImpl
 
@@ -707,7 +714,8 @@ final case class InstanceWhereColumnBuilder[A <: Product, T](
     columnName: String,
     operator: String = "and",
 ) extends SchemaWhereOps[InstanceWhereConditionBuilder[A], T]:
-  protected def schemaColumnName: String = columnName
+  // Look up the column label from the Instance (respects @label annotations)
+  protected def schemaColumnName: String = parent.instance.fieldToLabel(columnName)
 
   protected def completeCondition(condition: String): InstanceWhereConditionBuilder[A] =
     InstanceWhereConditionBuilder(parent, parent.conditions :+ condition, operator)
@@ -827,6 +835,7 @@ final case class InstanceFKConfigBuilder[A <: Product, To <: Product](
     fromColumns: Seq[String],
     toTable: String,
     toColumns: Seq[String],
+    toColumnMap: Map[String, Column[?]] = Map.empty,
     onDeleteAction: ForeignKeyAction = ForeignKeyAction.NoAction,
     onUpdateAction: ForeignKeyAction = ForeignKeyAction.NoAction,
     constraintName: Option[String] = None,
@@ -857,6 +866,7 @@ final case class InstanceFKConfigBuilder[A <: Product, To <: Product](
       fromColumns = fromColumns,
       toTable = toTable,
       toColumns = toColumns,
+      toColumnMap = toColumnMap,
       onDelete = onDeleteAction,
       onUpdate = onUpdateAction,
       constraintName = constraintName,
@@ -884,6 +894,7 @@ final case class InstanceFKRefBuilder[A <: Product, To <: Product, T](
     fromColumns: Seq[String],
     toTable: String,
     toColumns: Seq[String],
+    toColumnMap: Map[String, Column[?]] = Map.empty,
 ):
   /** Add another referenced column (for compound foreign keys). */
   transparent inline def and(inline selector: To => Any): InstanceFKRefBuilder[A, To, Any] =
@@ -916,7 +927,7 @@ final case class InstanceFKRefBuilder[A <: Product, To <: Product, T](
     Schema(build).ddl(ifNotExists)
 
   private def toConfig: InstanceFKConfigBuilder[A, To] =
-    InstanceFKConfigBuilder[A, To](instance, fromColumns, toTable, toColumns)
+    InstanceFKConfigBuilder[A, To](instance, fromColumns, toTable, toColumns, toColumnMap)
 end InstanceFKRefBuilder
 
 /** Builder for unique constraints on Instance with proper type inference.
@@ -993,7 +1004,8 @@ final case class InstanceWhereGroupColumnBuilder[A <: Product, T](
     previousConditions: Seq[String],
     operator: String,
 ) extends SchemaWhereOps[InstanceWhereGroupResult[A], T]:
-  protected def schemaColumnName: String = columnName
+  // Look up the column label from the Instance (respects @label annotations)
+  protected def schemaColumnName: String = instance.fieldToLabel(columnName)
 
   protected def completeCondition(condition: String): InstanceWhereGroupResult[A] =
     InstanceWhereGroupResult(instance, previousConditions :+ condition, operator)
