@@ -40,9 +40,9 @@ object Text:
 
   /** Codec for Text type */
   given codec: Codec[Text] = new Codec[Text]:
-    val encoder: Encoder[Text]  = Text.encoder
-    val decoder: Decoder[Text]  = Text.decoder
-    override val jdbcType: Int  = Text.encoder.jdbcType
+    val encoder: Encoder[Text] = Text.encoder
+    val decoder: Decoder[Text] = Text.decoder
+    override val jdbcType: Int = Text.encoder.jdbcType
 
   /** Option encoder for Text */
   given optionEncoder: Encoder[Option[Text]] = Encoder.option[Text]

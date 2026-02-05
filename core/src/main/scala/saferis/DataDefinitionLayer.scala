@@ -100,7 +100,7 @@ object DataDefinitionLayer:
 
   /** Create indexes for an Instance from Schema-defined IndexSpecs */
   private def createIndexesFromInstance[A <: Product](instance: Instance[A])(using
-      dialect: Dialect,
+      dialect: Dialect
   )(using trace: Trace): ZIO[ConnectionProvider & Scope, Throwable, Seq[Int]] =
     val tableName      = instance.tableName
     val cols           = instance.columns.map(_.withTableAlias(None))
@@ -233,7 +233,7 @@ object DataDefinitionLayer:
   end createIndexes
 
   inline def dropIndex(indexName: String, ifExists: Boolean = false)(using
-      dialect: Dialect,
+      dialect: Dialect
   )(using trace: Trace): ZIO[ConnectionProvider & Scope, Throwable, Int] =
     val sql = SqlFragment(dialect.dropIndexSql(indexName, ifExists), Seq.empty)
     sql.dml

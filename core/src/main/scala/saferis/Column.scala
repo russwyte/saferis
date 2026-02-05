@@ -42,7 +42,8 @@ final case class Column[R](
     isNullable: Boolean,
     defaultValue: Option[R],
     tableAlias: Option[Alias],
-)(using readable: Decoder[R], writable: Encoder[R]) extends Placeholder:
+)(using readable: Decoder[R], writable: Encoder[R])
+    extends Placeholder:
   type ColumnType = R
   val writes = Seq.empty
   // Note: We cannot access dialect here as Column is constructed at compile-time
