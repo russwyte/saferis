@@ -9,7 +9,7 @@ import java.sql.PreparedStatement
   * @param a
   * @param writer
   */
-final class Write[A: Encoder as encoder](a: A):
+final class Write[A](a: A)(using encoder: Encoder[A]):
 
   /** Writes the value to the prepared statement using the encoder
     *

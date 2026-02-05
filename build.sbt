@@ -1,6 +1,6 @@
 import xerial.sbt.Sonatype.sonatypeCentralHost
 
-val scala3Version = "3.7.4"
+val scala3Version = "3.3.6"
 val zioVersion    = "2.1.24"
 
 // Global settings using ThisBuild scope
@@ -10,7 +10,7 @@ ThisBuild / organizationName     := "russwyte"
 ThisBuild / organizationHomepage := Some(url("https://github.com/russwyte"))
 ThisBuild / licenses             := List("Apache-2.0" -> url("http://www.apache.org/licenses/LICENSE-2.0.txt"))
 ThisBuild / homepage             := Some(url("https://github.com/russwyte/saferis"))
-ThisBuild / scmInfo := Some(
+ThisBuild / scmInfo              := Some(
   ScmInfo(
     url("https://github.com/russwyte/saferis"),
     "scm:git@github.com:russwyte/saferis.git",
@@ -84,13 +84,13 @@ lazy val docs = project
     name           := "saferis-docs",
     publish / skip := true,
     libraryDependencies ++= Seq(
-      "dev.zio"            %% "zio"        % zioVersion,
-      "dev.zio"            %% "zio-json"   % "0.8.0",
-      "org.testcontainers"  % "postgresql" % "1.21.4",
-      "org.postgresql"      % "postgresql" % "42.7.9",
+      "dev.zio"           %% "zio"        % zioVersion,
+      "dev.zio"           %% "zio-json"   % "0.8.0",
+      "org.testcontainers" % "postgresql" % "1.21.4",
+      "org.postgresql"     % "postgresql" % "42.7.9",
     ),
     mdocVariables := Map(
-      "VERSION" -> version.value,
+      "VERSION" -> version.value
     ),
     mdocIn  := file("saferis-docs") / "docs",
     mdocOut := file("docs"),

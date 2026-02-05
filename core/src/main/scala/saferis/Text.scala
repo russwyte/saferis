@@ -39,7 +39,10 @@ object Text:
       ZIO.attempt(rs.getString(name))
 
   /** Codec for Text type */
-  given codec: Codec[Text] = Codec[Text]
+  given codec: Codec[Text] = new Codec[Text]:
+    val encoder: Encoder[Text]  = Text.encoder
+    val decoder: Decoder[Text]  = Text.decoder
+    override val jdbcType: Int  = Text.encoder.jdbcType
 
   /** Option encoder for Text */
   given optionEncoder: Encoder[Option[Text]] = Encoder.option[Text]

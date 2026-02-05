@@ -13,19 +13,19 @@ final case class SqlFragment(
     override private[saferis] val writes: Seq[Write[?]],
 ) extends Placeholder:
 
-  inline private def make[E <: Product: Table as table](rs: ResultSet)(using Trace): Task[E] =
+  inline private def make[E <: Product](rs: ResultSet)(using table: Table[E])(using trace: Trace): Task[E] =
     for cs <- ZIO.foreach(table.columns)(c => c.read(rs))
     yield (Macros.make[E](cs))
   end make
 
-  private def doWrites(statement: PreparedStatement)(using Trace) = ZIO.foreachDiscard(writes.zipWithIndex):
+  private def doWrites(statement: PreparedStatement)(using trace: Trace) = ZIO.foreachDiscard(writes.zipWithIndex):
     (write, idx) => write.write(statement, idx + 1)
 
   /** Executes a query and returns an effect of a sequence of [[Table]] instances.
     *
     * @return
     */
-  inline def query[E <: Product: Table](using Trace): ScopedQuery[Seq[E]] =
+  inline def query[E <: Product: Table](using trace: Trace): ScopedQuery[Seq[E]] =
     for
       connection <- ZIO.serviceWithZIO[ConnectionProvider](_.getConnection)
       statement  <- ZIO.attempt(connection.prepareStatement(sql))
@@ -46,7 +46,7 @@ final case class SqlFragment(
     *
     * @return
     */
-  inline def queryOne[E <: Product: Table](using Trace): ScopedQuery[Option[E]] =
+  inline def queryOne[E <: Product: Table](using trace: Trace): ScopedQuery[Option[E]] =
     for
       connection <- ZIO.serviceWithZIO[ConnectionProvider](_.getConnection)
       statement  <- ZIO.attempt(connection.prepareStatement(sql))
@@ -65,7 +65,7 @@ final case class SqlFragment(
     * @return
     *   an effect of Option[A] - None if no results, Some(value) if results found
     */
-  inline def queryValue[A: Decoder as decoder](using Trace): ScopedQuery[Option[A]] =
+  inline def queryValue[A](using decoder: Decoder[A])(using trace: Trace): ScopedQuery[Option[A]] =
     for
       connection <- ZIO.serviceWithZIO[ConnectionProvider](_.getConnection)
       statement  <- ZIO.attempt(connection.prepareStatement(sql))
@@ -84,31 +84,31 @@ final case class SqlFragment(
     *
     * @return
     */
-  def update(using Trace): ZIO[ConnectionProvider & Scope, Throwable, Int] = dml
+  def update(using trace: Trace): ZIO[ConnectionProvider & Scope, Throwable, Int] = dml
 
   /** alias for [[Statement.dml]]
     *
     * @return
     */
-  def delete(using Trace): ZIO[ConnectionProvider & Scope, Throwable, Int] = dml
+  def delete(using trace: Trace): ZIO[ConnectionProvider & Scope, Throwable, Int] = dml
 
   /** alias for [[Statement.dml]]
     *
     * @return
     */
-  def insert(using Trace): ZIO[ConnectionProvider & Scope, Throwable, Int] = dml
+  def insert(using trace: Trace): ZIO[ConnectionProvider & Scope, Throwable, Int] = dml
 
   /** Generic execution for any SQL statement (DML or DDL). Alias for [[dml]] with a more generic name suitable for DDL
     * operations.
     * @return
     */
-  def execute(using Trace): ZIO[ConnectionProvider & Scope, Throwable, Int] = dml
+  def execute(using trace: Trace): ZIO[ConnectionProvider & Scope, Throwable, Int] = dml
 
   /** Executes the statement which must be an SQL Data Manipulation Language (DML) statement, such as INSERT, UPDATE or
     * DELETE or an SQL statement that returns an Int, such as a DML statement.
     * @return
     */
-  inline def dml(using Trace): ZIO[ConnectionProvider & Scope, Throwable, Int] =
+  inline def dml(using trace: Trace): ZIO[ConnectionProvider & Scope, Throwable, Int] =
     for
       connection <- ZIO.serviceWithZIO[ConnectionProvider](_.getConnection)
       statement  <- ZIO.attempt(connection.prepareStatement(sql))

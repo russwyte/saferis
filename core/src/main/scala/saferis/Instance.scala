@@ -27,14 +27,14 @@ import scala.annotation.unused
   * @tparam A
   *   The case class type representing the table
   */
-final case class Instance[A <: Product: Table as table](
+final case class Instance[A <: Product](
     private[saferis] val tableName: String,
     private[saferis] val columns: Seq[Column[?]],
     private[saferis] val alias: Option[Alias],
     private[saferis] val foreignKeys: Vector[ForeignKeySpec[A, ?]] = Vector.empty,
     private[saferis] val indexes: Vector[IndexSpec[?]] = Vector.empty,
     private[saferis] val uniqueConstraints: Vector[UniqueConstraintSpec[?]] = Vector.empty,
-) extends Selectable:
+)(using table: Table[A]) extends Selectable:
   private[saferis] val fieldNamesToColumns: Map[String, Column[?]] = columns.map(c => c.name -> c).toMap
 
   /** Exposes the Table[A] evidence for use in builder classes */

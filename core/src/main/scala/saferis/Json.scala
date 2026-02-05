@@ -54,7 +54,10 @@ object Json:
   end decoder
 
   /** Codec for Json[A] */
-  given codec[A: JsonCodec]: Codec[Json[A]] = Codec[Json[A]]
+  given codec[A](using jc: JsonCodec[A]): Codec[Json[A]] = new Codec[Json[A]]:
+    val encoder: Encoder[Json[A]]  = Json.encoder[A]
+    val decoder: Decoder[Json[A]]  = Json.decoder[A]
+    override val jdbcType: Int     = Json.encoder[A].jdbcType
 
   /** Option encoder for Json[A] */
   given optionEncoder[A: JsonCodec]: Encoder[Option[Json[A]]] = Encoder.option[Json[A]]

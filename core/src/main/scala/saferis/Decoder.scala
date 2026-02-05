@@ -27,7 +27,7 @@ trait Decoder[A]:
 end Decoder
 
 object Decoder:
-  given option[A: Decoder as decoder]: Decoder[Option[A]] with
+  given option[A](using decoder: Decoder[A]): Decoder[Option[A]] with
     def decode(rs: ResultSet, name: String)(using Trace): Task[Option[A]] =
       ZIO
         .attempt(rs.getObject(name))
@@ -127,7 +127,7 @@ object Decoder:
   def failTupleDecode(expected: Int, actual: Int) = ZIO.fail(
     new SQLException(s"Expected exactly $expected columns in result set, got $actual")
   )
-  given tuple2[A: Decoder as decoderA, B: Decoder as decoderB]: Decoder[(A, B)] with
+  given tuple2[A, B](using decoderA: Decoder[A], decoderB: Decoder[B]): Decoder[(A, B)] with
     def decode(rs: ResultSet, name: String)(using Trace): Task[(A, B)] =
       if rs.getMetaData.getColumnCount != 2 then failTupleDecode(2, rs.getMetaData.getColumnCount)
       else
@@ -136,7 +136,7 @@ object Decoder:
           b <- decoderB.decode(rs, rs.getMetaData.getColumnLabel(2))
         yield (a, b)
 
-  given tuple3[A: Decoder as decoderA, B: Decoder as decoderB, C: Decoder as decoderC]: Decoder[(A, B, C)] with
+  given tuple3[A, B, C](using decoderA: Decoder[A], decoderB: Decoder[B], decoderC: Decoder[C]): Decoder[(A, B, C)] with
     def decode(rs: ResultSet, name: String)(using Trace): Task[(A, B, C)] =
       if rs.getMetaData.getColumnCount != 3 then failTupleDecode(3, rs.getMetaData.getColumnCount)
       else
@@ -147,8 +147,12 @@ object Decoder:
         yield (a, b, c)
   end tuple3
 
-  given tuple4[A: Decoder as decoderA, B: Decoder as decoderB, C: Decoder as decoderC, D: Decoder as decoderD]
-      : Decoder[(A, B, C, D)] with
+  given tuple4[A, B, C, D](using
+      decoderA: Decoder[A],
+      decoderB: Decoder[B],
+      decoderC: Decoder[C],
+      decoderD: Decoder[D],
+  ): Decoder[(A, B, C, D)] with
     def decode(rs: ResultSet, name: String)(using Trace): Task[(A, B, C, D)] =
       if rs.getMetaData.getColumnCount != 4 then failTupleDecode(4, rs.getMetaData.getColumnCount)
       else
@@ -160,13 +164,13 @@ object Decoder:
         yield (a, b, c, d)
   end tuple4
 
-  given tuple5[
-      A: Decoder as decoderA,
-      B: Decoder as decoderB,
-      C: Decoder as decoderC,
-      D: Decoder as decoderD,
-      E: Decoder as decoderE,
-  ]: Decoder[(A, B, C, D, E)] with
+  given tuple5[A, B, C, D, E](using
+      decoderA: Decoder[A],
+      decoderB: Decoder[B],
+      decoderC: Decoder[C],
+      decoderD: Decoder[D],
+      decoderE: Decoder[E],
+  ): Decoder[(A, B, C, D, E)] with
     def decode(rs: ResultSet, name: String)(using Trace): Task[(A, B, C, D, E)] =
       if rs.getMetaData.getColumnCount != 5 then failTupleDecode(5, rs.getMetaData.getColumnCount)
       else
@@ -179,14 +183,14 @@ object Decoder:
         yield (a, b, c, d, e)
   end tuple5
 
-  given tuple6[
-      A: Decoder as decoderA,
-      B: Decoder as decoderB,
-      C: Decoder as decoderC,
-      D: Decoder as decoderD,
-      E: Decoder as decoderE,
-      F: Decoder as decoderF,
-  ]: Decoder[(A, B, C, D, E, F)] with
+  given tuple6[A, B, C, D, E, F](using
+      decoderA: Decoder[A],
+      decoderB: Decoder[B],
+      decoderC: Decoder[C],
+      decoderD: Decoder[D],
+      decoderE: Decoder[E],
+      decoderF: Decoder[F],
+  ): Decoder[(A, B, C, D, E, F)] with
     def decode(rs: ResultSet, name: String)(using Trace): Task[(A, B, C, D, E, F)] =
       if rs.getMetaData.getColumnCount != 6 then failTupleDecode(6, rs.getMetaData.getColumnCount)
       else
@@ -200,15 +204,15 @@ object Decoder:
         yield (a, b, c, d, e, f)
   end tuple6
 
-  given tuple7[
-      A: Decoder as decoderA,
-      B: Decoder as decoderB,
-      C: Decoder as decoderC,
-      D: Decoder as decoderD,
-      E: Decoder as decoderE,
-      F: Decoder as decoderF,
-      G: Decoder as decoderG,
-  ]: Decoder[(A, B, C, D, E, F, G)] with
+  given tuple7[A, B, C, D, E, F, G](using
+      decoderA: Decoder[A],
+      decoderB: Decoder[B],
+      decoderC: Decoder[C],
+      decoderD: Decoder[D],
+      decoderE: Decoder[E],
+      decoderF: Decoder[F],
+      decoderG: Decoder[G],
+  ): Decoder[(A, B, C, D, E, F, G)] with
     def decode(rs: ResultSet, name: String)(using Trace): Task[(A, B, C, D, E, F, G)] =
       if rs.getMetaData.getColumnCount != 7 then failTupleDecode(7, rs.getMetaData.getColumnCount)
       else
@@ -223,16 +227,16 @@ object Decoder:
         yield (a, b, c, d, e, f, g)
   end tuple7
 
-  given tuple8[
-      A: Decoder as decoderA,
-      B: Decoder as decoderB,
-      C: Decoder as decoderC,
-      D: Decoder as decoderD,
-      E: Decoder as decoderE,
-      F: Decoder as decoderF,
-      G: Decoder as decoderG,
-      H: Decoder as decoderH,
-  ]: Decoder[(A, B, C, D, E, F, G, H)] with
+  given tuple8[A, B, C, D, E, F, G, H](using
+      decoderA: Decoder[A],
+      decoderB: Decoder[B],
+      decoderC: Decoder[C],
+      decoderD: Decoder[D],
+      decoderE: Decoder[E],
+      decoderF: Decoder[F],
+      decoderG: Decoder[G],
+      decoderH: Decoder[H],
+  ): Decoder[(A, B, C, D, E, F, G, H)] with
     def decode(rs: ResultSet, name: String)(using Trace): Task[(A, B, C, D, E, F, G, H)] =
       if rs.getMetaData.getColumnCount != 8 then failTupleDecode(8, rs.getMetaData.getColumnCount)
       else
@@ -248,17 +252,17 @@ object Decoder:
         yield (a, b, c, d, e, f, g, h)
   end tuple8
 
-  given tuple9[
-      A: Decoder as decoderA,
-      B: Decoder as decoderB,
-      C: Decoder as decoderC,
-      D: Decoder as decoderD,
-      E: Decoder as decoderE,
-      F: Decoder as decoderF,
-      G: Decoder as decoderG,
-      H: Decoder as decoderH,
-      I: Decoder as decoderI,
-  ]: Decoder[(A, B, C, D, E, F, G, H, I)] with
+  given tuple9[A, B, C, D, E, F, G, H, I](using
+      decoderA: Decoder[A],
+      decoderB: Decoder[B],
+      decoderC: Decoder[C],
+      decoderD: Decoder[D],
+      decoderE: Decoder[E],
+      decoderF: Decoder[F],
+      decoderG: Decoder[G],
+      decoderH: Decoder[H],
+      decoderI: Decoder[I],
+  ): Decoder[(A, B, C, D, E, F, G, H, I)] with
     def decode(rs: ResultSet, name: String)(using Trace): Task[(A, B, C, D, E, F, G, H, I)] =
       if rs.getMetaData.getColumnCount != 9 then failTupleDecode(9, rs.getMetaData.getColumnCount)
       else
@@ -275,18 +279,18 @@ object Decoder:
         yield (a, b, c, d, e, f, g, h, i)
   end tuple9
 
-  given tuple10[
-      A: Decoder as decoderA,
-      B: Decoder as decoderB,
-      C: Decoder as decoderC,
-      D: Decoder as decoderD,
-      E: Decoder as decoderE,
-      F: Decoder as decoderF,
-      G: Decoder as decoderG,
-      H: Decoder as decoderH,
-      I: Decoder as decoderI,
-      J: Decoder as decoderJ,
-  ]: Decoder[(A, B, C, D, E, F, G, H, I, J)] with
+  given tuple10[A, B, C, D, E, F, G, H, I, J](using
+      decoderA: Decoder[A],
+      decoderB: Decoder[B],
+      decoderC: Decoder[C],
+      decoderD: Decoder[D],
+      decoderE: Decoder[E],
+      decoderF: Decoder[F],
+      decoderG: Decoder[G],
+      decoderH: Decoder[H],
+      decoderI: Decoder[I],
+      decoderJ: Decoder[J],
+  ): Decoder[(A, B, C, D, E, F, G, H, I, J)] with
     def decode(rs: ResultSet, name: String)(using Trace): Task[(A, B, C, D, E, F, G, H, I, J)] =
       if rs.getMetaData.getColumnCount != 10 then failTupleDecode(10, rs.getMetaData.getColumnCount)
       else
@@ -304,19 +308,19 @@ object Decoder:
         yield (a, b, c, d, e, f, g, h, i, j)
   end tuple10
 
-  given tuple11[
-      A: Decoder as decoderA,
-      B: Decoder as decoderB,
-      C: Decoder as decoderC,
-      D: Decoder as decoderD,
-      E: Decoder as decoderE,
-      F: Decoder as decoderF,
-      G: Decoder as decoderG,
-      H: Decoder as decoderH,
-      I: Decoder as decoderI,
-      J: Decoder as decoderJ,
-      K: Decoder as decoderK,
-  ]: Decoder[(A, B, C, D, E, F, G, H, I, J, K)] with
+  given tuple11[A, B, C, D, E, F, G, H, I, J, K](using
+      decoderA: Decoder[A],
+      decoderB: Decoder[B],
+      decoderC: Decoder[C],
+      decoderD: Decoder[D],
+      decoderE: Decoder[E],
+      decoderF: Decoder[F],
+      decoderG: Decoder[G],
+      decoderH: Decoder[H],
+      decoderI: Decoder[I],
+      decoderJ: Decoder[J],
+      decoderK: Decoder[K],
+  ): Decoder[(A, B, C, D, E, F, G, H, I, J, K)] with
     def decode(rs: ResultSet, name: String)(using Trace): Task[(A, B, C, D, E, F, G, H, I, J, K)] =
       if rs.getMetaData.getColumnCount != 11 then failTupleDecode(11, rs.getMetaData.getColumnCount)
       else
@@ -335,20 +339,20 @@ object Decoder:
         yield (a, b, c, d, e, f, g, h, i, j, k)
   end tuple11
 
-  given tuple12[
-      A: Decoder as decoderA,
-      B: Decoder as decoderB,
-      C: Decoder as decoderC,
-      D: Decoder as decoderD,
-      E: Decoder as decoderE,
-      F: Decoder as decoderF,
-      G: Decoder as decoderG,
-      H: Decoder as decoderH,
-      I: Decoder as decoderI,
-      J: Decoder as decoderJ,
-      K: Decoder as decoderK,
-      L: Decoder as decoderL,
-  ]: Decoder[(A, B, C, D, E, F, G, H, I, J, K, L)] with
+  given tuple12[A, B, C, D, E, F, G, H, I, J, K, L](using
+      decoderA: Decoder[A],
+      decoderB: Decoder[B],
+      decoderC: Decoder[C],
+      decoderD: Decoder[D],
+      decoderE: Decoder[E],
+      decoderF: Decoder[F],
+      decoderG: Decoder[G],
+      decoderH: Decoder[H],
+      decoderI: Decoder[I],
+      decoderJ: Decoder[J],
+      decoderK: Decoder[K],
+      decoderL: Decoder[L],
+  ): Decoder[(A, B, C, D, E, F, G, H, I, J, K, L)] with
     def decode(rs: ResultSet, name: String)(using Trace): Task[(A, B, C, D, E, F, G, H, I, J, K, L)] =
       if rs.getMetaData.getColumnCount != 12 then failTupleDecode(12, rs.getMetaData.getColumnCount)
       else
@@ -368,21 +372,21 @@ object Decoder:
         yield (a, b, c, d, e, f, g, h, i, j, k, l)
   end tuple12
 
-  given tuple13[
-      A: Decoder as decoderA,
-      B: Decoder as decoderB,
-      C: Decoder as decoderC,
-      D: Decoder as decoderD,
-      E: Decoder as decoderE,
-      F: Decoder as decoderF,
-      G: Decoder as decoderG,
-      H: Decoder as decoderH,
-      I: Decoder as decoderI,
-      J: Decoder as decoderJ,
-      K: Decoder as decoderK,
-      L: Decoder as decoderL,
-      M: Decoder as decoderM,
-  ]: Decoder[(A, B, C, D, E, F, G, H, I, J, K, L, M)] with
+  given tuple13[A, B, C, D, E, F, G, H, I, J, K, L, M](using
+      decoderA: Decoder[A],
+      decoderB: Decoder[B],
+      decoderC: Decoder[C],
+      decoderD: Decoder[D],
+      decoderE: Decoder[E],
+      decoderF: Decoder[F],
+      decoderG: Decoder[G],
+      decoderH: Decoder[H],
+      decoderI: Decoder[I],
+      decoderJ: Decoder[J],
+      decoderK: Decoder[K],
+      decoderL: Decoder[L],
+      decoderM: Decoder[M],
+  ): Decoder[(A, B, C, D, E, F, G, H, I, J, K, L, M)] with
     def decode(rs: ResultSet, name: String)(using Trace): Task[(A, B, C, D, E, F, G, H, I, J, K, L, M)] =
       if rs.getMetaData.getColumnCount != 13 then failTupleDecode(13, rs.getMetaData.getColumnCount)
       else
@@ -403,22 +407,22 @@ object Decoder:
         yield (a, b, c, d, e, f, g, h, i, j, k, l, m)
   end tuple13
 
-  given tuple14[
-      A: Decoder as decoderA,
-      B: Decoder as decoderB,
-      C: Decoder as decoderC,
-      D: Decoder as decoderD,
-      E: Decoder as decoderE,
-      F: Decoder as decoderF,
-      G: Decoder as decoderG,
-      H: Decoder as decoderH,
-      I: Decoder as decoderI,
-      J: Decoder as decoderJ,
-      K: Decoder as decoderK,
-      L: Decoder as decoderL,
-      M: Decoder as decoderM,
-      N: Decoder as decoderN,
-  ]: Decoder[(A, B, C, D, E, F, G, H, I, J, K, L, M, N)] with
+  given tuple14[A, B, C, D, E, F, G, H, I, J, K, L, M, N](using
+      decoderA: Decoder[A],
+      decoderB: Decoder[B],
+      decoderC: Decoder[C],
+      decoderD: Decoder[D],
+      decoderE: Decoder[E],
+      decoderF: Decoder[F],
+      decoderG: Decoder[G],
+      decoderH: Decoder[H],
+      decoderI: Decoder[I],
+      decoderJ: Decoder[J],
+      decoderK: Decoder[K],
+      decoderL: Decoder[L],
+      decoderM: Decoder[M],
+      decoderN: Decoder[N],
+  ): Decoder[(A, B, C, D, E, F, G, H, I, J, K, L, M, N)] with
     def decode(rs: ResultSet, name: String)(using Trace): Task[(A, B, C, D, E, F, G, H, I, J, K, L, M, N)] =
       if rs.getMetaData.getColumnCount != 14 then failTupleDecode(14, rs.getMetaData.getColumnCount)
       else
@@ -440,23 +444,23 @@ object Decoder:
         yield (a, b, c, d, e, f, g, h, i, j, k, l, m, n)
   end tuple14
 
-  given tuple15[
-      A: Decoder as decoderA,
-      B: Decoder as decoderB,
-      C: Decoder as decoderC,
-      D: Decoder as decoderD,
-      E: Decoder as decoderE,
-      F: Decoder as decoderF,
-      G: Decoder as decoderG,
-      H: Decoder as decoderH,
-      I: Decoder as decoderI,
-      J: Decoder as decoderJ,
-      K: Decoder as decoderK,
-      L: Decoder as decoderL,
-      M: Decoder as decoderM,
-      N: Decoder as decoderN,
-      O: Decoder as decoderO,
-  ]: Decoder[(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O)] with
+  given tuple15[A, B, C, D, E, F, G, H, I, J, K, L, M, N, O](using
+      decoderA: Decoder[A],
+      decoderB: Decoder[B],
+      decoderC: Decoder[C],
+      decoderD: Decoder[D],
+      decoderE: Decoder[E],
+      decoderF: Decoder[F],
+      decoderG: Decoder[G],
+      decoderH: Decoder[H],
+      decoderI: Decoder[I],
+      decoderJ: Decoder[J],
+      decoderK: Decoder[K],
+      decoderL: Decoder[L],
+      decoderM: Decoder[M],
+      decoderN: Decoder[N],
+      decoderO: Decoder[O],
+  ): Decoder[(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O)] with
     def decode(rs: ResultSet, name: String)(using Trace): Task[(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O)] =
       if rs.getMetaData.getColumnCount != 15 then failTupleDecode(15, rs.getMetaData.getColumnCount)
       else
@@ -479,24 +483,24 @@ object Decoder:
         yield (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o)
   end tuple15
 
-  given tuple16[
-      A: Decoder as decoderA,
-      B: Decoder as decoderB,
-      C: Decoder as decoderC,
-      D: Decoder as decoderD,
-      E: Decoder as decoderE,
-      F: Decoder as decoderF,
-      G: Decoder as decoderG,
-      H: Decoder as decoderH,
-      I: Decoder as decoderI,
-      J: Decoder as decoderJ,
-      K: Decoder as decoderK,
-      L: Decoder as decoderL,
-      M: Decoder as decoderM,
-      N: Decoder as decoderN,
-      O: Decoder as decoderO,
-      P: Decoder as decoderP,
-  ]: Decoder[(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P)] with
+  given tuple16[A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P](using
+      decoderA: Decoder[A],
+      decoderB: Decoder[B],
+      decoderC: Decoder[C],
+      decoderD: Decoder[D],
+      decoderE: Decoder[E],
+      decoderF: Decoder[F],
+      decoderG: Decoder[G],
+      decoderH: Decoder[H],
+      decoderI: Decoder[I],
+      decoderJ: Decoder[J],
+      decoderK: Decoder[K],
+      decoderL: Decoder[L],
+      decoderM: Decoder[M],
+      decoderN: Decoder[N],
+      decoderO: Decoder[O],
+      decoderP: Decoder[P],
+  ): Decoder[(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P)] with
     def decode(rs: ResultSet, name: String)(using Trace): Task[(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P)] =
       if rs.getMetaData.getColumnCount != 16 then failTupleDecode(16, rs.getMetaData.getColumnCount)
       else
@@ -520,25 +524,25 @@ object Decoder:
         yield (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p)
   end tuple16
 
-  given tuple17[
-      A: Decoder as decoderA,
-      B: Decoder as decoderB,
-      C: Decoder as decoderC,
-      D: Decoder as decoderD,
-      E: Decoder as decoderE,
-      F: Decoder as decoderF,
-      G: Decoder as decoderG,
-      H: Decoder as decoderH,
-      I: Decoder as decoderI,
-      J: Decoder as decoderJ,
-      K: Decoder as decoderK,
-      L: Decoder as decoderL,
-      M: Decoder as decoderM,
-      N: Decoder as decoderN,
-      O: Decoder as decoderO,
-      P: Decoder as decoderP,
-      Q: Decoder as decoderQ,
-  ]: Decoder[(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q)] with
+  given tuple17[A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q](using
+      decoderA: Decoder[A],
+      decoderB: Decoder[B],
+      decoderC: Decoder[C],
+      decoderD: Decoder[D],
+      decoderE: Decoder[E],
+      decoderF: Decoder[F],
+      decoderG: Decoder[G],
+      decoderH: Decoder[H],
+      decoderI: Decoder[I],
+      decoderJ: Decoder[J],
+      decoderK: Decoder[K],
+      decoderL: Decoder[L],
+      decoderM: Decoder[M],
+      decoderN: Decoder[N],
+      decoderO: Decoder[O],
+      decoderP: Decoder[P],
+      decoderQ: Decoder[Q],
+  ): Decoder[(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q)] with
     def decode(rs: ResultSet, name: String)(using Trace): Task[(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q)] =
       if rs.getMetaData.getColumnCount != 17 then failTupleDecode(17, rs.getMetaData.getColumnCount)
       else
@@ -563,26 +567,26 @@ object Decoder:
         yield (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q)
   end tuple17
 
-  given tuple18[
-      A: Decoder as decoderA,
-      B: Decoder as decoderB,
-      C: Decoder as decoderC,
-      D: Decoder as decoderD,
-      E: Decoder as decoderE,
-      F: Decoder as decoderF,
-      G: Decoder as decoderG,
-      H: Decoder as decoderH,
-      I: Decoder as decoderI,
-      J: Decoder as decoderJ,
-      K: Decoder as decoderK,
-      L: Decoder as decoderL,
-      M: Decoder as decoderM,
-      N: Decoder as decoderN,
-      O: Decoder as decoderO,
-      P: Decoder as decoderP,
-      Q: Decoder as decoderQ,
-      R: Decoder as decoderR,
-  ]: Decoder[(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R)] with
+  given tuple18[A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R](using
+      decoderA: Decoder[A],
+      decoderB: Decoder[B],
+      decoderC: Decoder[C],
+      decoderD: Decoder[D],
+      decoderE: Decoder[E],
+      decoderF: Decoder[F],
+      decoderG: Decoder[G],
+      decoderH: Decoder[H],
+      decoderI: Decoder[I],
+      decoderJ: Decoder[J],
+      decoderK: Decoder[K],
+      decoderL: Decoder[L],
+      decoderM: Decoder[M],
+      decoderN: Decoder[N],
+      decoderO: Decoder[O],
+      decoderP: Decoder[P],
+      decoderQ: Decoder[Q],
+      decoderR: Decoder[R],
+  ): Decoder[(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R)] with
     def decode(rs: ResultSet, name: String)(using Trace): Task[(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R)] =
       if rs.getMetaData.getColumnCount != 18 then failTupleDecode(18, rs.getMetaData.getColumnCount)
       else
@@ -608,27 +612,27 @@ object Decoder:
         yield (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r)
   end tuple18
 
-  given tuple19[
-      A: Decoder as decoderA,
-      B: Decoder as decoderB,
-      C: Decoder as decoderC,
-      D: Decoder as decoderD,
-      E: Decoder as decoderE,
-      F: Decoder as decoderF,
-      G: Decoder as decoderG,
-      H: Decoder as decoderH,
-      I: Decoder as decoderI,
-      J: Decoder as decoderJ,
-      K: Decoder as decoderK,
-      L: Decoder as decoderL,
-      M: Decoder as decoderM,
-      N: Decoder as decoderN,
-      O: Decoder as decoderO,
-      P: Decoder as decoderP,
-      Q: Decoder as decoderQ,
-      R: Decoder as decoderR,
-      S: Decoder as decoderS,
-  ]: Decoder[(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S)] with
+  given tuple19[A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S](using
+      decoderA: Decoder[A],
+      decoderB: Decoder[B],
+      decoderC: Decoder[C],
+      decoderD: Decoder[D],
+      decoderE: Decoder[E],
+      decoderF: Decoder[F],
+      decoderG: Decoder[G],
+      decoderH: Decoder[H],
+      decoderI: Decoder[I],
+      decoderJ: Decoder[J],
+      decoderK: Decoder[K],
+      decoderL: Decoder[L],
+      decoderM: Decoder[M],
+      decoderN: Decoder[N],
+      decoderO: Decoder[O],
+      decoderP: Decoder[P],
+      decoderQ: Decoder[Q],
+      decoderR: Decoder[R],
+      decoderS: Decoder[S],
+  ): Decoder[(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S)] with
     def decode(rs: ResultSet, name: String)(using
         Trace
     ): Task[(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S)] =
@@ -657,28 +661,28 @@ object Decoder:
         yield (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s)
   end tuple19
 
-  given tuple20[
-      A: Decoder as decoderA,
-      B: Decoder as decoderB,
-      C: Decoder as decoderC,
-      D: Decoder as decoderD,
-      E: Decoder as decoderE,
-      F: Decoder as decoderF,
-      G: Decoder as decoderG,
-      H: Decoder as decoderH,
-      I: Decoder as decoderI,
-      J: Decoder as decoderJ,
-      K: Decoder as decoderK,
-      L: Decoder as decoderL,
-      M: Decoder as decoderM,
-      N: Decoder as decoderN,
-      O: Decoder as decoderO,
-      P: Decoder as decoderP,
-      Q: Decoder as decoderQ,
-      R: Decoder as decoderR,
-      S: Decoder as decoderS,
-      T: Decoder as decoderT,
-  ]: Decoder[(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T)] with
+  given tuple20[A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T](using
+      decoderA: Decoder[A],
+      decoderB: Decoder[B],
+      decoderC: Decoder[C],
+      decoderD: Decoder[D],
+      decoderE: Decoder[E],
+      decoderF: Decoder[F],
+      decoderG: Decoder[G],
+      decoderH: Decoder[H],
+      decoderI: Decoder[I],
+      decoderJ: Decoder[J],
+      decoderK: Decoder[K],
+      decoderL: Decoder[L],
+      decoderM: Decoder[M],
+      decoderN: Decoder[N],
+      decoderO: Decoder[O],
+      decoderP: Decoder[P],
+      decoderQ: Decoder[Q],
+      decoderR: Decoder[R],
+      decoderS: Decoder[S],
+      decoderT: Decoder[T],
+  ): Decoder[(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T)] with
     def decode(rs: ResultSet, name: String)(using
         Trace
     ): Task[(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T)] =
@@ -708,29 +712,29 @@ object Decoder:
         yield (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t)
   end tuple20
 
-  given tuple21[
-      A: Decoder as decoderA,
-      B: Decoder as decoderB,
-      C: Decoder as decoderC,
-      D: Decoder as decoderD,
-      E: Decoder as decoderE,
-      F: Decoder as decoderF,
-      G: Decoder as decoderG,
-      H: Decoder as decoderH,
-      I: Decoder as decoderI,
-      J: Decoder as decoderJ,
-      K: Decoder as decoderK,
-      L: Decoder as decoderL,
-      M: Decoder as decoderM,
-      N: Decoder as decoderN,
-      O: Decoder as decoderO,
-      P: Decoder as decoderP,
-      Q: Decoder as decoderQ,
-      R: Decoder as decoderR,
-      S: Decoder as decoderS,
-      T: Decoder as decoderT,
-      U: Decoder as decoderU,
-  ]: Decoder[(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U)] with
+  given tuple21[A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U](using
+      decoderA: Decoder[A],
+      decoderB: Decoder[B],
+      decoderC: Decoder[C],
+      decoderD: Decoder[D],
+      decoderE: Decoder[E],
+      decoderF: Decoder[F],
+      decoderG: Decoder[G],
+      decoderH: Decoder[H],
+      decoderI: Decoder[I],
+      decoderJ: Decoder[J],
+      decoderK: Decoder[K],
+      decoderL: Decoder[L],
+      decoderM: Decoder[M],
+      decoderN: Decoder[N],
+      decoderO: Decoder[O],
+      decoderP: Decoder[P],
+      decoderQ: Decoder[Q],
+      decoderR: Decoder[R],
+      decoderS: Decoder[S],
+      decoderT: Decoder[T],
+      decoderU: Decoder[U],
+  ): Decoder[(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U)] with
     def decode(rs: ResultSet, name: String)(using
         Trace
     ): Task[(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U)] =
@@ -761,30 +765,30 @@ object Decoder:
         yield (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u)
   end tuple21
 
-  given tuple22[
-      A: Decoder as decoderA,
-      B: Decoder as decoderB,
-      C: Decoder as decoderC,
-      D: Decoder as decoderD,
-      E: Decoder as decoderE,
-      F: Decoder as decoderF,
-      G: Decoder as decoderG,
-      H: Decoder as decoderH,
-      I: Decoder as decoderI,
-      J: Decoder as decoderJ,
-      K: Decoder as decoderK,
-      L: Decoder as decoderL,
-      M: Decoder as decoderM,
-      N: Decoder as decoderN,
-      O: Decoder as decoderO,
-      P: Decoder as decoderP,
-      Q: Decoder as decoderQ,
-      R: Decoder as decoderR,
-      S: Decoder as decoderS,
-      T: Decoder as decoderT,
-      U: Decoder as decoderU,
-      V: Decoder as decoderV,
-  ]: Decoder[(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V)] with
+  given tuple22[A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V](using
+      decoderA: Decoder[A],
+      decoderB: Decoder[B],
+      decoderC: Decoder[C],
+      decoderD: Decoder[D],
+      decoderE: Decoder[E],
+      decoderF: Decoder[F],
+      decoderG: Decoder[G],
+      decoderH: Decoder[H],
+      decoderI: Decoder[I],
+      decoderJ: Decoder[J],
+      decoderK: Decoder[K],
+      decoderL: Decoder[L],
+      decoderM: Decoder[M],
+      decoderN: Decoder[N],
+      decoderO: Decoder[O],
+      decoderP: Decoder[P],
+      decoderQ: Decoder[Q],
+      decoderR: Decoder[R],
+      decoderS: Decoder[S],
+      decoderT: Decoder[T],
+      decoderU: Decoder[U],
+      decoderV: Decoder[V],
+  ): Decoder[(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V)] with
     def decode(rs: ResultSet, name: String)(using
         Trace
     ): Task[(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V)] =
