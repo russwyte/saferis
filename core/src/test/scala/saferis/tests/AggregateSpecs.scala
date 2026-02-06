@@ -215,7 +215,7 @@ object AggregateSpecs extends ZIOSpecDefault:
 
   val genericLabelTests = suite("Generic type with @label and polymorphic given")(
     test("DEBUG: Table.derived columns have correct labels"):
-      val genericTable = summon[Table[GenericEventRow[EventPayload]]]
+      val genericTable    = summon[Table[GenericEventRow[EventPayload]]]
       val nonGenericTable = summon[Table[EventRow]]
 
       println("=== GENERIC TABLE ===")

@@ -254,17 +254,20 @@ object Macros:
     // Try 3: Look at the class definition tree for ValDef body members
     classSym.tree match
       case cd: ClassDef =>
-        cd.body.collectFirst {
-          case vd: ValDef if vd.name == fieldName => vd.symbol.annotations
-        }.getOrElse(Nil)
+        cd.body
+          .collectFirst {
+            case vd: ValDef if vd.name == fieldName => vd.symbol.annotations
+          }
+          .getOrElse(Nil)
       case _ => Nil
+  end getFieldAnnotations
 
   private def elemsWithAnnotation[T: Type, A <: StaticAnnotation: Type](using
       Quotes
   ): List[(String, x$1.reflect.TypeRepr)] =
     import quotes.reflect.*
     val annotType = TypeRepr.of[A]
-    val tpe = TypeRepr.of[T]
+    val tpe       = TypeRepr.of[T]
     // Use classSymbol for applied types to get the base class symbol
     val classSym = tpe.classSymbol.getOrElse(tpe.typeSymbol)
 
@@ -275,12 +278,11 @@ object Macros:
 
     // Try 1: caseFields annotations (most reliable for derives Table case)
     val fromCaseFields = classSym.caseFields.filter(f => hasAnnotation(f.annotations))
-    if fromCaseFields.nonEmpty then
-      return fromCaseFields.map(f => (f.name, tpe.memberType(f)))
+    if fromCaseFields.nonEmpty then return fromCaseFields.map(f => (f.name, tpe.memberType(f)))
 
     // Try 2: primaryConstructor parameter annotations
     val termParamss = classSym.primaryConstructor.paramSymss.filter(_.forall(!_.isTypeParam))
-    val fromParams = termParamss.headOption
+    val fromParams  = termParamss.headOption
       .map(_.filter(p => hasAnnotation(p.annotations)))
       .getOrElse(Nil)
     if fromParams.nonEmpty then
@@ -307,11 +309,12 @@ object Macros:
     import quotes.reflect.*
     val labelTypeSymbol = TypeRepr.of[label].typeSymbol
     // Get annotations directly from the class definition tree
-    getConstructorParamAnnotations[T](elemName).collectFirst {
-      case Apply(Select(New(tpt), _), List(Literal(StringConstant(name))))
-          if tpt.tpe.typeSymbol == labelTypeSymbol =>
-        Expr(name)
-    }.getOrElse(Expr(elemName))
+    getConstructorParamAnnotations[T](elemName)
+      .collectFirst {
+        case Apply(Select(New(tpt), _), List(Literal(StringConstant(name)))) if tpt.tpe.typeSymbol == labelTypeSymbol =>
+          Expr(name)
+      }
+      .getOrElse(Expr(elemName))
   end getLabel
 
   private def getDefaultValue[T: Type, A: Type](elemName: String)(using

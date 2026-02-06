@@ -43,4 +43,5 @@ object MacroDebugTest:
     concreteTable.columns.foreach { c =>
       println(s"  ${c.name} -> label='${c.label}', key=${c.isKey}, generated=${c.isGenerated}")
     }
+  end main
 end MacroDebugTest
