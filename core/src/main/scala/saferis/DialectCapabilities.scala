@@ -311,3 +311,17 @@ trait CommonTableExpressionSupport:
     val recursiveClause = if recursive then "recursive " else ""
     s"with $recursiveClause$cteName as ($cteQuery)"
 end CommonTableExpressionSupport
+
+/** Trait for dialects that provide enhanced schema introspection beyond JDBC metadata.
+  *
+  * The core SchemaIntrospection uses JDBC DatabaseMetaData which works across all databases. Dialects can implement
+  * this trait to provide richer metadata (e.g., partial index WHERE clauses).
+  */
+trait SchemaIntrospectionSupport:
+  self: Dialect =>
+
+  import zio.*
+
+  /** Introspect a table's schema from the database. */
+  def introspectTable(tableName: String)(using Trace): ZIO[ConnectionProvider & Scope, Throwable, Option[DatabaseTable]]
+end SchemaIntrospectionSupport

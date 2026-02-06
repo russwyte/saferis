@@ -1,6 +1,7 @@
 package saferis
 
 import scala.quoted.*
+import zio.*
 
 /** Schema builder that captures the table type A for proper selector type inference. Provides a fluent API for defining
   * indexes and foreign keys on a table.
@@ -107,6 +108,19 @@ final case class Schema[A <: Product](instance: Instance[A]):
     val allStatements = Seq(createTableSql) ++ indexStatements ++ compoundKeyIndex.toSeq
     SqlFragment(allStatements.mkString(";\n"), Seq.empty)
   end ddl
+
+  /** Verify this schema against the actual database schema.
+    *
+    * Succeeds with Unit if schema matches, fails with SchemaValidationError containing all issues found.
+    */
+  def verify(using dialect: Dialect)(using Trace): ZIO[ConnectionProvider & Scope, SchemaValidationError, Unit] =
+    SchemaIntrospection.verify(instance)
+
+  /** Verify this schema against the actual database schema with custom options. */
+  def verifyWith(options: VerifyOptions)(using dialect: Dialect)(using
+      Trace
+  ): ZIO[ConnectionProvider & Scope, SchemaValidationError, Unit] =
+    SchemaIntrospection.verifyWith(instance, options)
 end Schema
 
 object Schema:
