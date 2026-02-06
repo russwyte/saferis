@@ -31,7 +31,7 @@ final class Transactor(
     * @tparam A
     * @return
     */
-  def run[A](zio: ZIO[ConnectionProvider & Scope, Throwable, A])(using Trace): IO[Throwable, A] =
+  def run[A](zio: ZIO[ConnectionProvider & Scope, SaferisError, A])(using Trace): IO[SaferisError, A] =
     ZIO
       .scoped:
         ZIO
@@ -46,17 +46,20 @@ final class Transactor(
     * @param zio
     * @return
     */
-  def transact[A](zio: ZIO[ConnectionProvider & Scope, Throwable, A])(using Trace): IO[Throwable, A] =
+  def transact[A](zio: ZIO[ConnectionProvider & Scope, SaferisError, A])(using Trace): IO[SaferisError, A] =
     val transaction = for
-      connection <- connectionProvider.getConnection.map: con =>
-        configurator(con)
-        con.setAutoCommit(false)
-        con
+      connection <- connectionProvider.getConnection
+        .mapError(SaferisError.ConnectionError(_))
+        .map: con =>
+          configurator(con)
+          con.setAutoCommit(false)
+          con
       result <- zio
         .provideSomeLayer[Scope](ZLayer.succeed(ConnectionProvider.FromConnection(connection))) <* ZIO
         .attempt(connection.commit())
+        .mapError(SaferisError.fromThrowable(_))
         .catchAll: e =>
-          ZIO.attempt(connection.rollback()) *> ZIO.fail(e)
+          ZIO.attempt(connection.rollback()).ignore *> ZIO.fail(e)
     yield result
     ZIO.scoped:
       ZIO

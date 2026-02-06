@@ -78,18 +78,22 @@ object SparkDialectSpecs extends ZIOSpecDefault:
       assertTrue(createsIndex && createsUnique && dropsIndex)
     },
     test("Spark JSON support") {
-      val dialect = summon[Dialect].asInstanceOf[JsonSupport]
-      assertTrue(
-        dialect.jsonType == "string" &&
-          dialect.jsonExtractSql("data", "field") == "get_json_object(data, '$.field')"
-      )
+      summon[Dialect] match
+        case dialect: JsonSupport =>
+          assertTrue(
+            dialect.jsonType == "string" &&
+              dialect.jsonExtractSql("data", "field") == "get_json_object(data, '$.field')"
+          )
+        case _ => assertTrue(false)
     },
     test("Spark array support") {
-      val dialect = summon[Dialect].asInstanceOf[ArraySupport]
-      assertTrue(
-        dialect.arrayType("int") == "array<int>" &&
-          dialect.arrayContainsSql("tags", "value") == "array_contains(tags, value)"
-      )
+      summon[Dialect] match
+        case dialect: ArraySupport =>
+          assertTrue(
+            dialect.arrayType("int") == "array<int>" &&
+              dialect.arrayContainsSql("tags", "value") == "array_contains(tags, value)"
+          )
+        case _ => assertTrue(false)
     },
     test("String literals use single quotes (Encoder default)") {
       val encoder = summon[Encoder[String]]

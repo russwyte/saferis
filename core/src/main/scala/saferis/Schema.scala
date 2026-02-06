@@ -111,15 +111,17 @@ final case class Schema[A <: Product](instance: Instance[A]):
 
   /** Verify this schema against the actual database schema.
     *
-    * Succeeds with Unit if schema matches, fails with SchemaValidationError containing all issues found.
+    * Succeeds with Unit if schema matches, fails with SaferisError.SchemaValidation containing all issues found.
     */
-  def verify(using dialect: Dialect)(using Trace): ZIO[ConnectionProvider & Scope, SchemaValidationError, Unit] =
+  def verify(using dialect: Dialect)(using Trace): ZIO[ConnectionProvider & Scope, SaferisError, Unit] =
     SchemaIntrospection.verify(instance)
 
   /** Verify this schema against the actual database schema with custom options. */
-  def verifyWith(options: VerifyOptions)(using dialect: Dialect)(using
+  def verifyWith(options: VerifyOptions)(using
+      dialect: Dialect
+  )(using
       Trace
-  ): ZIO[ConnectionProvider & Scope, SchemaValidationError, Unit] =
+  ): ZIO[ConnectionProvider & Scope, SaferisError, Unit] =
     SchemaIntrospection.verifyWith(instance, options)
 end Schema
 

@@ -17,29 +17,21 @@ object SpecializedDMLSpec extends ZIOSpecDefault:
     },
     test("PostgreSQL dialect capabilities") {
       import saferis.postgres.given
-      val dialect = summon[Dialect]
-
-      for _ <- ZIO.unit
-      yield
-        // Test that PostgreSQL supports all the expected capabilities
-        assertTrue(dialect.name == "PostgreSQL") &&
-          assertTrue(dialect.isInstanceOf[ReturningSupport]) &&
-          assertTrue(dialect.isInstanceOf[JsonSupport]) &&
-          assertTrue(dialect.isInstanceOf[ArraySupport]) &&
-          assertTrue(dialect.isInstanceOf[UpsertSupport]) &&
-          assertTrue(dialect.isInstanceOf[IndexIfNotExistsSupport])
+      // Compile-time type evidence - these lines only compile if PostgreSQL supports these capabilities
+      val _: Dialect & ReturningSupport        = summon[Dialect]
+      val _: Dialect & JsonSupport             = summon[Dialect]
+      val _: Dialect & ArraySupport            = summon[Dialect]
+      val _: Dialect & UpsertSupport           = summon[Dialect]
+      val _: Dialect & IndexIfNotExistsSupport = summon[Dialect]
+      assertTrue(summon[Dialect].name == "PostgreSQL")
     },
     test("SQLite dialect capabilities") {
       import saferis.sqlite.given
-      val dialect = summon[Dialect]
-
-      for _ <- ZIO.unit
-      yield
-        // Test that SQLite supports expected capabilities
-        assertTrue(dialect.name == "SQLite") &&
-          assertTrue(dialect.isInstanceOf[ReturningSupport]) &&
-          assertTrue(dialect.isInstanceOf[WindowFunctionSupport]) &&
-          assertTrue(dialect.isInstanceOf[CommonTableExpressionSupport])
+      // Compile-time type evidence - these lines only compile if SQLite supports these capabilities
+      val _: Dialect & ReturningSupport             = summon[Dialect]
+      val _: Dialect & WindowFunctionSupport        = summon[Dialect]
+      val _: Dialect & CommonTableExpressionSupport = summon[Dialect]
+      assertTrue(summon[Dialect].name == "SQLite")
     },
 
     // MySQL dialect test temporarily disabled due to import issues

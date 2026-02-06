@@ -2,7 +2,8 @@ package saferis
 
 import zio.*
 
-import java.sql.{Connection, DatabaseMetaData, ResultSet}
+import java.sql.{Connection, DatabaseMetaData}
+import scala.annotation.unused
 import scala.collection.mutable.ListBuffer
 
 /** Schema introspection and validation.
@@ -13,31 +14,35 @@ import scala.collection.mutable.ListBuffer
 object SchemaIntrospection:
 
   /** Introspect a table's schema from the database. */
-  def introspect(tableName: String)(using dialect: Dialect)(using
+  def introspect(tableName: String)(using
+      dialect: Dialect
+  )(using
       Trace
-  ): ZIO[ConnectionProvider & Scope, Throwable, Option[DatabaseTable]] =
+  ): ZIO[ConnectionProvider & Scope, SaferisError, Option[DatabaseTable]] =
     dialect match
       case d: SchemaIntrospectionSupport => d.introspectTable(tableName)
       case _                             => introspectViaJdbc(tableName)
 
   /** Verify a schema against the database using default options. */
-  def verify[A <: Product](instance: Instance[A])(using dialect: Dialect)(using
+  def verify[A <: Product](instance: Instance[A])(using
+      dialect: Dialect
+  )(using
       Trace
-  ): ZIO[ConnectionProvider & Scope, SchemaValidationError, Unit] =
+  ): ZIO[ConnectionProvider & Scope, SaferisError, Unit] =
     verifyWith(instance, VerifyOptions.default)
 
   /** Verify a schema against the database with custom options. */
-  def verifyWith[A <: Product](instance: Instance[A], options: VerifyOptions)(using dialect: Dialect)(using
+  def verifyWith[A <: Product](instance: Instance[A], options: VerifyOptions)(using
+      dialect: Dialect
+  )(using
       Trace
-  ): ZIO[ConnectionProvider & Scope, SchemaValidationError, Unit] =
+  ): ZIO[ConnectionProvider & Scope, SaferisError, Unit] =
     for
-      dbTableOpt <- introspect(instance.tableName).mapError(e => SchemaValidationError(List(
-        SchemaIssue.TableNotFound(s"${instance.tableName} (introspection failed: ${e.getMessage})")
-      )))
+      dbTableOpt <- introspect(instance.tableName)
       issues = dbTableOpt match
         case None          => List(SchemaIssue.TableNotFound(instance.tableName))
         case Some(dbTable) => compare(instance, dbTable, options)
-      _ <- ZIO.when(issues.nonEmpty)(ZIO.fail(SchemaValidationError(issues)))
+      _ <- ZIO.when(issues.nonEmpty)(ZIO.fail(SaferisError.SchemaValidation(issues)))
     yield ()
 
   /** Compare expected schema against actual database table. */
@@ -62,6 +67,7 @@ object SchemaIntrospection:
           if options.checkNullability then
             if col.isNullable != dbCol.isNullable then
               issues += SchemaIssue.NullabilityMismatch(tableName, columnLabel, col.isNullable, dbCol.isNullable)
+      end match
     }
 
     // Check primary key
@@ -95,6 +101,7 @@ object SchemaIntrospection:
               issues += SchemaIssue.IndexNameMismatch(tableName, expectedName.get, dbIdx.indexName, columnLabels)
           case _ => // OK
       }
+    end if
 
     // Check unique constraints
     // Note: JDBC doesn't expose unique constraints separately - they appear as unique indexes.
@@ -125,7 +132,9 @@ object SchemaIntrospection:
                 columnLabels,
               )
           case _ => // OK
+        end match
       }
+    end if
 
     // Check foreign keys
     if options.checkForeignKeys then
@@ -147,7 +156,9 @@ object SchemaIntrospection:
                 toLabels,
               )
           case _ => // OK
+        end match
       }
+    end if
 
     issues.toList
   end compare
@@ -193,26 +204,27 @@ object SchemaIntrospection:
     t.toLowerCase.replaceAll("\\(.*\\)", "").trim
 
   private def areTypesInSameFamily(t1: String, t2: String): Boolean =
-    val integerTypes  = Set("integer", "int", "int4", "serial", "bigint", "int8", "bigserial", "smallint", "int2")
-    val textTypes     = Set("varchar", "text", "character varying", "char", "character", "bpchar")
-    val numericTypes  = Set("numeric", "decimal", "real", "float", "float4", "float8", "double precision", "double")
-    val boolTypes     = Set("boolean", "bool", "bit")
+    val integerTypes   = Set("integer", "int", "int4", "serial", "bigint", "int8", "bigserial", "smallint", "int2")
+    val textTypes      = Set("varchar", "text", "character varying", "char", "character", "bpchar")
+    val numericTypes   = Set("numeric", "decimal", "real", "float", "float4", "float8", "double precision", "double")
+    val boolTypes      = Set("boolean", "bool", "bit")
     val timestampTypes = Set("timestamp", "timestamptz", "timestamp with time zone", "timestamp without time zone")
-    val jsonTypes     = Set("json", "jsonb")
+    val jsonTypes      = Set("json", "jsonb")
 
     val families = Seq(integerTypes, textTypes, numericTypes, boolTypes, timestampTypes, jsonTypes)
     families.exists(family => family.contains(t1) && family.contains(t2))
+  end areTypesInSameFamily
 
   // === JDBC Introspection ===
 
   private def introspectViaJdbc(tableName: String)(using
       Trace
-  ): ZIO[ConnectionProvider & Scope, Throwable, Option[DatabaseTable]] =
-    for
+  ): ZIO[ConnectionProvider & Scope, SaferisError, Option[DatabaseTable]] =
+    (for
       provider <- ZIO.service[ConnectionProvider]
       conn     <- provider.getConnection
       result   <- ZIO.attemptBlocking(introspectConnection(conn, tableName))
-    yield result
+    yield result).mapError(SaferisError.fromThrowable(_))
 
   private def introspectConnection(conn: Connection, tableName: String): Option[DatabaseTable] =
     val meta   = conn.getMetaData
@@ -231,13 +243,15 @@ object SchemaIntrospection:
         finally tablesLower.close()
       else Some(buildTableFromMetadata(meta, schema, tableName))
     finally tables.close()
+    end try
+  end introspectConnection
 
   private def buildTableFromMetadata(meta: DatabaseMetaData, schema: String, tableName: String): DatabaseTable =
-    val columns          = getColumns(meta, schema, tableName)
-    val primaryKeys      = getPrimaryKeys(meta, schema, tableName)
-    val indexes          = getIndexes(meta, schema, tableName, primaryKeys)
+    val columns           = getColumns(meta, schema, tableName)
+    val primaryKeys       = getPrimaryKeys(meta, schema, tableName)
+    val indexes           = getIndexes(meta, schema, tableName, primaryKeys)
     val uniqueConstraints = getUniqueConstraints(meta, schema, tableName)
-    val foreignKeys      = getForeignKeys(meta, schema, tableName)
+    val foreignKeys       = getForeignKeys(meta, schema, tableName)
 
     DatabaseTable(tableName, columns, primaryKeys, indexes, uniqueConstraints, foreignKeys)
 
@@ -255,7 +269,9 @@ object SchemaIntrospection:
           ordinalPosition = rs.getInt("ORDINAL_POSITION"),
         )
     finally rs.close()
+    end try
     columns.toSeq
+  end getColumns
 
   private def getPrimaryKeys(meta: DatabaseMetaData, schema: String, tableName: String): Seq[String] =
     val rs   = meta.getPrimaryKeys(null, schema, tableName)
@@ -292,11 +308,12 @@ object SchemaIntrospection:
         // Filter out primary key index
         idx.columns.map(_.toLowerCase) == primaryKeys.map(_.toLowerCase)
       }
+  end getIndexes
 
   private def getUniqueConstraints(
-      meta: DatabaseMetaData,
-      schema: String,
-      tableName: String,
+      @unused meta: DatabaseMetaData,
+      @unused schema: String,
+      @unused tableName: String,
   ): Seq[DatabaseUniqueConstraint] =
     // JDBC doesn't have a direct method for unique constraints separate from indexes
     // Unique constraints typically show up as unique indexes, handled in getIndexes
@@ -331,17 +348,19 @@ object SchemaIntrospection:
           rs.getString("FK_NAME"),
         ))
     finally rs.close()
+    end try
 
     fks
       .groupBy(_._1)
       .map { case (name, cols) =>
-        val sorted     = cols.sortBy(_._6)
-        val fromCols   = sorted.map(_._2).toSeq
-        val toTable    = sorted.headOption.map(_._3).getOrElse("")
-        val toCols     = sorted.map(_._4).toSeq
-        val onDelete   = sorted.headOption.map(_._5).getOrElse("NO ACTION")
-        val onUpdate   = sorted.headOption.map(_._7).getOrElse("NO ACTION")
+        val sorted   = cols.sortBy(_._6)
+        val fromCols = sorted.map(_._2).toSeq
+        val toTable  = sorted.headOption.map(_._3).getOrElse("")
+        val toCols   = sorted.map(_._4).toSeq
+        val onDelete = sorted.headOption.map(_._5).getOrElse("NO ACTION")
+        val onUpdate = sorted.headOption.map(_._7).getOrElse("NO ACTION")
         DatabaseForeignKey(name, fromCols, toTable, toCols, onDelete, onUpdate)
       }
       .toSeq
+  end getForeignKeys
 end SchemaIntrospection

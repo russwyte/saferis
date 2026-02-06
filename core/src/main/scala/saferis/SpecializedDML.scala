@@ -9,7 +9,7 @@ object SpecializedDML:
   inline def insertReturning[A <: Product](entity: A)(using
       table: Table[A],
       dialect: Dialect & ReturningSupport,
-  )(using trace: Trace): ZIO[ConnectionProvider & Scope, Throwable, Option[A]] =
+  )(using trace: Trace): ZIO[ConnectionProvider & Scope, SaferisError, Option[A]] =
     val tableName        = table.name
     val insertColumns    = table.insertColumnsSql.sql
     val returningColumns = table.returningColumnsSql.sql
@@ -25,7 +25,7 @@ object SpecializedDML:
   inline def updateReturning[A <: Product](entity: A)(using
       table: Table[A],
       dialect: Dialect & ReturningSupport,
-  )(using trace: Trace): ZIO[ConnectionProvider & Scope, Throwable, Option[A]] =
+  )(using trace: Trace): ZIO[ConnectionProvider & Scope, SaferisError, Option[A]] =
     val tableName        = table.name
     val setClause        = table.updateSetClause(entity).sql
     val whereClause      = table.updateWhereClause(entity).sql
@@ -43,7 +43,7 @@ object SpecializedDML:
   inline def deleteReturning[A <: Product](entity: A)(using
       table: Table[A],
       dialect: Dialect & ReturningSupport,
-  )(using trace: Trace): ZIO[ConnectionProvider & Scope, Throwable, Option[A]] =
+  )(using trace: Trace): ZIO[ConnectionProvider & Scope, SaferisError, Option[A]] =
     val tableName        = table.name
     val whereClause      = table.updateWhereClause(entity).sql
     val returningColumns = table.returningColumnsSql.sql
@@ -59,7 +59,7 @@ object SpecializedDML:
   inline def upsert[A <: Product](entity: A, conflictColumns: Seq[String])(using
       table: Table[A],
       dialect: Dialect & UpsertSupport,
-  )(using trace: Trace): ZIO[ConnectionProvider & Scope, Throwable, Int] =
+  )(using trace: Trace): ZIO[ConnectionProvider & Scope, SaferisError, Int] =
     val tableName     = table.name
     val insertColumns = table.insertColumnsSql.sql
     val updateColumns = table.updateSetClause(entity).sql
@@ -80,7 +80,7 @@ object SpecializedDML:
   )(using
       table: Table[A],
       dialect: Dialect & IndexIfNotExistsSupport,
-  )(using trace: Trace): ZIO[ConnectionProvider & Scope, Throwable, Int] =
+  )(using trace: Trace): ZIO[ConnectionProvider & Scope, SaferisError, Int] =
     val tableName = table.name
     val sql       = SqlFragment(dialect.createIndexIfNotExistsSql(indexName, tableName, columnNames, unique), Seq.empty)
     sql.dml

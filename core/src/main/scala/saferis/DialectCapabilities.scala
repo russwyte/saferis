@@ -323,5 +323,7 @@ trait SchemaIntrospectionSupport:
   import zio.*
 
   /** Introspect a table's schema from the database. */
-  def introspectTable(tableName: String)(using Trace): ZIO[ConnectionProvider & Scope, Throwable, Option[DatabaseTable]]
+  def introspectTable(tableName: String)(using
+      Trace
+  ): ZIO[ConnectionProvider & Scope, SaferisError, Option[DatabaseTable]]
 end SchemaIntrospectionSupport
