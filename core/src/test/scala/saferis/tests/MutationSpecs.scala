@@ -3,6 +3,7 @@ package saferis.tests
 import saferis.*
 import saferis.tests.PostgresTestContainer.DataSourceProvider
 import zio.*
+import zio.json.*
 import zio.test.*
 
 object MutationSpecs extends ZIOSpecDefault:
@@ -11,6 +12,19 @@ object MutationSpecs extends ZIOSpecDefault:
   // Test table for mutation specs
   @tableName("test_mutation")
   final case class TestUser(@generated @key id: Int, name: String, age: Int, status: String) derives Table
+
+  // Generic case class with @label annotations and polymorphic given
+  final case class MutationPayload(name: String, value: Int) derives JsonCodec
+
+  @tableName("generic_mutation_test")
+  final case class GenericMutationRow[E: JsonCodec](
+      @generated @key id: Int,
+      @label("instance_id") instanceId: String,
+      @label("sequence_nr") sequenceNr: Long,
+      payload: Json[E],
+  )
+  object GenericMutationRow:
+    given [E: JsonCodec]: Table[GenericMutationRow[E]] = Table.derived
 
   // ============================================================================
   // SQL Generation Tests (Unit Tests)
@@ -315,9 +329,54 @@ object MutationSpecs extends ZIOSpecDefault:
         assertTrue(remaining.contains(0)),
   ).provideShared(xaLayer) @@ TestAspect.sequential
 
+  // ============================================================================
+  // Generic Type with @label Tests (Polymorphic Given)
+  // ============================================================================
+
+  val genericLabelTests = suite("Generic type with @label and polymorphic given")(
+    test("Insert.value uses @label for column name in SQL"):
+      val frag = Insert[GenericMutationRow[MutationPayload]]
+        .value(_.instanceId, "test-1")
+        .value(_.sequenceNr, 42L)
+        .build
+      // Should use "instance_id" and "sequence_nr" (from @label)
+      assertTrue(
+        frag.sql.contains("instance_id"),
+        frag.sql.contains("sequence_nr"),
+        !frag.sql.contains("instanceId"),
+        !frag.sql.contains("sequenceNr"),
+      )
+    ,
+    test("Update.set uses @label for column name in SQL"):
+      val frag = Update[GenericMutationRow[MutationPayload]]
+        .set(_.sequenceNr, 100L)
+        .where(_.instanceId)
+        .eq("test-1")
+        .build
+      // Should use "sequence_nr" in SET and "instance_id" in WHERE
+      assertTrue(
+        frag.sql.contains("set sequence_nr"),
+        frag.sql.contains("instance_id ="),
+        !frag.sql.contains("sequenceNr"),
+        !frag.sql.contains("instanceId"),
+      )
+    ,
+    test("Delete.where uses @label for column name in SQL"):
+      val frag = Delete[GenericMutationRow[MutationPayload]]
+        .where(_.instanceId)
+        .eq("test-1")
+        .build
+      // Should use "instance_id" (from @label)
+      assertTrue(
+        frag.sql.contains("instance_id ="),
+        !frag.sql.contains("instanceId"),
+      ),
+  )
+
   val spec = suite("Mutation DSL")(
     sqlGenerationTests,
     integrationTests,
+    genericLabelTests,
   )
 
 end MutationSpecs

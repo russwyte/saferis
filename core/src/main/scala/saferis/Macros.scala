@@ -216,16 +216,13 @@ object Macros:
       Quotes
   ): Expr[Boolean] =
     import quotes.reflect.*
-    val a = TypeRepr.of[A].typeSymbol
-    Expr:
-      TypeRepr
-        .of[T]
-        .typeSymbol
-        .primaryConstructor
-        .paramSymss
-        .head
-        .find(sym => sym.name == elemName && sym.hasAnnotation(a))
-        .isDefined
+    val annotType = TypeRepr.of[A]
+    // Check annotations from the class definition tree directly
+    // Use <:< subtype check because @generated extends @key
+    val hasAnnot = getConstructorParamAnnotations[T](elemName).exists { annot =>
+      annot.tpe <:< annotType
+    }
+    Expr(hasAnnot)
   end elemHasAnnotation
 
   private def isOptionType[T: Type](using Quotes): Expr[Boolean] =
@@ -233,39 +230,88 @@ object Macros:
     val tpe = TypeRepr.of[T]
     Expr(tpe.typeSymbol == TypeRepr.of[Option[?]].typeSymbol)
 
+  // Get annotations for a field by looking at both field symbols and constructor parameters
+  // This works for both generic and concrete types
+  private def getFieldAnnotations[T: Type](fieldName: String)(using Quotes): List[quotes.reflect.Term] =
+    import quotes.reflect.*
+    val tpe = TypeRepr.of[T]
+    // Use classSymbol for applied types to get the base class symbol
+    val classSym = tpe.classSymbol.getOrElse(tpe.typeSymbol)
+
+    // Try 1: Field symbol annotations (works for most cases)
+    val fieldAnnots = classSym.caseFields.find(_.name == fieldName).map(_.annotations).getOrElse(Nil)
+    if fieldAnnots.nonEmpty then return fieldAnnots
+
+    // Try 2: Constructor parameter symbol annotations
+    // Filter to only term parameter clauses (skip type parameter clauses for generics)
+    val termParamss = classSym.primaryConstructor.paramSymss.filter(_.forall(!_.isTypeParam))
+    val paramAnnots = termParamss.headOption
+      .flatMap(_.find(_.name == fieldName))
+      .map(_.annotations)
+      .getOrElse(Nil)
+    if paramAnnots.nonEmpty then return paramAnnots
+
+    // Try 3: Look at the class definition tree for ValDef body members
+    classSym.tree match
+      case cd: ClassDef =>
+        cd.body.collectFirst {
+          case vd: ValDef if vd.name == fieldName => vd.symbol.annotations
+        }.getOrElse(Nil)
+      case _ => Nil
+
   private def elemsWithAnnotation[T: Type, A <: StaticAnnotation: Type](using
       Quotes
   ): List[(String, x$1.reflect.TypeRepr)] =
     import quotes.reflect.*
-    val a     = TypeRepr.of[A].typeSymbol
-    val tpe   = TypeRepr.of[T]
-    val elems = TypeRepr
-      .of[T]
-      .typeSymbol
-      .primaryConstructor
-      .paramSymss
-      .head
-      .filter(sym => sym.hasAnnotation(a))
-      .map(sym => (sym.name, tpe.memberType(sym)))
-    elems
+    val annotType = TypeRepr.of[A]
+    val tpe = TypeRepr.of[T]
+    // Use classSymbol for applied types to get the base class symbol
+    val classSym = tpe.classSymbol.getOrElse(tpe.typeSymbol)
+
+    // Helper to check if annotations contain the target annotation type or a subtype
+    // This is important because @generated extends @key
+    def hasAnnotation(annots: List[Term]): Boolean =
+      annots.exists(_.tpe <:< annotType)
+
+    // Try 1: caseFields annotations (most reliable for derives Table case)
+    val fromCaseFields = classSym.caseFields.filter(f => hasAnnotation(f.annotations))
+    if fromCaseFields.nonEmpty then
+      return fromCaseFields.map(f => (f.name, tpe.memberType(f)))
+
+    // Try 2: primaryConstructor parameter annotations
+    val termParamss = classSym.primaryConstructor.paramSymss.filter(_.forall(!_.isTypeParam))
+    val fromParams = termParamss.headOption
+      .map(_.filter(p => hasAnnotation(p.annotations)))
+      .getOrElse(Nil)
+    if fromParams.nonEmpty then
+      return fromParams.map(p => (p.name, tpe.memberType(classSym.caseFields.find(_.name == p.name).get)))
+
+    // Try 3: class definition tree (needed for generic types)
+    classSym.tree match
+      case cd: ClassDef =>
+        cd.body.collect {
+          case vd: ValDef if hasAnnotation(vd.symbol.annotations) =>
+            (vd.name, tpe.memberType(classSym.caseFields.find(_.name == vd.name).get))
+        }
+      case _ => Nil
   end elemsWithAnnotation
+
+  // Get annotations for a constructor parameter by looking at the class definition tree
+  // This works for both generic and concrete types because it accesses the AST directly
+  private def getConstructorParamAnnotations[T: Type](paramName: String)(using Quotes): List[quotes.reflect.Term] =
+    getFieldAnnotations[T](paramName)
 
   private def getLabel[T: Type](elemName: String)(using
       Quotes
   ): Expr[String] =
     import quotes.reflect.*
-    val a = TypeRepr.of[label].typeSymbol
-    TypeRepr
-      .of[T]
-      .typeSymbol
-      .primaryConstructor
-      .paramSymss
-      .head
-      .find(sym => sym.name == elemName && sym.hasAnnotation(a))
-      .flatMap(sym => sym.getAnnotation(a))
-      .map(term => term.asExprOf[label])
-      .map(label => '{ $label.name })
-      .getOrElse(Expr(elemName))
+    val labelTypeSymbol = TypeRepr.of[label].typeSymbol
+    // Get annotations directly from the class definition tree
+    getConstructorParamAnnotations[T](elemName).collectFirst {
+      case Apply(Select(New(tpt), _), List(Literal(StringConstant(name))))
+          if tpt.tpe.typeSymbol == labelTypeSymbol =>
+        Expr(name)
+    }.getOrElse(Expr(elemName))
   end getLabel
 
   private def getDefaultValue[T: Type, A: Type](elemName: String)(using
