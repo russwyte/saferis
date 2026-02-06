@@ -3,6 +3,7 @@ package saferis.tests
 import saferis.*
 import saferis.tests.PostgresTestContainer.DataSourceProvider
 import zio.*
+import zio.json.*
 import zio.test.*
 
 object AggregateSpecs extends ZIOSpecDefault:
@@ -17,6 +18,20 @@ object AggregateSpecs extends ZIOSpecDefault:
       amount: BigDecimal,
   ) derives Table
 
+  // Generic case class with @label annotations and polymorphic given
+  // This tests the specific case where Table instance comes from a companion object
+  final case class EventPayload(name: String, value: Int) derives JsonCodec
+
+  @tableName("generic_aggregate_test")
+  final case class GenericEventRow[E: JsonCodec](
+      @generated @key id: Int,
+      @label("instance_id") instanceId: String,
+      @label("sequence_nr") sequenceNr: Long,
+      payload: Json[E],
+  )
+  object GenericEventRow:
+    given [E: JsonCodec]: Table[GenericEventRow[E]] = Table.derived
+
   // ============================================================================
   // SQL Generation Tests (Unit Tests)
   // ============================================================================
@@ -29,8 +44,14 @@ object AggregateSpecs extends ZIOSpecDefault:
           .eq("test-1")
           .selectAggregate(_.sequenceNr)(_.max)
           .build
-        assertTrue(frag.sql.contains("select max(sequence_nr) from aggregate_test")) &&
-        assertTrue(frag.sql.contains("where"))
+        // Verify @label is respected - should use "sequence_nr" not "sequenceNr"
+        assertTrue(
+          frag.sql.contains("select max(sequence_nr) from aggregate_test"),
+          frag.sql.contains("where"),
+          frag.sql.contains("instance_id"),
+          !frag.sql.contains("sequenceNr"),
+          !frag.sql.contains("instanceId"),
+        )
       ,
       test("min generates correct SQL"):
         val frag = Query[EventRow]
@@ -188,8 +209,79 @@ object AggregateSpecs extends ZIOSpecDefault:
       yield assertTrue(result.contains(42L)),
   ).provideShared(xaLayer) @@ TestAspect.sequential
 
+  // ============================================================================
+  // Generic Type with @label Tests (Polymorphic Given)
+  // ============================================================================
+
+  val genericLabelTests = suite("Generic type with @label and polymorphic given")(
+    test("DEBUG: Table.derived columns have correct labels"):
+      val genericTable    = summon[Table[GenericEventRow[EventPayload]]]
+      val nonGenericTable = summon[Table[EventRow]]
+
+      println("=== GENERIC TABLE ===")
+      println(s"Table name: ${genericTable.name}")
+      genericTable.columns.foreach { c =>
+        println(s"  Column: name='${c.name}', label='${c.label}'")
+      }
+
+      println("=== NON-GENERIC TABLE ===")
+      println(s"Table name: ${nonGenericTable.name}")
+      nonGenericTable.columns.foreach { c =>
+        println(s"  Column: name='${c.name}', label='${c.label}'")
+      }
+
+      assertTrue(
+        genericTable.columns.exists(c => c.name == "instanceId" && c.label == "instance_id"),
+        genericTable.columns.exists(c => c.name == "sequenceNr" && c.label == "sequence_nr"),
+      )
+    ,
+    test("selectAggregate uses @label for column name in SQL"):
+      val frag = Query[GenericEventRow[EventPayload]]
+        .where(_.instanceId)
+        .eq("test-1")
+        .selectAggregate(_.sequenceNr)(_.max)
+        .build
+      // Should use "sequence_nr" (from @label), not "sequencenr" (lowercased field name)
+      assertTrue(
+        frag.sql.contains("max(sequence_nr)"),
+        !frag.sql.contains("sequencenr"),
+        !frag.sql.contains("sequenceNr"),
+      )
+    ,
+    test("where clause uses @label for column name in SQL"):
+      val frag = Query[GenericEventRow[EventPayload]]
+        .where(_.instanceId)
+        .eq("test-1")
+        .build
+      // Should use "instance_id" (from @label), not "instanceid" (lowercased field name)
+      assertTrue(
+        frag.sql.contains("instance_id"),
+        !frag.sql.contains("instanceid"),
+        !frag.sql.contains("instanceId"),
+      )
+    ,
+    test("selectAggregate with generic type executes correctly"):
+      for
+        xa     <- ZIO.service[Transactor]
+        _      <- xa.run(ddl.dropTable[GenericEventRow[EventPayload]](ifExists = true))
+        _      <- xa.run(ddl.createTable[GenericEventRow[EventPayload]]())
+        _      <- xa.run(dml.insert(GenericEventRow(-1, "test-1", 1L, Json(EventPayload("a", 10)))))
+        _      <- xa.run(dml.insert(GenericEventRow(-1, "test-1", 5L, Json(EventPayload("b", 20)))))
+        _      <- xa.run(dml.insert(GenericEventRow(-1, "test-1", 3L, Json(EventPayload("c", 30)))))
+        result <- xa.run(
+          Query[GenericEventRow[EventPayload]]
+            .where(_.instanceId)
+            .eq("test-1")
+            .selectAggregate(_.sequenceNr)(_.max)
+            .queryValue[Long]
+        )
+        _ <- xa.run(ddl.dropTable[GenericEventRow[EventPayload]]())
+      yield assertTrue(result.contains(5L)),
+  ).provideShared(xaLayer) @@ TestAspect.sequential
+
   override def spec = suite("AggregateSpecs")(
     sqlGenerationTests,
     integrationTests,
+    genericLabelTests,
   )
 end AggregateSpecs
