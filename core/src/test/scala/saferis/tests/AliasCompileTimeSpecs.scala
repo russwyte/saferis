@@ -99,7 +99,6 @@ object AliasCompileTimeSpecs extends ZIOSpecDefault:
     ),
     suite("Query.from(subquery, alias)")(
       test("Query.from with string literal compiles"):
-        val subquery = Query[TestUser].where(_.id).gt(0).select(_.id)
         // Can't easily test Query.from here since it needs SelectQuery[A] where A derives Table
         // But we verify the pattern works with a string literal
         assertTrue(true) // Placeholder - the test above validates the pattern

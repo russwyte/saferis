@@ -6,10 +6,12 @@ A comprehensive guide to Saferis - the type-safe, resource-safe SQL client libra
 
 - [Getting Started](#getting-started)
 - [Core Concepts](#core-concepts)
+- [Error Handling](#error-handling)
 - [SQL Injection Prevention](#sql-injection-prevention)
 - [Dialect System](#dialect-system)
 - [Data Definition Layer (DDL)](#data-definition-layer-ddl)
 - [Foreign Key Support](#foreign-key-support)
+- [Schema Validation](#schema-validation)
 - [Data Manipulation Layer (DML)](#data-manipulation-layer-dml)
 - [Query Builder](#query-builder)
 - [Subqueries](#subqueries)
@@ -245,6 +247,138 @@ val limitedLayer = Transactor.layer(maxConcurrency = 1L)
 
 **When NOT to use `maxConcurrency`:**
 - With HikariCP or similar connection pools. The pool handles queuing more efficiently and HikariCP specifically recommends letting threads wait on the pool rather than limiting concurrency externally. Using a semaphore with a pool creates double-queuing and adds overhead in high-contention scenarios.
+
+---
+
+## Error Handling
+
+Saferis uses a principled error type hierarchy defined in [SaferisError.scala](https://github.com/russwyte/saferis/blob/main/core/src/main/scala/saferis/SaferisError.scala) that enables proper pattern matching and eliminates unsafe casting. All database operations return `ZIO` effects with `SaferisError` as the error type.
+
+### Error Categories
+
+| Error Type | When It Occurs |
+|------------|----------------|
+| `ConstraintViolation` | PRIMARY KEY, FOREIGN KEY, UNIQUE, NOT NULL, or CHECK constraint violated |
+| `SyntaxError` | Invalid SQL syntax |
+| `DataError` | Data type mismatch, division by zero, etc. |
+| `QueryError` | General SQL execution errors |
+| `ConnectionError` | Cannot acquire database connection |
+| `DecodingError` | Cannot decode a column value to the expected Scala type |
+| `EncodingError` | Cannot encode a parameter value for the prepared statement |
+| `ReturningOperationFailed` | INSERT/UPDATE/DELETE RETURNING returned no rows |
+| `SchemaValidation` | Schema verification found mismatches (see [Schema Validation](#schema-validation)) |
+| `Unexpected` | Non-SQL errors (wrapped in Unexpected) |
+
+### SQL Error Classification
+
+SQL errors are automatically categorized based on SQLState codes:
+
+| SQLState Prefix | Error Type | Description |
+|-----------------|------------|-------------|
+| `23` | `ConstraintViolation` | Integrity constraint violations |
+| `42` | `SyntaxError` | Syntax errors or access violations |
+| `22` | `DataError` | Data exceptions |
+| Other | `QueryError` | General query errors |
+
+### Pattern Matching on Errors
+
+Use pattern matching for type-safe error handling:
+
+```scala mdoc:reset:silent
+import saferis.*
+import saferis.docs.DocTestContainer.{run, transactor as xa}
+import zio.*
+
+@tableName("error_users")
+case class ErrorUser(@generated @key id: Int, email: String, name: String) derives Table
+```
+
+```scala mdoc
+// Handle specific error types with pattern matching
+run {
+  xa.run(for
+    _ <- ddl.createTable[ErrorUser]()
+    _ <- dml.insert(ErrorUser(-1, "alice@example.com", "Alice"))
+    _ <- dml.insert(ErrorUser(-1, "bob@example.com", "Bob"))
+    result <- sql"SELECT * FROM ${Table[ErrorUser]} WHERE ${Table[ErrorUser].email} = ${"alice@example.com"}".queryOne[ErrorUser].either
+  yield result match
+    case Left(SaferisError.DecodingError(col, expected, _)) =>
+      s"Failed to decode column '$col' as $expected"
+    case Left(error) =>
+      s"Other error: ${error.message}"
+    case Right(user) =>
+      s"Found user: ${user.map(_.name).getOrElse("none")}"
+  )
+}
+```
+
+### Handling Constraint Violations
+
+```scala mdoc:reset:silent
+import saferis.*
+import saferis.Schema.*
+import saferis.docs.DocTestContainer.{run, transactor as xa}
+
+@tableName("unique_emails")
+case class UniqueEmail(@generated @key id: Int, email: String) derives Table
+```
+
+```scala mdoc
+run {
+  val schema = Schema[UniqueEmail].withUniqueConstraint(_.email).build
+  xa.run(for
+    _ <- ddl.createTable(schema)
+    _ <- dml.insert(UniqueEmail(-1, "alice@example.com"))
+    // Try to insert duplicate email
+    result <- dml.insert(UniqueEmail(-1, "alice@example.com")).either
+  yield result match
+    case Left(SaferisError.ConstraintViolation(constraintType, _, _, _)) =>
+      s"Constraint violation: $constraintType"
+    case Left(error) =>
+      s"Other error: ${error.message}"
+    case Right(_) =>
+      "Insert succeeded"
+  )
+}
+```
+
+### Converting Raw Exceptions
+
+Use `SaferisError.fromThrowable` to wrap exceptions:
+
+```scala mdoc:compile-only
+import saferis.*
+
+// Convert a Throwable to SaferisError
+val sqlException = new java.sql.SQLException("duplicate key", "23505")
+val error = SaferisError.fromThrowable(sqlException)
+// error: SaferisError.ConstraintViolation(...)
+
+// Non-SQL exceptions become Unexpected
+val runtimeException = new RuntimeException("something went wrong")
+val unexpectedError = SaferisError.fromThrowable(runtimeException)
+// unexpectedError: SaferisError.Unexpected(...)
+```
+
+### Accessing Error Details
+
+Each error type provides relevant details:
+
+```scala mdoc:compile-only
+import saferis.*
+
+def logError(error: SaferisError): String = error match
+  case e: SaferisError.ConstraintViolation =>
+    s"Constraint ${e.constraintType} violated. SQL: ${e.sql.getOrElse("N/A")}"
+  case e: SaferisError.SyntaxError =>
+    s"Syntax error: ${e.cause.getMessage}. SQL: ${e.sql.getOrElse("N/A")}"
+  case e: SaferisError.DecodingError =>
+    s"Failed to decode column '${e.columnName}' as ${e.expectedType}"
+  case e: SaferisError.SchemaValidation =>
+    s"Schema issues:\n${e.issues.map(_.description).mkString("\n")}"
+  case e =>
+    e.message
+```
 
 ---
 
@@ -870,6 +1004,213 @@ val valid = Schema[TypeOrder]
 // This would NOT compile - String doesn't match Int
 // val invalid = Schema[TypeOrder]
 //   .withForeignKey(_.userName).references[TypeUser](_.id)
+```
+
+---
+
+## Schema Validation
+
+Saferis provides runtime schema validation to verify that your table definitions match the actual database schema. This is useful for detecting schema drift, validating migrations, and ensuring consistency between code and database.
+
+### Basic Verification
+
+Use `Schema(instance).verify` to validate a schema against the database:
+
+```scala mdoc:reset:silent
+import saferis.*
+import saferis.Schema.*
+import saferis.docs.DocTestContainer.{run, transactor as xa}
+
+@tableName("verify_users")
+case class VerifyUser(@generated @key id: Int, name: String, email: String) derives Table
+```
+
+```scala mdoc
+run {
+  val schema = Schema[VerifyUser].build
+  xa.run(for
+    _ <- ddl.createTable(schema)
+    // Verify succeeds when schema matches
+    _ <- Schema(schema).verify
+  yield "Schema verification passed")
+}
+```
+
+When verification fails, it returns a `SaferisError.SchemaValidation` containing a list of issues:
+
+```scala mdoc
+run {
+  val schema = Schema[VerifyUser].withIndex(_.email).named("idx_verify_email").build
+  xa.run(for
+    // Create table without the index
+    _ <- ddl.createTable[VerifyUser]()
+    // Verification will find the missing index
+    result <- Schema(schema).verify.either
+  yield result match
+    case Left(SaferisError.SchemaValidation(issues)) =>
+      issues.map(_.description).mkString("\n")
+    case Left(e) => s"Unexpected error: ${e.message}"
+    case Right(_) => "Verification passed"
+  )
+}
+```
+
+### VerifyOptions
+
+Customize verification behavior with `VerifyOptions`:
+
+```scala mdoc:compile-only
+import saferis.*
+
+// Available options
+val options = VerifyOptions(
+  checkExtraColumns = true,      // Report columns in DB not defined in schema
+  checkIndexes = true,           // Verify indexes exist
+  checkUniqueConstraints = true, // Verify unique constraints exist
+  checkForeignKeys = true,       // Verify foreign keys exist
+  checkNullability = true,       // Verify column nullable/NOT NULL matches
+  checkTypes = true,             // Verify column types match
+  strictTypeMatching = false,    // Require exact type match (not just compatible)
+  strictNameMatching = false,    // Fail if index/constraint name differs
+)
+```
+
+#### Preset Options
+
+| Preset | Description |
+|--------|-------------|
+| `VerifyOptions.default` | Check everything except strict name matching |
+| `VerifyOptions.minimal` | Only check table and columns exist |
+| `VerifyOptions.strict` | Check everything including exact names |
+
+```scala mdoc:reset:silent
+import saferis.*
+import saferis.Schema.*
+import saferis.docs.DocTestContainer.{run, transactor as xa}
+
+@tableName("options_users")
+case class OptionsUser(@generated @key id: Int, name: String) derives Table
+```
+
+```scala mdoc
+run {
+  val schema = Schema[OptionsUser].build
+  xa.run(for
+    _ <- ddl.createTable[OptionsUser]()
+    // Add an extra column to the database
+    _ <- sql"ALTER TABLE options_users ADD COLUMN extra VARCHAR(100)".execute
+
+    // Default verification fails due to extra column
+    defaultResult <- Schema(schema).verify.either
+
+    // Minimal verification ignores extra columns
+    minimalResult <- Schema(schema).verifyWith(VerifyOptions.minimal).either
+  yield (
+    defaultResult.fold(e => s"Default failed: ${e.message.take(60)}...", _ => "passed"),
+    minimalResult.fold(_.message, _ => "Minimal passed")
+  ))
+}
+```
+
+### SchemaIssue Types
+
+Verification returns specific issue types defined in [SchemaIssue.scala](https://github.com/russwyte/saferis/blob/main/core/src/main/scala/saferis/SchemaIssue.scala):
+
+#### Column Issues
+
+| Issue | Description |
+|-------|-------------|
+| `TableNotFound` | Table does not exist in database |
+| `MissingColumn` | Expected column is missing |
+| `TypeMismatch` | Column has wrong type |
+| `NullabilityMismatch` | Column nullable/NOT NULL differs |
+| `ExtraColumn` | Column in DB not in schema |
+| `PrimaryKeyMismatch` | Primary key columns don't match |
+
+#### Constraint Issues
+
+| Issue | Description |
+|-------|-------------|
+| `MissingIndex` | Expected index not found |
+| `IndexNameMismatch` | Index exists but with different name |
+| `MissingUniqueConstraint` | Expected unique constraint not found |
+| `UniqueConstraintNameMismatch` | Constraint exists but with different name |
+| `MissingForeignKey` | Expected foreign key not found |
+| `ForeignKeyNameMismatch` | Foreign key exists but with different name |
+
+### Verifying Complex Schemas
+
+Verify schemas with indexes, unique constraints, and foreign keys:
+
+```scala mdoc:reset:silent
+import saferis.*
+import saferis.Schema.*
+import saferis.docs.DocTestContainer.{run, transactor as xa}
+
+@tableName("verify_orders")
+case class VerifyOrder(
+  @generated @key id: Int,
+  userId: Int,
+  amount: BigDecimal,
+  status: String
+) derives Table
+
+@tableName("verify_customers")
+case class VerifyCustomer(@generated @key id: Int, email: String) derives Table
+```
+
+```scala mdoc
+run {
+  // Build a schema with index and foreign key
+  val ordersSchema = Schema[VerifyOrder]
+    .withIndex(_.status).named("idx_order_status")
+    .withForeignKey(_.userId).references[VerifyCustomer](_.id).onDelete(Cascade)
+    .build
+
+  xa.run(for
+    _ <- ddl.createTable[VerifyCustomer]()
+    _ <- ddl.createTable(ordersSchema)
+    // Full verification including FK
+    _ <- Schema(ordersSchema).verify
+  yield "All constraints verified")
+}
+```
+
+### Type Compatibility
+
+By default, type checking uses "type families" for compatibility. Types in the same family are considered compatible:
+
+| Family | Compatible Types |
+|--------|------------------|
+| Integer | `integer`, `int`, `int4`, `serial`, `bigint`, `int8`, `bigserial`, `smallint` |
+| Text | `varchar`, `text`, `character varying`, `char`, `bpchar` |
+| Numeric | `numeric`, `decimal`, `real`, `float`, `double precision` |
+| Boolean | `boolean`, `bool`, `bit` |
+| Timestamp | `timestamp`, `timestamptz`, `timestamp with time zone` |
+| JSON | `json`, `jsonb` |
+
+Use `strictTypeMatching = true` to require exact type matches.
+
+### Application Startup Validation
+
+A common pattern is to verify schemas at application startup:
+
+```scala mdoc:compile-only
+import saferis.*
+import zio.*
+
+def validateSchemas(using Dialect): ZIO[Transactor, SaferisError, Unit] =
+  for
+    xa <- ZIO.service[Transactor]
+    customerSchema = Schema[VerifyCustomer].build
+    orderSchema = Schema[VerifyOrder].build
+    _ <- xa.run(Schema(customerSchema).verify)
+    _ <- xa.run(Schema(orderSchema).verify)
+    _ <- ZIO.logInfo("All schemas validated successfully")
+  yield ()
+
+// In your app initialization:
+// validateSchemas.tapError(e => ZIO.logError(s"Schema validation failed: ${e.message}"))
 ```
 
 ---

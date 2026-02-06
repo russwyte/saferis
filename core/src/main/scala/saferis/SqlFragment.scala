@@ -6,7 +6,7 @@ import java.sql.PreparedStatement
 import java.sql.ResultSet
 import scala.collection.mutable as m
 
-type ScopedQuery[E] = ZIO[ConnectionProvider & Scope, Throwable, E]
+type ScopedQuery[E] = ZIO[ConnectionProvider & Scope, SaferisError, E]
 
 final case class SqlFragment(
     sql: String,
@@ -26,7 +26,7 @@ final case class SqlFragment(
     * @return
     */
   inline def query[E <: Product: Table](using trace: Trace): ScopedQuery[Seq[E]] =
-    for
+    val effect = for
       connection <- ZIO.serviceWithZIO[ConnectionProvider](_.getConnection)
       statement  <- ZIO.attempt(connection.prepareStatement(sql))
       _          <- doWrites(statement)
@@ -39,7 +39,7 @@ final case class SqlFragment(
           }
         loop(Vector.newBuilder[E])
     yield results
-    end for
+    effect.mapError(SaferisError.fromThrowable(_, Some(sql)))
   end query
 
   /** Executes a query and returns an effect of an option of [[Table]]. If the query returns no rows, None is returned.
@@ -47,13 +47,14 @@ final case class SqlFragment(
     * @return
     */
   inline def queryOne[E <: Product: Table](using trace: Trace): ScopedQuery[Option[E]] =
-    for
+    val effect = for
       connection <- ZIO.serviceWithZIO[ConnectionProvider](_.getConnection)
       statement  <- ZIO.attempt(connection.prepareStatement(sql))
       _          <- doWrites(statement)
       rs         <- ZIO.attempt(statement.executeQuery())
       result     <- if rs.next() then make[E](rs).map(Some(_)) else ZIO.succeed(None)
     yield result
+    effect.mapError(SaferisError.fromThrowable(_, Some(sql)))
   end queryOne
 
   /** Executes a query and returns an effect of a simple value (like Int, String, etc.) from the first column of the
@@ -66,7 +67,7 @@ final case class SqlFragment(
     *   an effect of Option[A] - None if no results, Some(value) if results found
     */
   inline def queryValue[A](using decoder: Decoder[A])(using trace: Trace): ScopedQuery[Option[A]] =
-    for
+    val effect = for
       connection <- ZIO.serviceWithZIO[ConnectionProvider](_.getConnection)
       statement  <- ZIO.attempt(connection.prepareStatement(sql))
       _          <- doWrites(statement)
@@ -78,44 +79,46 @@ final case class SqlFragment(
           decoder.decode(rs, name).map(Some(_))
         else ZIO.succeed(None)
     yield result
+    effect.mapError(SaferisError.fromThrowable(_, Some(sql)))
   end queryValue
 
   /** alias for [[Statement.dml]]
     *
     * @return
     */
-  def update(using trace: Trace): ZIO[ConnectionProvider & Scope, Throwable, Int] = dml
+  def update(using trace: Trace): ZIO[ConnectionProvider & Scope, SaferisError, Int] = dml
 
   /** alias for [[Statement.dml]]
     *
     * @return
     */
-  def delete(using trace: Trace): ZIO[ConnectionProvider & Scope, Throwable, Int] = dml
+  def delete(using trace: Trace): ZIO[ConnectionProvider & Scope, SaferisError, Int] = dml
 
   /** alias for [[Statement.dml]]
     *
     * @return
     */
-  def insert(using trace: Trace): ZIO[ConnectionProvider & Scope, Throwable, Int] = dml
+  def insert(using trace: Trace): ZIO[ConnectionProvider & Scope, SaferisError, Int] = dml
 
   /** Generic execution for any SQL statement (DML or DDL). Alias for [[dml]] with a more generic name suitable for DDL
     * operations.
     * @return
     */
-  def execute(using trace: Trace): ZIO[ConnectionProvider & Scope, Throwable, Int] = dml
+  def execute(using trace: Trace): ZIO[ConnectionProvider & Scope, SaferisError, Int] = dml
 
   /** Executes the statement which must be an SQL Data Manipulation Language (DML) statement, such as INSERT, UPDATE or
     * DELETE or an SQL statement that returns an Int, such as a DML statement.
     * @return
     */
-  inline def dml(using trace: Trace): ZIO[ConnectionProvider & Scope, Throwable, Int] =
-    for
+  inline def dml(using trace: Trace): ZIO[ConnectionProvider & Scope, SaferisError, Int] =
+    val effect = for
       connection <- ZIO.serviceWithZIO[ConnectionProvider](_.getConnection)
       statement  <- ZIO.attempt(connection.prepareStatement(sql))
       _          <- ZIO.foreach(writes.zipWithIndex): (write, idx) =>
         write.write(statement, idx + 1)
       result <- ZIO.attempt(statement.executeUpdate())
     yield result
+    effect.mapError(SaferisError.fromThrowable(_, Some(sql)))
 
   /** Strips leading whitespace from each line in the SQL string, and removes the margin character. See
     * [[String.stripMargin]]

@@ -193,7 +193,10 @@ object TransactorSpecs extends ZIOSpecDefault:
           after <- xa
             .run:
               names
-        yield assertTrue(error.isInstanceOf[java.sql.SQLException]) && // the pastrami is a lie
+          isSyntaxError = error match
+            case SaferisError.SyntaxError(_, _) => true
+            case _                              => false
+        yield assertTrue(isSyntaxError) && // the pastrami is a lie
           assertTrue(after == before)
         end for
 

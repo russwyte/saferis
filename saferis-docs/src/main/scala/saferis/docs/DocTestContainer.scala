@@ -43,21 +43,24 @@ object DocTestContainer:
 
   /** Run a ZIO effect using the test transactor.
     *
-    * This is a convenience method for mdoc examples.
+    * This is a convenience method for mdoc examples. Converts SaferisError to RuntimeException for synchronous
+    * execution in documentation.
     */
-  def run[A](effect: ZIO[Any, Throwable, A]): A =
-    Unsafe.unsafe { implicit u =>
-      Runtime.default.unsafe.run(effect).getOrThrow()
+  def run[A](effect: IO[SaferisError, A]): A =
+    zio.Unsafe.unsafe { implicit u =>
+      Runtime.default.unsafe
+        .run(effect.mapError(e => new RuntimeException(e.message)))
+        .getOrThrow()
     }
 
   /** Run an effect that needs a ConnectionProvider. */
-  def runWithConnection[A](effect: ZIO[ConnectionProvider & Scope, Throwable, A]): A =
-    Unsafe.unsafe { implicit u =>
+  def runWithConnection[A](effect: ZIO[ConnectionProvider & Scope, SaferisError, A]): A =
+    zio.Unsafe.unsafe { implicit u =>
       Runtime.default.unsafe
         .run(
-          ZIO.scoped {
-            effect.provideSome[Scope](ZLayer.succeed(connectionProvider))
-          }
+          ZIO
+            .scoped(effect.provideSome[Scope](ZLayer.succeed(connectionProvider)))
+            .mapError(e => new RuntimeException(e.message))
         )
         .getOrThrow()
     }

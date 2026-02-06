@@ -89,5 +89,5 @@ object SQLiteDialect extends Dialect with ReturningSupport with CommonTableExpre
 
 end SQLiteDialect
 
-// Provide a given instance for the SQLite dialect
-given Dialect = SQLiteDialect
+// Export SQLiteDialect with its singleton type so all capability intersections are satisfied
+given SQLiteDialect.type = SQLiteDialect

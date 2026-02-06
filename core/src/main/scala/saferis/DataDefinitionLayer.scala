@@ -11,7 +11,7 @@ object DataDefinitionLayer:
   inline def createTable[A <: Product](
       ifNotExists: Boolean = true,
       createIndexes: Boolean = true,
-  )(using table: Table[A], dialect: Dialect)(using trace: Trace): ZIO[ConnectionProvider & Scope, Throwable, Int] =
+  )(using table: Table[A], dialect: Dialect)(using trace: Trace): ZIO[ConnectionProvider & Scope, SaferisError, Int] =
     // Separate key columns for compound key handling
     val keyColumns     = table.columns.filter(_.isKey)
     val hasCompoundKey = keyColumns.length > 1
@@ -55,14 +55,14 @@ object DataDefinitionLayer:
     */
   def createTable[A <: Product](
       instance: Instance[A]
-  )(using dialect: Dialect)(using trace: Trace): ZIO[ConnectionProvider & Scope, Throwable, Int] =
+  )(using dialect: Dialect)(using trace: Trace): ZIO[ConnectionProvider & Scope, SaferisError, Int] =
     createTable(instance, ifNotExists = true, createIndexes = true)
 
   def createTable[A <: Product](
       instance: Instance[A],
       ifNotExists: Boolean,
       createIndexes: Boolean,
-  )(using dialect: Dialect)(using trace: Trace): ZIO[ConnectionProvider & Scope, Throwable, Int] =
+  )(using dialect: Dialect)(using trace: Trace): ZIO[ConnectionProvider & Scope, SaferisError, Int] =
     // Use instance's columns (dealiased for DDL)
     val cols           = instance.columns.map(_.withTableAlias(None))
     val keyColumns     = cols.filter(_.isKey)
@@ -101,7 +101,7 @@ object DataDefinitionLayer:
   /** Create indexes for an Instance from Schema-defined IndexSpecs */
   private def createIndexesFromInstance[A <: Product](instance: Instance[A])(using
       dialect: Dialect
-  )(using trace: Trace): ZIO[ConnectionProvider & Scope, Throwable, Seq[Int]] =
+  )(using trace: Trace): ZIO[ConnectionProvider & Scope, SaferisError, Seq[Int]] =
     val tableName      = instance.tableName
     val cols           = instance.columns.map(_.withTableAlias(None))
     val keyColumns     = cols.filter(_.isKey)
@@ -143,7 +143,7 @@ object DataDefinitionLayer:
   inline def dropTable[A <: Product](ifExists: Boolean = false)(using
       table: Table[A],
       dialect: Dialect,
-  )(using trace: Trace): ZIO[ConnectionProvider & Scope, Throwable, Int] =
+  )(using trace: Trace): ZIO[ConnectionProvider & Scope, SaferisError, Int] =
     val tableName = table.name
     val sql       = SqlFragment(dialect.dropTableSql(tableName, ifExists), Seq.empty)
     sql.dml
@@ -151,7 +151,7 @@ object DataDefinitionLayer:
   inline def truncateTable[A <: Product]()(using
       table: Table[A],
       dialect: Dialect,
-  )(using trace: Trace): ZIO[ConnectionProvider & Scope, Throwable, Int] =
+  )(using trace: Trace): ZIO[ConnectionProvider & Scope, SaferisError, Int] =
     val tableName = table.name
     val sql       = SqlFragment(dialect.truncateTableSql(tableName), Seq.empty)
     sql.dml
@@ -160,7 +160,7 @@ object DataDefinitionLayer:
       table: Table[A],
       encoder: Encoder[T],
       dialect: Dialect,
-  )(using trace: Trace): ZIO[ConnectionProvider & Scope, Throwable, Int] =
+  )(using trace: Trace): ZIO[ConnectionProvider & Scope, SaferisError, Int] =
     val tableName  = table.name
     val columnType = dialect.columnType(encoder.jdbcType)
     val sql        = SqlFragment(dialect.addColumnSql(tableName, columnName, columnType), Seq.empty)
@@ -170,7 +170,7 @@ object DataDefinitionLayer:
   inline def dropColumn[A <: Product](columnName: String)(using
       table: Table[A],
       dialect: Dialect,
-  )(using trace: Trace): ZIO[ConnectionProvider & Scope, Throwable, Int] =
+  )(using trace: Trace): ZIO[ConnectionProvider & Scope, SaferisError, Int] =
     val tableName = table.name
     val sql       = SqlFragment(dialect.dropColumnSql(tableName, columnName), Seq.empty)
     sql.dml
@@ -180,7 +180,7 @@ object DataDefinitionLayer:
       columnNames: Seq[String],
       unique: Boolean = false,
       where: Option[String] = None,
-  )(using table: Table[A], dialect: Dialect)(using trace: Trace): ZIO[ConnectionProvider & Scope, Throwable, Int] =
+  )(using table: Table[A], dialect: Dialect)(using trace: Trace): ZIO[ConnectionProvider & Scope, SaferisError, Int] =
     val tableName = table.name
     val sql       =
       if unique then
@@ -214,7 +214,7 @@ object DataDefinitionLayer:
   inline def createIndexes[A <: Product]()(using
       table: Table[A],
       dialect: Dialect,
-  )(using trace: Trace): ZIO[ConnectionProvider & Scope, Throwable, Seq[Int]] =
+  )(using trace: Trace): ZIO[ConnectionProvider & Scope, SaferisError, Seq[Int]] =
     val tableName      = table.name
     val keyColumns     = table.columns.filter(_.isKey)
     val hasCompoundKey = keyColumns.length > 1
@@ -235,7 +235,7 @@ object DataDefinitionLayer:
 
   inline def dropIndex(indexName: String, ifExists: Boolean = false)(using
       dialect: Dialect
-  )(using trace: Trace): ZIO[ConnectionProvider & Scope, Throwable, Int] =
+  )(using trace: Trace): ZIO[ConnectionProvider & Scope, SaferisError, Int] =
     val sql = SqlFragment(dialect.dropIndexSql(indexName, ifExists), Seq.empty)
     sql.dml
 
