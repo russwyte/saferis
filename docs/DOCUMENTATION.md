@@ -28,7 +28,7 @@ A comprehensive guide to Saferis - the type-safe, resource-safe SQL client libra
 Add Saferis to your `build.sbt`:
 
 ```scala
-libraryDependencies += "io.github.russwyte" %% "saferis" % "0.10.0+2-cf0ce81e+20260206-0935"
+libraryDependencies += "io.github.russwyte" %% "saferis" % "0.11.0"
 ```
 
 Saferis requires ZIO as a provided dependency:
@@ -197,7 +197,7 @@ val minPrice = 10.0
 val query = sql"SELECT * FROM $products WHERE ${products.price} > $minPrice"
 // query: SqlFragment = SqlFragment(
 //   sql = "SELECT * FROM products WHERE price > ?",
-//   writes = Vector(saferis.Write@65271c22)
+//   writes = Vector(saferis.Write@191b5a86)
 // )
 query.show
 // res8: String = "SELECT * FROM products WHERE price > 10.0"
@@ -882,7 +882,7 @@ run {
   yield jobs)
 }
 // res45: Seq[Job] = Vector(
-//   Job(id = 1, status = "pending", retryAt = Some(2026-02-06T15:53:08.530298Z)),
+//   Job(id = 1, status = "pending", retryAt = Some(2026-02-06T16:05:09.510085Z)),
 //   Job(id = 2, status = "completed", retryAt = None)
 // )
 ```
@@ -1876,7 +1876,7 @@ case class ClaimTask(
 ```scala
 // Query for unclaimed or expired claims
 val now = java.time.Instant.now()
-// now: Instant = 2026-02-06T15:53:08.886671145Z
+// now: Instant = 2026-02-06T16:05:09.841384957Z
 Update[ClaimTask]
   .set(_.claimedBy, Some("worker-1"))
   .where(_.deadline).lte(now)
@@ -1923,7 +1923,7 @@ case class LockRow(
 ```scala
 // returningAs provides type-safe query execution
 val newExpiry = java.time.Instant.now().plusSeconds(60)
-// newExpiry: Instant = 2026-02-06T15:54:08.888966844Z
+// newExpiry: Instant = 2026-02-06T16:06:09.843821711Z
 Update[LockRow]
   .set(_.expiresAt, newExpiry)
   .where(_.instanceId).eq("instance-1")
@@ -2384,7 +2384,7 @@ val activeUserIds = Query[SubOrder]
 //     wherePredicates = Vector(
 //       SqlFragment(
 //         sql = "sub_orders_ref_1.status = ?",
-//         writes = Vector(saferis.Write@324a2a3e)
+//         writes = Vector(saferis.Write@4eb0636b)
 //       )
 //     ),
 //     sorts = Vector(),
@@ -2624,7 +2624,7 @@ val electronicProductIds = Query[ComplexProduct]
 //     wherePredicates = Vector(
 //       SqlFragment(
 //         sql = "complex_products_ref_1.category = ?",
-//         writes = Vector(saferis.Write@652ac935)
+//         writes = Vector(saferis.Write@25267408)
 //       )
 //     ),
 //     sorts = Vector(),
@@ -2687,7 +2687,7 @@ val usersWithElectronics = Query[ComplexOrder]
 //     wherePredicates = Vector(
 //       SqlFragment(
 //         sql = "complex_orders_ref_1.productId IN (select id from complex_products as complex_products_ref_1 where complex_products_ref_1.category = ?)",
-//         writes = List(saferis.Write@652ac935)
+//         writes = List(saferis.Write@25267408)
 //       )
 //     ),
 //     sorts = Vector(),
@@ -2742,7 +2742,7 @@ case class TimeoutRow(
 ```scala
 // Find rows that are due AND either unclaimed or with expired claims
 val now = java.time.Instant.now()
-// now: Instant = 2026-02-06T15:53:08.935605620Z
+// now: Instant = 2026-02-06T16:05:09.891160663Z
 Query[TimeoutRow]
   .where(_.deadline).lte(now)
   .andWhere(w => w(_.claimedBy).isNull.or(_.claimedUntil).lt(Some(now)))
@@ -2953,13 +2953,13 @@ case class UpsertLock(
 ```scala
 // Basic upsert - update all non-key columns on conflict
 val now = java.time.Instant.now()
-// now: Instant = 2026-02-06T15:53:08.968993980Z
+// now: Instant = 2026-02-06T16:05:09.923992340Z
 val lock = UpsertLock("instance-1", "node-1", now, now.plusSeconds(60))
 // lock: UpsertLock = UpsertLock(
 //   instanceId = "instance-1",
 //   nodeId = "node-1",
-//   acquiredAt = 2026-02-06T15:53:08.968993980Z,
-//   expiresAt = 2026-02-06T15:54:08.968993980Z
+//   acquiredAt = 2026-02-06T16:05:09.923992340Z,
+//   expiresAt = 2026-02-06T16:06:09.923992340Z
 // )
 
 Upsert[UpsertLock]
@@ -3131,16 +3131,16 @@ run {
 //     AtomicLock(
 //       instanceId = "lock-1",
 //       nodeId = "node-A",
-//       acquiredAt = 2026-02-06T15:53:08.981982Z,
-//       expiresAt = 2026-02-06T15:54:08.981982Z
+//       acquiredAt = 2026-02-06T16:05:09.936038Z,
+//       expiresAt = 2026-02-06T16:06:09.936038Z
 //     )
 //   ),
 //   Some(
 //     AtomicLock(
 //       instanceId = "lock-1",
 //       nodeId = "node-A",
-//       acquiredAt = 2026-02-06T15:53:08.981982Z,
-//       expiresAt = 2026-02-06T15:55:08.981982Z
+//       acquiredAt = 2026-02-06T16:05:09.936038Z,
+//       expiresAt = 2026-02-06T16:07:09.936038Z
 //     )
 //   )
 // )
@@ -3309,14 +3309,14 @@ run {
 //   Event(
 //     id = 1,
 //     name = "Conference",
-//     occurredAt = 2026-02-06T15:53:09.039205Z,
-//     scheduledFor = Some(2026-02-13T09:53:09.039334),
+//     occurredAt = 2026-02-06T16:05:09.979254Z,
+//     scheduledFor = Some(2026-02-13T10:05:09.979299),
 //     eventDate = 2026-02-06
 //   ),
 //   Event(
 //     id = 2,
 //     name = "Meeting",
-//     occurredAt = 2026-02-06T15:53:09.046225Z,
+//     occurredAt = 2026-02-06T16:05:09.983958Z,
 //     scheduledFor = None,
 //     eventDate = 2026-02-07
 //   )
@@ -3349,7 +3349,7 @@ run {
   yield found)
 }
 // res170: Option[Entity] = Some(
-//   Entity(id = d4da4925-f076-4537-ae72-cf0eb3e5e59d, name = "First Entity")
+//   Entity(id = fb16408a-7bca-4bbc-afe5-7c5a36f55267, name = "First Entity")
 // )
 ```
 
