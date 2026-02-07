@@ -64,7 +64,8 @@ lazy val core = project
     description := "Saferis mitigates the discord of unsafe SQL. It is a resource safe SQL client library.",
     libraryDependencies ++= Seq(
       "dev.zio"           %% "zio"                       % zioVersion % "provided",
-      "dev.zio"           %% "zio-json"                  % "0.8.0"    % "provided",
+      "dev.zio"           %% "zio-streams"               % zioVersion % "provided",
+      "dev.zio"           %% "zio-json"                  % "0.9.0"    % "provided",
       "dev.zio"           %% "zio-logging-slf4j2-bridge" % "2.5.3"    % Test,
       "dev.zio"           %% "zio-test"                  % zioVersion % Test,
       "dev.zio"           %% "zio-test-sbt"              % zioVersion % Test,
@@ -85,7 +86,7 @@ lazy val docs = project
     publish / skip := true,
     libraryDependencies ++= Seq(
       "dev.zio"           %% "zio"        % zioVersion,
-      "dev.zio"           %% "zio-json"   % "0.8.0",
+      "dev.zio"           %% "zio-json"   % "0.9.0",
       "org.testcontainers" % "postgresql" % "1.21.4",
       "org.postgresql"     % "postgresql" % "42.7.9",
     ),

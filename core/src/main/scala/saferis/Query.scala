@@ -1,6 +1,9 @@
 package saferis
 
+import zio.Chunk
+import zio.Scope
 import zio.Trace
+import zio.stream.ZStream
 
 /** Join types for SQL JOIN operations */
 enum JoinType:
@@ -419,10 +422,14 @@ final case class Query1Ready[A <: Product: Table](
   end build
 
   /** Execute query */
-  inline def query[R <: Product: Table](using Trace): ScopedQuery[Seq[R]] = build.query[R]
+  inline def query[R <: Product: Table](using Trace): ScopedQuery[Chunk[R]] = build.query[R]
 
   /** Execute query returning first row */
   inline def queryOne[R <: Product: Table](using Trace): ScopedQuery[Option[R]] = build.queryOne[R]
+
+  /** Execute query as lazy stream */
+  inline def queryStream[R <: Product: Table](using Trace): ZStream[ConnectionProvider & Scope, SaferisError, R] =
+    build.queryStream[R]
 
 end Query1Ready
 
@@ -840,8 +847,10 @@ final case class Query2Ready[A <: Product: Table, B <: Product: Table](
     result
   end build
 
-  inline def query[R <: Product: Table](using Trace): ScopedQuery[Seq[R]]       = build.query[R]
+  inline def query[R <: Product: Table](using Trace): ScopedQuery[Chunk[R]]     = build.query[R]
   inline def queryOne[R <: Product: Table](using Trace): ScopedQuery[Option[R]] = build.queryOne[R]
+  inline def queryStream[R <: Product: Table](using Trace): ZStream[ConnectionProvider & Scope, SaferisError, R] =
+    build.queryStream[R]
 
 end Query2Ready
 
@@ -1123,8 +1132,10 @@ final case class Query3Ready[A <: Product: Table, B <: Product: Table, C <: Prod
     result
   end build
 
-  inline def query[R <: Product: Table](using Trace): ScopedQuery[Seq[R]]       = build.query[R]
+  inline def query[R <: Product: Table](using Trace): ScopedQuery[Chunk[R]]     = build.query[R]
   inline def queryOne[R <: Product: Table](using Trace): ScopedQuery[Option[R]] = build.queryOne[R]
+  inline def queryStream[R <: Product: Table](using Trace): ZStream[ConnectionProvider & Scope, SaferisError, R] =
+    build.queryStream[R]
 
 end Query3Ready
 
@@ -1323,8 +1334,10 @@ final case class Query4Ready[A <: Product: Table, B <: Product: Table, C <: Prod
     result
   end build
 
-  inline def query[R <: Product: Table](using Trace): ScopedQuery[Seq[R]]       = build.query[R]
+  inline def query[R <: Product: Table](using Trace): ScopedQuery[Chunk[R]]     = build.query[R]
   inline def queryOne[R <: Product: Table](using Trace): ScopedQuery[Option[R]] = build.queryOne[R]
+  inline def queryStream[R <: Product: Table](using Trace): ZStream[ConnectionProvider & Scope, SaferisError, R] =
+    build.queryStream[R]
 
 end Query4Ready
 
@@ -1559,8 +1572,10 @@ final case class Query5Ready[
     result
   end build
 
-  inline def query[R <: Product: Table](using Trace): ScopedQuery[Seq[R]]       = build.query[R]
+  inline def query[R <: Product: Table](using Trace): ScopedQuery[Chunk[R]]     = build.query[R]
   inline def queryOne[R <: Product: Table](using Trace): ScopedQuery[Option[R]] = build.queryOne[R]
+  inline def queryStream[R <: Product: Table](using Trace): ZStream[ConnectionProvider & Scope, SaferisError, R] =
+    build.queryStream[R]
 
 end Query5Ready
 
