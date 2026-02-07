@@ -1,6 +1,9 @@
 package saferis
 
+import zio.Chunk
+import zio.Scope
 import zio.Trace
+import zio.stream.ZStream
 
 // ============================================================================
 // Clause types for INSERT and UPDATE
@@ -33,13 +36,17 @@ final case class SetClause(columnLabel: String, write: Write[?])
   */
 final case class ReturningQuery[A <: Product: Table](fragment: SqlFragment):
   /** Execute query and return all matching rows */
-  inline def query(using Trace): ScopedQuery[Seq[A]] = fragment.query[A]
+  inline def query(using Trace): ScopedQuery[Chunk[A]] = fragment.query[A]
 
   /** Execute query and return the first row (if any) */
   inline def queryOne(using Trace): ScopedQuery[Option[A]] = fragment.queryOne[A]
 
+  /** Execute query and stream all matching rows lazily */
+  inline def queryStream(using Trace): ZStream[ConnectionProvider & Scope, SaferisError, A] = fragment.queryStream[A]
+
   /** Get the underlying SQL fragment */
   def build: SqlFragment = fragment
+end ReturningQuery
 
 // ============================================================================
 // Insert Builder

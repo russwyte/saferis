@@ -1,10 +1,10 @@
 package saferis
 
 import zio.*
+import zio.stream.ZStream
 
 import java.sql.PreparedStatement
 import java.sql.ResultSet
-import scala.collection.mutable as m
 
 type ScopedQuery[E] = ZIO[ConnectionProvider & Scope, SaferisError, E]
 
@@ -21,23 +21,23 @@ final case class SqlFragment(
   private def doWrites(statement: PreparedStatement)(using trace: Trace) = ZIO.foreachDiscard(writes.zipWithIndex):
     (write, idx) => write.write(statement, idx + 1)
 
-  /** Executes a query and returns an effect of a sequence of [[Table]] instances.
+  /** Executes a query and returns an effect of a Chunk of [[Table]] instances.
     *
     * @return
     */
-  inline def query[E <: Product: Table](using trace: Trace): ScopedQuery[Seq[E]] =
+  inline def query[E <: Product: Table](using trace: Trace): ScopedQuery[Chunk[E]] =
     val effect = for
       connection <- ZIO.serviceWithZIO[ConnectionProvider](_.getConnection)
       statement  <- ZIO.attempt(connection.prepareStatement(sql))
       _          <- doWrites(statement)
       rs         <- ZIO.attempt(statement.executeQuery())
       results    <-
-        def loop(acc: m.Builder[E, Vector[E]]): ZIO[Any, Throwable, Vector[E]] =
+        def loop(acc: ChunkBuilder[E]): ZIO[Any, Throwable, Chunk[E]] =
           ZIO.attempt(rs.next()).flatMap { hasNext =>
-            if hasNext then make[E](rs).flatMap(e => loop(acc.addOne(e)))
-            else ZIO.succeed(acc.result)
+            if hasNext then make[E](rs).flatMap(e => loop(acc += e))
+            else ZIO.succeed(acc.result())
           }
-        loop(Vector.newBuilder[E])
+        loop(Chunk.newBuilder[E])
     yield results
     effect.mapError(SaferisError.fromThrowable(_, Some(sql)))
   end query
@@ -81,6 +81,39 @@ final case class SqlFragment(
     yield result
     effect.mapError(SaferisError.fromThrowable(_, Some(sql)))
   end queryValue
+
+  /** Executes a query and returns a lazy ZStream of [[Table]] instances.
+    *
+    * Unlike `query` which eagerly loads all results into a Chunk, this method streams rows lazily - ideal for large
+    * result sets or real-time processing. The connection remains open until the stream is fully consumed or closed.
+    *
+    * @return
+    *   A ZStream that lazily iterates through result rows
+    */
+  inline def queryStream[E <: Product: Table](using
+      trace: Trace
+  ): ZStream[ConnectionProvider & Scope, SaferisError, E] =
+    val thisSql                                                           = sql
+    val acquire: ZIO[ConnectionProvider & Scope, SaferisError, ResultSet] =
+      (for
+        connection <- ZIO.serviceWithZIO[ConnectionProvider](_.getConnection)
+        statement  <- ZIO.acquireRelease(ZIO.attempt(connection.prepareStatement(thisSql)))(s => ZIO.succeed(s.close()))
+        _          <- doWrites(statement)
+        rs         <- ZIO.acquireRelease(ZIO.attempt(statement.executeQuery()))(r => ZIO.succeed(r.close()))
+      yield rs).mapError(SaferisError.fromThrowable(_, Some(thisSql)))
+
+    def iterate(rs: ResultSet): ZStream[Any, SaferisError, E] =
+      ZStream
+        .unfoldZIO(rs): resultSet =>
+          ZIO
+            .attempt(resultSet.next())
+            .flatMap: hasNext =>
+              if hasNext then make[E](resultSet).map(e => Some((e, resultSet)))
+              else ZIO.succeed(None)
+        .mapError(SaferisError.fromThrowable(_, Some(thisSql)))
+
+    ZStream.unwrapScoped[ConnectionProvider & Scope](acquire.map(rs => iterate(rs)))
+  end queryStream
 
   /** alias for [[Statement.dml]]
     *

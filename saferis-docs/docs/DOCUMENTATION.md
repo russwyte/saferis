@@ -15,6 +15,8 @@ A comprehensive guide to Saferis - the type-safe, resource-safe SQL client libra
 - [Data Manipulation Layer (DML)](#data-manipulation-layer-dml)
 - [Query Builder](#query-builder)
 - [Subqueries](#subqueries)
+- [Streaming with ZStream](#streaming-with-zstream)
+- [Paged Streaming](#paged-streaming)
 - [Aggregate Functions](#aggregate-functions)
 - [Conditional Upsert DSL](#conditional-upsert-dsl)
 - [Type-Safe Capabilities](#type-safe-capabilities)
@@ -2199,6 +2201,387 @@ Available operations in the `andWhere` builder:
 
 ---
 
+## Streaming with ZStream
+
+For large result sets, Saferis provides `queryStream` which returns a `ZStream` that lazily iterates through results. This is ideal when you need to process rows one at a time without loading the entire result set into memory.
+
+### Basic Streaming
+
+Use `queryStream` instead of `query` to get a stream:
+
+```scala mdoc:reset:silent
+import saferis.*
+import saferis.postgres.given
+import saferis.docs.DocTestContainer.{run, transactor as xa}
+import zio.stream.*
+
+@tableName("stream_events")
+case class StreamEvent(@generated @key id: Int, name: String, payload: String) derives Table
+
+val events = Table[StreamEvent]
+```
+
+```scala mdoc
+run {
+  xa.run(for
+    _ <- ddl.createTable[StreamEvent]()
+    _ <- dml.insert(StreamEvent(-1, "event1", "data1"))
+    _ <- dml.insert(StreamEvent(-1, "event2", "data2"))
+    _ <- dml.insert(StreamEvent(-1, "event3", "data3"))
+    // Stream returns a ZStream, use runCollect to materialize
+    result <- Query[StreamEvent].all.queryStream[StreamEvent].runCollect
+  yield result)
+}
+```
+
+### Stream vs Eager Query
+
+Both `query` and `queryStream` return the same data, but with different memory characteristics:
+
+| Method | Return Type | Memory Usage | Best For |
+|--------|-------------|--------------|----------|
+| `.query[T]` | `Chunk[T]` | All rows loaded at once | Small to medium result sets |
+| `.queryStream[T]` | `ZStream[..., T]` | One row at a time | Large result sets, real-time processing |
+
+### Lazy Evaluation
+
+Streams are evaluated lazily - rows are only fetched as they're consumed:
+
+```scala mdoc
+run {
+  xa.run(for
+    _ <- dml.insert(StreamEvent(-1, "event4", "data4"))
+    _ <- dml.insert(StreamEvent(-1, "event5", "data5"))
+    // Only fetches 2 rows from database, even though table has more
+    first2 <- Query[StreamEvent].all.queryStream[StreamEvent].take(2).runCollect
+  yield first2)
+}
+```
+
+### Stream Composition
+
+ZStream provides powerful composition operators:
+
+```scala mdoc
+run {
+  xa.run(for
+    // Map, filter, and transform streams
+    names <- Query[StreamEvent].all
+      .queryStream[StreamEvent]
+      .map(_.name)
+      .filter(_.startsWith("event"))
+      .runCollect
+
+    // Batch processing with grouped
+    batches <- Query[StreamEvent].all
+      .queryStream[StreamEvent]
+      .grouped(2)
+      .runCollect
+  yield (names, batches.map(_.size)))
+}
+```
+
+### Resource Safety
+
+The database connection is automatically released when the stream completes, errors, or is interrupted:
+
+```scala mdoc:compile-only
+import saferis.*
+import zio.*
+import zio.stream.*
+
+@tableName("resource_events")
+case class ResourceEvent(@generated @key id: Int, data: String) derives Table
+
+// Connection released after stream fully consumed
+Query[ResourceEvent].all.queryStream[ResourceEvent].runDrain
+
+// Connection released after take(n) partial consumption
+Query[ResourceEvent].all.queryStream[ResourceEvent].take(10).runDrain
+
+// Connection released on stream interruption
+val fiber = Query[ResourceEvent].all
+  .queryStream[ResourceEvent]
+  .tap(_ => ZIO.sleep(10.millis))
+  .runDrain
+  .fork
+// fiber.interrupt releases the connection
+```
+
+### Streaming with Query Builder
+
+All query builder methods support streaming:
+
+```scala mdoc
+run {
+  xa.run(
+    Query[StreamEvent]
+      .where(_.name).eq("event1")
+      .orderBy(events.id.asc)
+      .queryStream[StreamEvent]
+      .runCollect
+  )
+}
+```
+
+### Streaming with Mutations (RETURNING)
+
+For dialects that support RETURNING (PostgreSQL, SQLite), you can stream returned rows:
+
+```scala mdoc
+run {
+  xa.run(
+    Delete[StreamEvent]
+      .where(_.name).eq("event1")
+      .returningAs
+      .queryStream
+      .runCollect
+  )
+}
+```
+
+### Combining Streams
+
+You can compose streams from different queries:
+
+```scala mdoc:reset:silent
+import saferis.*
+import saferis.postgres.given
+import saferis.docs.DocTestContainer.{run, transactor as xa}
+import zio.stream.*
+
+@tableName("zip_users")
+case class ZipUser(@generated @key id: Int, name: String) derives Table
+
+@tableName("zip_items")
+case class ZipItem(@generated @key id: Int, value: String) derives Table
+
+val users = Table[ZipUser]
+val items = Table[ZipItem]
+```
+
+```scala mdoc
+run {
+  xa.run(for
+    _ <- ddl.createTable[ZipUser]()
+    _ <- ddl.createTable[ZipItem]()
+    _ <- dml.insert(ZipUser(-1, "Alice"))
+    _ <- dml.insert(ZipUser(-1, "Bob"))
+    _ <- dml.insert(ZipItem(-1, "Item A"))
+    _ <- dml.insert(ZipItem(-1, "Item B"))
+    // Zip two streams together
+    zipped <- {
+      val userStream = Query[ZipUser].all.orderBy(users.name.asc).queryStream[ZipUser]
+      val itemStream = Query[ZipItem].all.orderBy(items.value.asc).queryStream[ZipItem]
+      userStream.zip(itemStream).runCollect
+    }
+  yield zipped.map((u, i) => s"${u.name} -> ${i.value}"))
+}
+```
+
+---
+
+## Paged Streaming
+
+Paged streaming provides **cursor-based pagination with automatic connection release between pages**. Unlike `queryStream` which holds a single connection open for the entire stream, paged streaming fetches data in batches and releases the connection after each batch. This makes it ideal for:
+
+- **Long-running processing** - Process millions of rows without holding database connections
+- **Resumable operations** - Checkpoint your position and resume after failures
+- **Resource efficiency** - Free connections for other operations between page fetches
+- **Backpressure-aware batching** - Control memory usage with configurable page sizes
+
+### pagedStream - Cursor-Based Pagination
+
+Use `pagedStream` to get a stream of `Page[A, K]` objects, each containing a batch of items and a cursor for checkpointing:
+
+```scala mdoc:reset:silent
+import saferis.*
+import saferis.postgres.given
+import saferis.docs.DocTestContainer.{run, transactor as xa}
+
+@tableName("paged_events")
+case class PagedEvent(@generated @key id: Int, name: String, processed: Boolean) derives Table
+
+val events = Table[PagedEvent]
+```
+
+```scala mdoc
+run {
+  xa.run(for
+    _ <- ddl.createTable[PagedEvent]()
+    // Insert test data
+    _ <- dml.insert(PagedEvent(-1, "event1", false))
+    _ <- dml.insert(PagedEvent(-1, "event2", false))
+    _ <- dml.insert(PagedEvent(-1, "event3", false))
+    _ <- dml.insert(PagedEvent(-1, "event4", false))
+    _ <- dml.insert(PagedEvent(-1, "event5", false))
+    // Fetch in pages of 2
+    pages <- Query[PagedEvent].all
+      .pagedStream(_.id, pageSize = 2)
+      .runCollect
+  yield pages.map(p => s"Page ${p.pageNumber}: ${p.items.size} items, cursor=${p.cursor}"))
+}
+```
+
+Each `Page[A, K]` contains:
+- `items: Chunk[A]` - The rows in this page
+- `cursor: Option[K]` - Cursor value to fetch the next page (None for the last page)
+- `pageNumber: Int` - 0-indexed page number
+
+### Checkpointing for Resumable Processing
+
+The cursor in each page enables resumable processing - save the cursor, and if processing fails, resume from where you left off:
+
+```scala mdoc
+import zio.*
+
+run {
+  xa.run(for
+    // Simulate processing with checkpoint storage
+    checkpoint <- Ref.make(Option.empty[Int])
+
+    // Process pages and save cursor after each
+    _ <- Query[PagedEvent].all
+      .pagedStream(_.id, pageSize = 2)
+      .tap(page => checkpoint.set(page.cursor))
+      .runDrain
+
+    // Get final checkpoint
+    finalCursor <- checkpoint.get
+  yield s"Final cursor: $finalCursor")
+}
+```
+
+### Resuming from a Checkpoint
+
+Use `startAfter` to resume processing from a saved cursor:
+
+```scala mdoc
+run {
+  xa.run(for
+    // First, process first page only
+    firstPage <- Query[PagedEvent].all
+      .pagedStream(_.id, pageSize = 2)
+      .runHead
+
+    // Save the cursor
+    savedCursor = firstPage.flatMap(_.cursor)
+
+    // Later, resume from the checkpoint
+    remaining <- Query[PagedEvent].all
+      .pagedStream(_.id, pageSize = 2, startAfter = savedCursor)
+      .runCollect
+  yield (s"Saved cursor: $savedCursor", s"Remaining pages: ${remaining.size}"))
+}
+```
+
+### seekingStream - Row-by-Row with Batched Fetching
+
+If you don't need page metadata, use `seekingStream` to get individual items while still releasing connections between batches:
+
+```scala mdoc
+run {
+  xa.run(
+    Query[PagedEvent].all
+      .seekingStream(_.id, batchSize = 2)
+      .runCollect
+      .map(items => s"Got ${items.size} items")
+  )
+}
+```
+
+### Flattening Pages to Items
+
+Use the `.items` extension to flatten a paged stream to individual items:
+
+```scala mdoc
+run {
+  xa.run(
+    Query[PagedEvent].all
+      .pagedStream(_.id, pageSize = 2)
+      .items  // Flatten to individual items
+      .runCollect
+      .map(items => s"Got ${items.size} items")
+  )
+}
+```
+
+### Items with Checkpoint Callback
+
+Use `.itemsWithCheckpoint` to process items individually while receiving a callback after each page completes:
+
+```scala mdoc
+import zio.*
+
+run {
+  xa.run(for
+    checkpoints <- Ref.make(Chunk.empty[Option[Int]])
+
+    items <- Query[PagedEvent].all
+      .pagedStream(_.id, pageSize = 2)
+      .itemsWithCheckpoint(cursor => checkpoints.update(_ :+ cursor))
+      .runCollect
+
+    recorded <- checkpoints.get
+  yield (s"Processed ${items.size} items", s"Checkpoints: ${recorded.toList}"))
+}
+```
+
+### pagedStream vs queryStream
+
+| Feature | `queryStream` | `pagedStream` / `seekingStream` |
+|---------|--------------|--------------------------------|
+| Connection usage | Held for entire stream | Released between pages |
+| Memory per page | Single row buffer | Full page buffered |
+| Checkpoint support | No | Yes (cursor in each page) |
+| Best for | Real-time, low-latency | Long-running, resumable jobs |
+| Early termination | Connection released | Connection already released |
+
+### Combining with WHERE Clauses
+
+Paged streaming works with all query builder methods:
+
+```scala mdoc
+run {
+  xa.run(
+    Query[PagedEvent]
+      .where(_.processed).eq(false)
+      .pagedStream(_.id, pageSize = 10)
+      .items
+      .runCollect
+      .map(items => s"Unprocessed: ${items.size}")
+  )
+}
+```
+
+### Resource Safety
+
+Paged streams release the database connection after fetching each page. This prevents connection pool exhaustion during long-running operations:
+
+```scala mdoc:compile-only
+import saferis.*
+import zio.*
+
+@tableName("large_dataset")
+case class LargeRow(@key id: Long, data: String) derives Table
+
+// Process millions of rows without exhausting connection pool
+Query[LargeRow].all
+  .pagedStream(_.id, pageSize = 1000)
+  .itemsWithCheckpoint { cursor =>
+    // Save cursor to database/file for crash recovery
+    ZIO.logInfo(s"Checkpoint: $cursor")
+  }
+  .foreach { row =>
+    // Process each row - connection is released between pages
+    processRow(row)
+  }
+
+def processRow(row: LargeRow): UIO[Unit] = ZIO.unit
+```
+
+---
+
 ## Aggregate Functions
 
 Saferis provides type-safe aggregate functions with the `selectAggregate` method.
@@ -2730,8 +3113,9 @@ SqlFragment provides several methods for executing queries:
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `.query[T]` | `Seq[T]` | Execute query, return all matching rows |
+| `.query[T]` | `Chunk[T]` | Execute query, return all matching rows |
 | `.queryOne[T]` | `Option[T]` | Execute query, return first row if exists |
+| `.queryStream[T]` | `ZStream[..., T]` | Execute query, lazily stream rows (see [Streaming with ZStream](#streaming-with-zstream)) |
 | `.queryValue[T]` | `Option[T]` | Execute query, return single value from first column |
 | `.execute` / `.dml` | `Int` | Execute DML statement, return affected row count |
 

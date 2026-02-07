@@ -1,6 +1,9 @@
 package saferis
 
+import zio.Chunk
+import zio.Scope
 import zio.Trace
+import zio.stream.ZStream
 
 /** Join types for SQL JOIN operations */
 enum JoinType:
@@ -419,10 +422,60 @@ final case class Query1Ready[A <: Product: Table](
   end build
 
   /** Execute query */
-  inline def query[R <: Product: Table](using Trace): ScopedQuery[Seq[R]] = build.query[R]
+  inline def query[R <: Product: Table](using Trace): ScopedQuery[Chunk[R]] = build.query[R]
 
   /** Execute query returning first row */
   inline def queryOne[R <: Product: Table](using Trace): ScopedQuery[Option[R]] = build.queryOne[R]
+
+  /** Execute query as lazy stream */
+  inline def queryStream[R <: Product: Table](using Trace): ZStream[ConnectionProvider & Scope, SaferisError, R] =
+    build.queryStream[R]
+
+  /** Stream pages of results using seek pagination.
+    *
+    * Each page is fetched with a separate query, releasing the connection between pages. Use this for long-running
+    * operations where you want to checkpoint progress or avoid holding connections open.
+    *
+    * @param cursorSelector
+    *   Field selector for the cursor column (e.g., `_.id`)
+    * @param pageSize
+    *   Number of items per page
+    * @param startAfter
+    *   Optional cursor to resume from (exclusive - starts AFTER this value)
+    * @return
+    *   A ZStream of Page objects containing items and cursor for checkpointing
+    */
+  inline def pagedStream[K: Encoder](
+      inline cursorSelector: A => K,
+      pageSize: Int,
+      startAfter: Option[K] = None,
+  )(using Trace): ZStream[ConnectionProvider & Scope, SaferisError, Page[A, K]] =
+    val column        = baseInstance.column(cursorSelector)
+    val extractCursor = Macros.extractFieldValueFunc(cursorSelector)
+    PagedStreamOps.pagedStream[A, K](this, column, extractCursor, pageSize, startAfter)
+
+  /** Stream rows using seek pagination with connection release between batches.
+    *
+    * Like `pagedStream` but returns individual rows instead of Page objects. Items are emitted lazily to downstream
+    * consumers, though each batch is fetched eagerly to release the connection.
+    *
+    * @param cursorSelector
+    *   Field selector for the cursor column (e.g., `_.id`)
+    * @param batchSize
+    *   Number of rows to fetch before reconnecting
+    * @param startAfter
+    *   Optional cursor to resume from (exclusive)
+    * @return
+    *   A ZStream of individual rows
+    */
+  inline def seekingStream[K: Encoder](
+      inline cursorSelector: A => K,
+      batchSize: Int,
+      startAfter: Option[K] = None,
+  )(using Trace): ZStream[ConnectionProvider & Scope, SaferisError, A] =
+    val column        = baseInstance.column(cursorSelector)
+    val extractCursor = Macros.extractFieldValueFunc(cursorSelector)
+    PagedStreamOps.seekingStream[A, K](this, column, extractCursor, batchSize, startAfter)
 
 end Query1Ready
 
@@ -840,8 +893,10 @@ final case class Query2Ready[A <: Product: Table, B <: Product: Table](
     result
   end build
 
-  inline def query[R <: Product: Table](using Trace): ScopedQuery[Seq[R]]       = build.query[R]
+  inline def query[R <: Product: Table](using Trace): ScopedQuery[Chunk[R]]     = build.query[R]
   inline def queryOne[R <: Product: Table](using Trace): ScopedQuery[Option[R]] = build.queryOne[R]
+  inline def queryStream[R <: Product: Table](using Trace): ZStream[ConnectionProvider & Scope, SaferisError, R] =
+    build.queryStream[R]
 
 end Query2Ready
 
@@ -1123,8 +1178,10 @@ final case class Query3Ready[A <: Product: Table, B <: Product: Table, C <: Prod
     result
   end build
 
-  inline def query[R <: Product: Table](using Trace): ScopedQuery[Seq[R]]       = build.query[R]
+  inline def query[R <: Product: Table](using Trace): ScopedQuery[Chunk[R]]     = build.query[R]
   inline def queryOne[R <: Product: Table](using Trace): ScopedQuery[Option[R]] = build.queryOne[R]
+  inline def queryStream[R <: Product: Table](using Trace): ZStream[ConnectionProvider & Scope, SaferisError, R] =
+    build.queryStream[R]
 
 end Query3Ready
 
@@ -1323,8 +1380,10 @@ final case class Query4Ready[A <: Product: Table, B <: Product: Table, C <: Prod
     result
   end build
 
-  inline def query[R <: Product: Table](using Trace): ScopedQuery[Seq[R]]       = build.query[R]
+  inline def query[R <: Product: Table](using Trace): ScopedQuery[Chunk[R]]     = build.query[R]
   inline def queryOne[R <: Product: Table](using Trace): ScopedQuery[Option[R]] = build.queryOne[R]
+  inline def queryStream[R <: Product: Table](using Trace): ZStream[ConnectionProvider & Scope, SaferisError, R] =
+    build.queryStream[R]
 
 end Query4Ready
 
@@ -1559,8 +1618,10 @@ final case class Query5Ready[
     result
   end build
 
-  inline def query[R <: Product: Table](using Trace): ScopedQuery[Seq[R]]       = build.query[R]
+  inline def query[R <: Product: Table](using Trace): ScopedQuery[Chunk[R]]     = build.query[R]
   inline def queryOne[R <: Product: Table](using Trace): ScopedQuery[Option[R]] = build.queryOne[R]
+  inline def queryStream[R <: Product: Table](using Trace): ZStream[ConnectionProvider & Scope, SaferisError, R] =
+    build.queryStream[R]
 
 end Query5Ready
 

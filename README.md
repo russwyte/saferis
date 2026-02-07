@@ -16,6 +16,7 @@
 - **Label-Based Decoding** - Column-to-field mapping by name, not position
 - **Compile-Time Validation** - Table schemas, column names, and SQL verified at compile time
 - **Unified Query Builder** - Type-safe joins, subqueries, and pagination in one fluent API
+- **Streaming** - `queryStream` for real-time row iteration; `pagedStream`/`seekingStream` for cursor-based pagination with connection release between pages and checkpoint support for resumable processing
 
 ## Installation
 

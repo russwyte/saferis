@@ -610,4 +610,34 @@ object Macros:
         )
   end extractFromBody
 
+  /** Extract a field value extraction function from a selector.
+    *
+    * Given a selector like `_.id`, generates a function `A => T` that extracts the `id` field from an instance of A.
+    * Used by pagedStream to extract cursor values from rows.
+    *
+    * @param selector
+    *   A lambda like `_.fieldName`
+    * @return
+    *   A function that extracts the field value from an instance
+    */
+  private[saferis] inline def extractFieldValueFunc[A <: Product, T](inline selector: A => T): A => T =
+    ${ extractFieldValueFuncImpl[A, T]('selector) }
+
+  private def extractFieldValueFuncImpl[A <: Product: Type, T: Type](
+      selector: Expr[A => T]
+  )(using Quotes): Expr[A => T] =
+    import quotes.reflect.*
+    val fieldName = extractFieldNameFromSelector(selector)
+
+    // Generate a simple function that selects the field by name
+    // We use productElement for safety across all Product types
+    val tpe    = TypeRepr.of[A]
+    val fields = tpe.typeSymbol.caseFields
+    val idx    = fields.indexWhere(_.name == fieldName)
+
+    if idx < 0 then report.errorAndAbort(s"Field '$fieldName' not found in ${Type.show[A]}")
+
+    '{ (a: A) => a.productElement(${ Expr(idx) }).asInstanceOf[T] }
+  end extractFieldValueFuncImpl
+
 end Macros

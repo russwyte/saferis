@@ -1,6 +1,9 @@
 package saferis
-//import saferis.Instance.*
+
+import zio.Chunk
+import zio.Scope
 import zio.Trace
+import zio.stream.ZStream
 
 import scala.annotation.unused
 
@@ -113,9 +116,11 @@ final case class Instance[A <: Product](
     Macros.extractColumn(this, selector)
 
   final private[saferis] class TypedFragment(val fragment: SqlFragment):
-    def sql                                                  = fragment.sql
-    inline def query(using Trace): ScopedQuery[Seq[A]]       = fragment.query[A]
-    inline def queryOne(using Trace): ScopedQuery[Option[A]] = fragment.queryOne[A]
+    def sql                                                                                   = fragment.sql
+    inline def query(using Trace): ScopedQuery[Chunk[A]]                                      = fragment.query[A]
+    inline def queryOne(using Trace): ScopedQuery[Option[A]]                                  = fragment.queryOne[A]
+    inline def queryStream(using Trace): ZStream[ConnectionProvider & Scope, SaferisError, A] =
+      fragment.queryStream[A]
 end Instance
 
 object Instance:
