@@ -1,5 +1,119 @@
 package saferis
 
+import zio.*
+import zio.stream.ZStream
+
+/** A page of results with cursor information for checkpointing.
+  *
+  * Used by `pagedStream` to provide cursor tracking for resumable processing. Each page contains items fetched in a
+  * single query, with the cursor pointing to the next page.
+  *
+  * @param items
+  *   The rows in this page
+  * @param cursor
+  *   Cursor value to fetch next page (None if this is the last page)
+  * @param pageNumber
+  *   0-indexed page number
+  */
+final case class Page[A, K](
+    items: Chunk[A],
+    cursor: Option[K],
+    pageNumber: Int,
+)
+
+/** Extensions for Page streams.
+  *
+  * Note: These extensions emit items lazily to downstream consumers, but each page is buffered internally (required to
+  * release the connection between pages). For truly unbuffered row-by-row streaming, use `queryStream` instead.
+  */
+extension [R, A, K](stream: ZStream[R, SaferisError, Page[A, K]])
+  /** Flatten pages to individual items.
+    *
+    * Items are emitted lazily to downstream consumers. Use this when you want connection-release-between-pages behavior
+    * but don't need cursor information for checkpointing.
+    */
+  def items: ZStream[R, SaferisError, A] =
+    stream.flatMap(page => ZStream.fromChunk(page.items))
+
+  /** Flatten pages to individual items with checkpoint callback.
+    *
+    * The callback is invoked after all items from each page are emitted, allowing you to track cursor position for
+    * resumable processing.
+    */
+  def itemsWithCheckpoint(onPageComplete: Option[K] => UIO[Unit]): ZStream[R, SaferisError, A] =
+    stream.flatMap: page =>
+      ZStream.fromChunk(page.items) ++ ZStream.fromZIO(onPageComplete(page.cursor)).drain
+end extension
+
+/** Helper object for paged stream operations.
+  *
+  * These methods use inline to ensure proper type information is available for macros.
+  */
+object PagedStreamOps:
+  /** Create a paged stream from a Query1Ready
+    *
+    * State: (cursor, pageNum, done) - done flag prevents infinite loop when last page is partial
+    */
+  inline def pagedStream[A <: Product: Table, K](
+      ready: Query1Ready[A],
+      column: Column[K],
+      extractCursor: A => K,
+      pageSize: Int,
+      startAfter: Option[K],
+  )(using enc: Encoder[K], trace: Trace): ZStream[ConnectionProvider & Scope, SaferisError, Page[A, K]] =
+    ZStream.unfoldZIO((startAfter, 0, false)) { case (cursor, pageNum, done) =>
+      if done then ZIO.succeed(None) // We've already emitted the last page
+      else
+        val query = cursor match
+          case Some(c) => ready.seekAfter(column, c)(using enc).limit(pageSize)
+          case None    => ready.orderBy(column.asc).limit(pageSize)
+        // Use scoped to ensure connection is released after each page
+        ZIO
+          .scoped:
+            query.build.query[A]
+          .map { items =>
+            if items.isEmpty then None
+            else
+              val nextCursor = items.lastOption.map(extractCursor)
+              val page       = Page(items, nextCursor, pageNum)
+              val hasMore    = items.size == pageSize
+              if hasMore then Some((page, (nextCursor, pageNum + 1, false)))
+              else Some((page, (None, pageNum + 1, true))) // Mark done after emitting partial page
+          }
+    }
+
+  /** Create a seeking stream from a Query1Ready
+    *
+    * State: (cursor, done) - done flag prevents infinite loop when last batch is partial
+    */
+  inline def seekingStream[A <: Product: Table, K](
+      ready: Query1Ready[A],
+      column: Column[K],
+      extractCursor: A => K,
+      batchSize: Int,
+      startAfter: Option[K],
+  )(using enc: Encoder[K], trace: Trace): ZStream[ConnectionProvider & Scope, SaferisError, A] =
+    ZStream.unfoldChunkZIO((startAfter, false)) { case (cursor, done) =>
+      if done then ZIO.succeed(None) // We've already emitted the last batch
+      else
+        val query = cursor match
+          case Some(c) => ready.seekAfter(column, c)(using enc).limit(batchSize)
+          case None    => ready.orderBy(column.asc).limit(batchSize)
+        // Use scoped to ensure connection is released after each batch
+        ZIO
+          .scoped:
+            query.build.query[A]
+          .map { items =>
+            if items.isEmpty then None
+            else
+              val nextCursor = items.lastOption.map(extractCursor)
+              val hasMore    = items.size == batchSize
+              if hasMore then Some((items, (nextCursor, false)))
+              else Some((items, (None, true))) // Mark done after emitting partial batch
+          }
+    }
+end PagedStreamOps
+
 /** Sort direction for ORDER BY clauses */
 enum SortOrder:
   case Asc, Desc

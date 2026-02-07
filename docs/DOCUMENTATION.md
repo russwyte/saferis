@@ -16,6 +16,7 @@ A comprehensive guide to Saferis - the type-safe, resource-safe SQL client libra
 - [Query Builder](#query-builder)
 - [Subqueries](#subqueries)
 - [Streaming with ZStream](#streaming-with-zstream)
+- [Paged Streaming](#paged-streaming)
 - [Aggregate Functions](#aggregate-functions)
 - [Conditional Upsert DSL](#conditional-upsert-dsl)
 - [Type-Safe Capabilities](#type-safe-capabilities)
@@ -29,7 +30,7 @@ A comprehensive guide to Saferis - the type-safe, resource-safe SQL client libra
 Add Saferis to your `build.sbt`:
 
 ```scala
-libraryDependencies += "io.github.russwyte" %% "saferis" % "0.11.0+1-2faeafac+20260207-0835"
+libraryDependencies += "io.github.russwyte" %% "saferis" % "0.11.0+2-e39a8b02+20260207-0935"
 ```
 
 Saferis requires ZIO as a provided dependency:
@@ -198,7 +199,7 @@ val minPrice = 10.0
 val query = sql"SELECT * FROM $products WHERE ${products.price} > $minPrice"
 // query: SqlFragment = SqlFragment(
 //   sql = "SELECT * FROM products WHERE price > ?",
-//   writes = Vector(saferis.Write@549648d7)
+//   writes = Vector(saferis.Write@14df17a1)
 // )
 query.show
 // res8: String = "SELECT * FROM products WHERE price > 10.0"
@@ -883,7 +884,7 @@ run {
   yield jobs)
 }
 // res45: Chunk[Job] = IndexedSeq(
-//   Job(id = 1, status = "pending", retryAt = Some(2026-02-07T14:51:25.267493Z)),
+//   Job(id = 1, status = "pending", retryAt = Some(2026-02-07T15:43:33.566887Z)),
 //   Job(id = 2, status = "completed", retryAt = None)
 // )
 ```
@@ -1879,7 +1880,7 @@ case class ClaimTask(
 ```scala
 // Query for unclaimed or expired claims
 val now = java.time.Instant.now()
-// now: Instant = 2026-02-07T14:51:25.647657647Z
+// now: Instant = 2026-02-07T15:43:33.945013207Z
 Update[ClaimTask]
   .set(_.claimedBy, Some("worker-1"))
   .where(_.deadline).lte(now)
@@ -1926,7 +1927,7 @@ case class LockRow(
 ```scala
 // returningAs provides type-safe query execution
 val newExpiry = java.time.Instant.now().plusSeconds(60)
-// newExpiry: Instant = 2026-02-07T14:52:25.650185904Z
+// newExpiry: Instant = 2026-02-07T15:44:33.947512379Z
 Update[LockRow]
   .set(_.expiresAt, newExpiry)
   .where(_.instanceId).eq("instance-1")
@@ -2387,7 +2388,7 @@ val activeUserIds = Query[SubOrder]
 //     wherePredicates = Vector(
 //       SqlFragment(
 //         sql = "sub_orders_ref_1.status = ?",
-//         writes = Vector(saferis.Write@2aace8bc)
+//         writes = Vector(saferis.Write@7ef24d2f)
 //       )
 //     ),
 //     sorts = Vector(),
@@ -2627,7 +2628,7 @@ val electronicProductIds = Query[ComplexProduct]
 //     wherePredicates = Vector(
 //       SqlFragment(
 //         sql = "complex_products_ref_1.category = ?",
-//         writes = Vector(saferis.Write@17a3e6db)
+//         writes = Vector(saferis.Write@5cb794ce)
 //       )
 //     ),
 //     sorts = Vector(),
@@ -2690,7 +2691,7 @@ val usersWithElectronics = Query[ComplexOrder]
 //     wherePredicates = Vector(
 //       SqlFragment(
 //         sql = "complex_orders_ref_1.productId IN (select id from complex_products as complex_products_ref_1 where complex_products_ref_1.category = ?)",
-//         writes = List(saferis.Write@17a3e6db)
+//         writes = List(saferis.Write@5cb794ce)
 //       )
 //     ),
 //     sorts = Vector(),
@@ -2745,7 +2746,7 @@ case class TimeoutRow(
 ```scala
 // Find rows that are due AND either unclaimed or with expired claims
 val now = java.time.Instant.now()
-// now: Instant = 2026-02-07T14:51:25.705264768Z
+// now: Instant = 2026-02-07T15:43:33.997254358Z
 Query[TimeoutRow]
   .where(_.deadline).lte(now)
   .andWhere(w => w(_.claimedBy).isNull.or(_.claimedUntil).lt(Some(now)))
@@ -3001,6 +3002,224 @@ run {
 
 ---
 
+## Paged Streaming
+
+Paged streaming provides **cursor-based pagination with automatic connection release between pages**. Unlike `queryStream` which holds a single connection open for the entire stream, paged streaming fetches data in batches and releases the connection after each batch. This makes it ideal for:
+
+- **Long-running processing** - Process millions of rows without holding database connections
+- **Resumable operations** - Checkpoint your position and resume after failures
+- **Resource efficiency** - Free connections for other operations between page fetches
+- **Backpressure-aware batching** - Control memory usage with configurable page sizes
+
+### pagedStream - Cursor-Based Pagination
+
+Use `pagedStream` to get a stream of `Page[A, K]` objects, each containing a batch of items and a cursor for checkpointing:
+
+```scala
+import saferis.*
+import saferis.postgres.given
+import saferis.docs.DocTestContainer.{run, transactor as xa}
+
+@tableName("paged_events")
+case class PagedEvent(@generated @key id: Int, name: String, processed: Boolean) derives Table
+
+val events = Table[PagedEvent]
+```
+
+```scala
+run {
+  xa.run(for
+    _ <- ddl.createTable[PagedEvent]()
+    // Insert test data
+    _ <- dml.insert(PagedEvent(-1, "event1", false))
+    _ <- dml.insert(PagedEvent(-1, "event2", false))
+    _ <- dml.insert(PagedEvent(-1, "event3", false))
+    _ <- dml.insert(PagedEvent(-1, "event4", false))
+    _ <- dml.insert(PagedEvent(-1, "event5", false))
+    // Fetch in pages of 2
+    pages <- Query[PagedEvent].all
+      .pagedStream(_.id, pageSize = 2)
+      .runCollect
+  yield pages.map(p => s"Page ${p.pageNumber}: ${p.items.size} items, cursor=${p.cursor}"))
+}
+// res153: Chunk[String] = IndexedSeq(
+//   "Page 0: 2 items, cursor=Some(2)",
+//   "Page 1: 2 items, cursor=Some(4)",
+//   "Page 2: 1 items, cursor=Some(5)"
+// )
+```
+
+Each `Page[A, K]` contains:
+- `items: Chunk[A]` - The rows in this page
+- `cursor: Option[K]` - Cursor value to fetch the next page (None for the last page)
+- `pageNumber: Int` - 0-indexed page number
+
+### Checkpointing for Resumable Processing
+
+The cursor in each page enables resumable processing - save the cursor, and if processing fails, resume from where you left off:
+
+```scala
+import zio.*
+
+run {
+  xa.run(for
+    // Simulate processing with checkpoint storage
+    checkpoint <- Ref.make(Option.empty[Int])
+
+    // Process pages and save cursor after each
+    _ <- Query[PagedEvent].all
+      .pagedStream(_.id, pageSize = 2)
+      .tap(page => checkpoint.set(page.cursor))
+      .runDrain
+
+    // Get final checkpoint
+    finalCursor <- checkpoint.get
+  yield s"Final cursor: $finalCursor")
+}
+// res154: String = "Final cursor: Some(5)"
+```
+
+### Resuming from a Checkpoint
+
+Use `startAfter` to resume processing from a saved cursor:
+
+```scala
+run {
+  xa.run(for
+    // First, process first page only
+    firstPage <- Query[PagedEvent].all
+      .pagedStream(_.id, pageSize = 2)
+      .runHead
+
+    // Save the cursor
+    savedCursor = firstPage.flatMap(_.cursor)
+
+    // Later, resume from the checkpoint
+    remaining <- Query[PagedEvent].all
+      .pagedStream(_.id, pageSize = 2, startAfter = savedCursor)
+      .runCollect
+  yield (s"Saved cursor: $savedCursor", s"Remaining pages: ${remaining.size}"))
+}
+// res155: Tuple2[String, String] = (
+//   "Saved cursor: Some(2)",
+//   "Remaining pages: 2"
+// )
+```
+
+### seekingStream - Row-by-Row with Batched Fetching
+
+If you don't need page metadata, use `seekingStream` to get individual items while still releasing connections between batches:
+
+```scala
+run {
+  xa.run(
+    Query[PagedEvent].all
+      .seekingStream(_.id, batchSize = 2)
+      .runCollect
+      .map(items => s"Got ${items.size} items")
+  )
+}
+// res156: String = "Got 5 items"
+```
+
+### Flattening Pages to Items
+
+Use the `.items` extension to flatten a paged stream to individual items:
+
+```scala
+run {
+  xa.run(
+    Query[PagedEvent].all
+      .pagedStream(_.id, pageSize = 2)
+      .items  // Flatten to individual items
+      .runCollect
+      .map(items => s"Got ${items.size} items")
+  )
+}
+// res157: String = "Got 5 items"
+```
+
+### Items with Checkpoint Callback
+
+Use `.itemsWithCheckpoint` to process items individually while receiving a callback after each page completes:
+
+```scala
+import zio.*
+
+run {
+  xa.run(for
+    checkpoints <- Ref.make(Chunk.empty[Option[Int]])
+
+    items <- Query[PagedEvent].all
+      .pagedStream(_.id, pageSize = 2)
+      .itemsWithCheckpoint(cursor => checkpoints.update(_ :+ cursor))
+      .runCollect
+
+    recorded <- checkpoints.get
+  yield (s"Processed ${items.size} items", s"Checkpoints: ${recorded.toList}"))
+}
+// res158: Tuple2[String, String] = (
+//   "Processed 5 items",
+//   "Checkpoints: List(Some(2), Some(4), Some(5))"
+// )
+```
+
+### pagedStream vs queryStream
+
+| Feature | `queryStream` | `pagedStream` / `seekingStream` |
+|---------|--------------|--------------------------------|
+| Connection usage | Held for entire stream | Released between pages |
+| Memory per page | Single row buffer | Full page buffered |
+| Checkpoint support | No | Yes (cursor in each page) |
+| Best for | Real-time, low-latency | Long-running, resumable jobs |
+| Early termination | Connection released | Connection already released |
+
+### Combining with WHERE Clauses
+
+Paged streaming works with all query builder methods:
+
+```scala
+run {
+  xa.run(
+    Query[PagedEvent]
+      .where(_.processed).eq(false)
+      .pagedStream(_.id, pageSize = 10)
+      .items
+      .runCollect
+      .map(items => s"Unprocessed: ${items.size}")
+  )
+}
+// res159: String = "Unprocessed: 5"
+```
+
+### Resource Safety
+
+Paged streams release the database connection after fetching each page. This prevents connection pool exhaustion during long-running operations:
+
+```scala
+import saferis.*
+import zio.*
+
+@tableName("large_dataset")
+case class LargeRow(@key id: Long, data: String) derives Table
+
+// Process millions of rows without exhausting connection pool
+Query[LargeRow].all
+  .pagedStream(_.id, pageSize = 1000)
+  .itemsWithCheckpoint { cursor =>
+    // Save cursor to database/file for crash recovery
+    ZIO.logInfo(s"Checkpoint: $cursor")
+  }
+  .foreach { row =>
+    // Process each row - connection is released between pages
+    processRow(row)
+  }
+
+def processRow(row: LargeRow): UIO[Unit] = ZIO.unit
+```
+
+---
+
 ## Aggregate Functions
 
 Saferis provides type-safe aggregate functions with the `selectAggregate` method.
@@ -3027,7 +3246,7 @@ Query[EventRow]
   .where(_.instanceId).eq("instance-1")
   .selectAggregate(_.sequenceNr)(_.max)
   .build.sql
-// res153: String = "select max(sequenceNr) from event_rows as event_rows_ref_1 where event_rows_ref_1.instanceId = ?"
+// res162: String = "select max(sequenceNr) from event_rows as event_rows_ref_1 where event_rows_ref_1.instanceId = ?"
 ```
 
 ```scala
@@ -3036,7 +3255,7 @@ Query[EventRow]
   .where(_.instanceId).eq("instance-1")
   .selectAggregate(_.amount)(_.min)
   .build.sql
-// res154: String = "select min(amount) from event_rows as event_rows_ref_1 where event_rows_ref_1.instanceId = ?"
+// res163: String = "select min(amount) from event_rows as event_rows_ref_1 where event_rows_ref_1.instanceId = ?"
 ```
 
 ```scala
@@ -3045,7 +3264,7 @@ Query[EventRow]
   .where(_.instanceId).eq("instance-1")
   .selectAggregate(_.amount)(_.sum)
   .build.sql
-// res155: String = "select sum(amount) from event_rows as event_rows_ref_1 where event_rows_ref_1.instanceId = ?"
+// res164: String = "select sum(amount) from event_rows as event_rows_ref_1 where event_rows_ref_1.instanceId = ?"
 ```
 
 ```scala
@@ -3054,7 +3273,7 @@ Query[EventRow]
   .where(_.instanceId).eq("instance-1")
   .selectAggregate(_.sequenceNr)(_.count)
   .build.sql
-// res156: String = "select count(sequenceNr) from event_rows as event_rows_ref_1 where event_rows_ref_1.instanceId = ?"
+// res165: String = "select count(sequenceNr) from event_rows as event_rows_ref_1 where event_rows_ref_1.instanceId = ?"
 ```
 
 ```scala
@@ -3063,7 +3282,7 @@ Query[EventRow]
   .where(_.instanceId).eq("instance-1")
   .selectAggregate(countAll)
   .build.sql
-// res157: String = "select count(*) from event_rows as event_rows_ref_1 where event_rows_ref_1.instanceId = ?"
+// res166: String = "select count(*) from event_rows as event_rows_ref_1 where event_rows_ref_1.instanceId = ?"
 ```
 
 ### COALESCE for Default Values
@@ -3076,7 +3295,7 @@ Query[EventRow]
   .where(_.instanceId).eq("instance-1")
   .selectAggregate(_.sequenceNr)(_.max.coalesce(0L))
   .build.sql
-// res158: String = "select coalesce(max(sequenceNr), ?) from event_rows as event_rows_ref_1 where event_rows_ref_1.instanceId = ?"
+// res167: String = "select coalesce(max(sequenceNr), ?) from event_rows as event_rows_ref_1 where event_rows_ref_1.instanceId = ?"
 ```
 
 ```scala
@@ -3085,7 +3304,7 @@ Query[EventRow]
   .where(_.instanceId).eq("nonexistent")
   .selectAggregate(_.amount)(_.sum.coalesce(BigDecimal(0)))
   .build.sql
-// res159: String = "select coalesce(sum(amount), ?) from event_rows as event_rows_ref_1 where event_rows_ref_1.instanceId = ?"
+// res168: String = "select coalesce(sum(amount), ?) from event_rows as event_rows_ref_1 where event_rows_ref_1.instanceId = ?"
 ```
 
 ### Executing Aggregate Queries
@@ -3113,7 +3332,7 @@ run {
       .queryValue[Long]
   yield (maxSeq, total, count))
 }
-// res160: Tuple3[Option[Long], Option[BigDecimal], Option[Long]] = (
+// res169: Tuple3[Option[Long], Option[BigDecimal], Option[Long]] = (
 //   Some(5L),
 //   Some(450),
 //   Some(3L)
@@ -3156,13 +3375,13 @@ case class UpsertLock(
 ```scala
 // Basic upsert - update all non-key columns on conflict
 val now = java.time.Instant.now()
-// now: Instant = 2026-02-07T14:51:25.923354219Z
+// now: Instant = 2026-02-07T15:43:34.355927877Z
 val lock = UpsertLock("instance-1", "node-1", now, now.plusSeconds(60))
 // lock: UpsertLock = UpsertLock(
 //   instanceId = "instance-1",
 //   nodeId = "node-1",
-//   acquiredAt = 2026-02-07T14:51:25.923354219Z,
-//   expiresAt = 2026-02-07T14:52:25.923354219Z
+//   acquiredAt = 2026-02-07T15:43:34.355927877Z,
+//   expiresAt = 2026-02-07T15:44:34.355927877Z
 // )
 
 Upsert[UpsertLock]
@@ -3170,7 +3389,7 @@ Upsert[UpsertLock]
   .onConflict(_.instanceId)
   .doUpdateAll
   .build.sql
-// res162: String = "insert into upsert_locks (instanceId, nodeId, acquiredAt, expiresAt) values (?, ?, ?, ?) on conflict (instanceId) do update set nodeId = ?, acquiredAt = ?, expiresAt = ?"
+// res171: String = "insert into upsert_locks (instanceId, nodeId, acquiredAt, expiresAt) values (?, ?, ?, ?) on conflict (instanceId) do update set nodeId = ?, acquiredAt = ?, expiresAt = ?"
 ```
 
 ### Conditional Upsert with WHERE
@@ -3185,7 +3404,7 @@ Upsert[UpsertLock]
   .doUpdateAll
   .where(_.expiresAt).lt(now)
   .build.sql
-// res163: String = "insert into upsert_locks (instanceId, nodeId, acquiredAt, expiresAt) values (?, ?, ?, ?) on conflict (instanceId) do update set nodeId = ?, acquiredAt = ?, expiresAt = ? WHERE upsert_locks.expiresAt < ?"
+// res172: String = "insert into upsert_locks (instanceId, nodeId, acquiredAt, expiresAt) values (?, ?, ?, ?) on conflict (instanceId) do update set nodeId = ?, acquiredAt = ?, expiresAt = ? WHERE upsert_locks.expiresAt < ?"
 ```
 
 This generates: `INSERT INTO ... ON CONFLICT (instance_id) DO UPDATE SET ... WHERE upsert_locks.expires_at < ?`
@@ -3203,7 +3422,7 @@ Upsert[UpsertLock]
   .where(_.expiresAt).lt(now)
   .or(_.nodeId).eqExcluded
   .build.sql
-// res164: String = "insert into upsert_locks (instanceId, nodeId, acquiredAt, expiresAt) values (?, ?, ?, ?) on conflict (instanceId) do update set nodeId = ?, acquiredAt = ?, expiresAt = ? WHERE upsert_locks.expiresAt < ? OR upsert_locks.nodeId = EXCLUDED.nodeId"
+// res173: String = "insert into upsert_locks (instanceId, nodeId, acquiredAt, expiresAt) values (?, ?, ?, ?) on conflict (instanceId) do update set nodeId = ?, acquiredAt = ?, expiresAt = ? WHERE upsert_locks.expiresAt < ? OR upsert_locks.nodeId = EXCLUDED.nodeId"
 ```
 
 The `.eqExcluded` generates `table.column = EXCLUDED.column`, referencing the value from the INSERT.
@@ -3219,7 +3438,7 @@ Upsert[UpsertLock]
   .onConflict(_.instanceId)
   .doNothing
   .build.sql
-// res165: String = "insert into upsert_locks (instanceId, nodeId, acquiredAt, expiresAt) values (?, ?, ?, ?) on conflict (instanceId) do nothing"
+// res174: String = "insert into upsert_locks (instanceId, nodeId, acquiredAt, expiresAt) values (?, ?, ?, ?) on conflict (instanceId) do nothing"
 ```
 
 ### Upsert with RETURNING
@@ -3234,7 +3453,7 @@ Upsert[UpsertLock]
   .doUpdateAll
   .returning
   .build.sql
-// res166: String = "insert into upsert_locks (instanceId, nodeId, acquiredAt, expiresAt) values (?, ?, ?, ?) on conflict (instanceId) do update set nodeId = ?, acquiredAt = ?, expiresAt = ? returning *"
+// res175: String = "insert into upsert_locks (instanceId, nodeId, acquiredAt, expiresAt) values (?, ?, ?, ?) on conflict (instanceId) do update set nodeId = ?, acquiredAt = ?, expiresAt = ? returning *"
 ```
 
 ```scala
@@ -3246,7 +3465,7 @@ Upsert[UpsertLock]
   .where(_.expiresAt).lt(now)
   .returning
   .build.sql
-// res167: String = "insert into upsert_locks (instanceId, nodeId, acquiredAt, expiresAt) values (?, ?, ?, ?) on conflict (instanceId) do update set nodeId = ?, acquiredAt = ?, expiresAt = ? WHERE upsert_locks.expiresAt < ? returning *"
+// res176: String = "insert into upsert_locks (instanceId, nodeId, acquiredAt, expiresAt) values (?, ?, ?, ?) on conflict (instanceId) do update set nodeId = ?, acquiredAt = ?, expiresAt = ? WHERE upsert_locks.expiresAt < ? returning *"
 ```
 
 ### Compound Conflict Columns
@@ -3280,7 +3499,7 @@ Upsert[UpsertItem]
   .onConflict(_.tenantId).and(_.sku)
   .doUpdateAll
   .build.sql
-// res169: String = "insert into upsert_items (tenantId, sku, name, quantity) values (?, ?, ?, ?) on conflict (tenantId, sku) do update set name = ?, quantity = ?"
+// res178: String = "insert into upsert_items (tenantId, sku, name, quantity) values (?, ?, ?, ?) on conflict (tenantId, sku) do update set name = ?, quantity = ?"
 ```
 
 ### Full Atomic Lock Acquisition Example
@@ -3329,21 +3548,21 @@ run {
 
   yield (result1, result2))
 }
-// res171: Tuple2[Option[AtomicLock], Option[AtomicLock]] = (
+// res180: Tuple2[Option[AtomicLock], Option[AtomicLock]] = (
 //   Some(
 //     AtomicLock(
 //       instanceId = "lock-1",
 //       nodeId = "node-A",
-//       acquiredAt = 2026-02-07T14:51:25.937176Z,
-//       expiresAt = 2026-02-07T14:52:25.937176Z
+//       acquiredAt = 2026-02-07T15:43:34.367867Z,
+//       expiresAt = 2026-02-07T15:44:34.367867Z
 //     )
 //   ),
 //   Some(
 //     AtomicLock(
 //       instanceId = "lock-1",
 //       nodeId = "node-A",
-//       acquiredAt = 2026-02-07T14:51:25.937176Z,
-//       expiresAt = 2026-02-07T14:53:25.937176Z
+//       acquiredAt = 2026-02-07T15:43:34.367867Z,
+//       expiresAt = 2026-02-07T15:45:34.367867Z
 //     )
 //   )
 // )
@@ -3401,7 +3620,7 @@ run {
     all <- sql"SELECT * FROM ${Table[SpecializedItem]}".query[SpecializedItem]
   yield (inserted, all))
 }
-// res173: Tuple2[SpecializedItem, Chunk[SpecializedItem]] = (
+// res182: Tuple2[SpecializedItem, Chunk[SpecializedItem]] = (
 //   SpecializedItem(id = 1, name = "Widget", category = "hardware"),
 //   IndexedSeq(
 //     SpecializedItem(id = 1, name = "Widget", category = "hardware"),
@@ -3419,7 +3638,7 @@ The `SpecializedDML` object provides operations that require specific dialect ca
 run {
   xa.run(sql"SELECT * FROM ${Table[SpecializedItem]} ORDER BY ${Table[SpecializedItem].id}".query[SpecializedItem])
 }
-// res174: Chunk[SpecializedItem] = IndexedSeq(
+// res183: Chunk[SpecializedItem] = IndexedSeq(
 //   SpecializedItem(id = 1, name = "Widget", category = "hardware"),
 //   SpecializedItem(id = 2, name = "Gadget", category = "electronics")
 // )
@@ -3456,7 +3675,7 @@ Write functions that require specific capabilities using intersection types:
 run {
   xa.run(dml.insertReturning(SpecializedItem(-1, "Capability Demo", "demo")))
 }
-// res175: SpecializedItem = SpecializedItem(
+// res184: SpecializedItem = SpecializedItem(
 //   id = 3,
 //   name = "Capability Demo",
 //   category = "demo"
@@ -3508,18 +3727,18 @@ run {
     all <- sql"SELECT * FROM $events".query[Event]
   yield all)
 }
-// res177: Chunk[Event] = IndexedSeq(
+// res186: Chunk[Event] = IndexedSeq(
 //   Event(
 //     id = 1,
 //     name = "Conference",
-//     occurredAt = 2026-02-07T14:51:25.992237Z,
-//     scheduledFor = Some(2026-02-14T08:51:25.992273),
+//     occurredAt = 2026-02-07T15:43:34.410734Z,
+//     scheduledFor = Some(2026-02-14T09:43:34.410765),
 //     eventDate = 2026-02-07
 //   ),
 //   Event(
 //     id = 2,
 //     name = "Meeting",
-//     occurredAt = 2026-02-07T14:51:25.998312Z,
+//     occurredAt = 2026-02-07T15:43:34.414816Z,
 //     scheduledFor = None,
 //     eventDate = 2026-02-08
 //   )
@@ -3551,8 +3770,8 @@ run {
     found <- sql"SELECT * FROM $entities WHERE ${entities.id} = $id1".queryOne[Entity]
   yield found)
 }
-// res179: Option[Entity] = Some(
-//   Entity(id = d3845bbd-2d22-40eb-a8aa-757af53b9593, name = "First Entity")
+// res188: Option[Entity] = Some(
+//   Entity(id = 566cb1ff-cb31-45b7-8a77-c1dd16a29e67, name = "First Entity")
 // )
 ```
 
@@ -3602,7 +3821,7 @@ run {
     all <- sql"SELECT * FROM $events".query[JsonEvent]
   yield all)
 }
-// res181: Chunk[JsonEvent] = IndexedSeq(
+// res190: Chunk[JsonEvent] = IndexedSeq(
 //   JsonEvent(
 //     id = 1,
 //     name = "Deploy",
@@ -3660,7 +3879,7 @@ run {
     avgPrice <- sql"SELECT AVG(${items.price}) FROM $items".queryValue[Double]
   yield (count, maxPrice, avgPrice))
 }
-// res183: Tuple3[Option[Int], Option[Double], Option[Double]] = (
+// res192: Tuple3[Option[Int], Option[Double], Option[Double]] = (
 //   Some(3),
 //   Some(25.0),
 //   Some(16.666666666666668)
@@ -3699,7 +3918,7 @@ run {
     result <- sql"SELECT * FROM ${Table[ExecItem]}".query[ExecItem]
   yield (insertCount, updateCount, result))
 }
-// res185: Tuple3[Int, Int, Chunk[ExecItem]] = (
+// res194: Tuple3[Int, Int, Chunk[ExecItem]] = (
 //   1,
 //   1,
 //   IndexedSeq(ExecItem(id = 1, name = "Widget", quantity = 20))

@@ -16,6 +16,7 @@ A comprehensive guide to Saferis - the type-safe, resource-safe SQL client libra
 - [Query Builder](#query-builder)
 - [Subqueries](#subqueries)
 - [Streaming with ZStream](#streaming-with-zstream)
+- [Paged Streaming](#paged-streaming)
 - [Aggregate Functions](#aggregate-functions)
 - [Conditional Upsert DSL](#conditional-upsert-dsl)
 - [Type-Safe Capabilities](#type-safe-capabilities)
@@ -2376,6 +2377,207 @@ run {
     }
   yield zipped.map((u, i) => s"${u.name} -> ${i.value}"))
 }
+```
+
+---
+
+## Paged Streaming
+
+Paged streaming provides **cursor-based pagination with automatic connection release between pages**. Unlike `queryStream` which holds a single connection open for the entire stream, paged streaming fetches data in batches and releases the connection after each batch. This makes it ideal for:
+
+- **Long-running processing** - Process millions of rows without holding database connections
+- **Resumable operations** - Checkpoint your position and resume after failures
+- **Resource efficiency** - Free connections for other operations between page fetches
+- **Backpressure-aware batching** - Control memory usage with configurable page sizes
+
+### pagedStream - Cursor-Based Pagination
+
+Use `pagedStream` to get a stream of `Page[A, K]` objects, each containing a batch of items and a cursor for checkpointing:
+
+```scala mdoc:reset:silent
+import saferis.*
+import saferis.postgres.given
+import saferis.docs.DocTestContainer.{run, transactor as xa}
+
+@tableName("paged_events")
+case class PagedEvent(@generated @key id: Int, name: String, processed: Boolean) derives Table
+
+val events = Table[PagedEvent]
+```
+
+```scala mdoc
+run {
+  xa.run(for
+    _ <- ddl.createTable[PagedEvent]()
+    // Insert test data
+    _ <- dml.insert(PagedEvent(-1, "event1", false))
+    _ <- dml.insert(PagedEvent(-1, "event2", false))
+    _ <- dml.insert(PagedEvent(-1, "event3", false))
+    _ <- dml.insert(PagedEvent(-1, "event4", false))
+    _ <- dml.insert(PagedEvent(-1, "event5", false))
+    // Fetch in pages of 2
+    pages <- Query[PagedEvent].all
+      .pagedStream(_.id, pageSize = 2)
+      .runCollect
+  yield pages.map(p => s"Page ${p.pageNumber}: ${p.items.size} items, cursor=${p.cursor}"))
+}
+```
+
+Each `Page[A, K]` contains:
+- `items: Chunk[A]` - The rows in this page
+- `cursor: Option[K]` - Cursor value to fetch the next page (None for the last page)
+- `pageNumber: Int` - 0-indexed page number
+
+### Checkpointing for Resumable Processing
+
+The cursor in each page enables resumable processing - save the cursor, and if processing fails, resume from where you left off:
+
+```scala mdoc
+import zio.*
+
+run {
+  xa.run(for
+    // Simulate processing with checkpoint storage
+    checkpoint <- Ref.make(Option.empty[Int])
+
+    // Process pages and save cursor after each
+    _ <- Query[PagedEvent].all
+      .pagedStream(_.id, pageSize = 2)
+      .tap(page => checkpoint.set(page.cursor))
+      .runDrain
+
+    // Get final checkpoint
+    finalCursor <- checkpoint.get
+  yield s"Final cursor: $finalCursor")
+}
+```
+
+### Resuming from a Checkpoint
+
+Use `startAfter` to resume processing from a saved cursor:
+
+```scala mdoc
+run {
+  xa.run(for
+    // First, process first page only
+    firstPage <- Query[PagedEvent].all
+      .pagedStream(_.id, pageSize = 2)
+      .runHead
+
+    // Save the cursor
+    savedCursor = firstPage.flatMap(_.cursor)
+
+    // Later, resume from the checkpoint
+    remaining <- Query[PagedEvent].all
+      .pagedStream(_.id, pageSize = 2, startAfter = savedCursor)
+      .runCollect
+  yield (s"Saved cursor: $savedCursor", s"Remaining pages: ${remaining.size}"))
+}
+```
+
+### seekingStream - Row-by-Row with Batched Fetching
+
+If you don't need page metadata, use `seekingStream` to get individual items while still releasing connections between batches:
+
+```scala mdoc
+run {
+  xa.run(
+    Query[PagedEvent].all
+      .seekingStream(_.id, batchSize = 2)
+      .runCollect
+      .map(items => s"Got ${items.size} items")
+  )
+}
+```
+
+### Flattening Pages to Items
+
+Use the `.items` extension to flatten a paged stream to individual items:
+
+```scala mdoc
+run {
+  xa.run(
+    Query[PagedEvent].all
+      .pagedStream(_.id, pageSize = 2)
+      .items  // Flatten to individual items
+      .runCollect
+      .map(items => s"Got ${items.size} items")
+  )
+}
+```
+
+### Items with Checkpoint Callback
+
+Use `.itemsWithCheckpoint` to process items individually while receiving a callback after each page completes:
+
+```scala mdoc
+import zio.*
+
+run {
+  xa.run(for
+    checkpoints <- Ref.make(Chunk.empty[Option[Int]])
+
+    items <- Query[PagedEvent].all
+      .pagedStream(_.id, pageSize = 2)
+      .itemsWithCheckpoint(cursor => checkpoints.update(_ :+ cursor))
+      .runCollect
+
+    recorded <- checkpoints.get
+  yield (s"Processed ${items.size} items", s"Checkpoints: ${recorded.toList}"))
+}
+```
+
+### pagedStream vs queryStream
+
+| Feature | `queryStream` | `pagedStream` / `seekingStream` |
+|---------|--------------|--------------------------------|
+| Connection usage | Held for entire stream | Released between pages |
+| Memory per page | Single row buffer | Full page buffered |
+| Checkpoint support | No | Yes (cursor in each page) |
+| Best for | Real-time, low-latency | Long-running, resumable jobs |
+| Early termination | Connection released | Connection already released |
+
+### Combining with WHERE Clauses
+
+Paged streaming works with all query builder methods:
+
+```scala mdoc
+run {
+  xa.run(
+    Query[PagedEvent]
+      .where(_.processed).eq(false)
+      .pagedStream(_.id, pageSize = 10)
+      .items
+      .runCollect
+      .map(items => s"Unprocessed: ${items.size}")
+  )
+}
+```
+
+### Resource Safety
+
+Paged streams release the database connection after fetching each page. This prevents connection pool exhaustion during long-running operations:
+
+```scala mdoc:compile-only
+import saferis.*
+import zio.*
+
+@tableName("large_dataset")
+case class LargeRow(@key id: Long, data: String) derives Table
+
+// Process millions of rows without exhausting connection pool
+Query[LargeRow].all
+  .pagedStream(_.id, pageSize = 1000)
+  .itemsWithCheckpoint { cursor =>
+    // Save cursor to database/file for crash recovery
+    ZIO.logInfo(s"Checkpoint: $cursor")
+  }
+  .foreach { row =>
+    // Process each row - connection is released between pages
+    processRow(row)
+  }
+
+def processRow(row: LargeRow): UIO[Unit] = ZIO.unit
 ```
 
 ---
