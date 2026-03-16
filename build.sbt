@@ -75,6 +75,7 @@ lazy val core = project
     ),
     dependencyOverrides ++= Seq(
       "org.apache.commons"         % "commons-compress" % "1.27.1" % Test,
+      "org.apache.commons"         % "commons-lang3"    % "3.18.0" % Test,
       "com.fasterxml.jackson.core" % "jackson-core"     % "2.18.6" % Test,
     ),
   )
