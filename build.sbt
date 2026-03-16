@@ -73,6 +73,10 @@ lazy val core = project
       "org.testcontainers" % "postgresql"                % "1.21.4"   % Test,
       "org.postgresql"     % "postgresql"                % "42.7.9"   % Test,
     ),
+    dependencyOverrides ++= Seq(
+      "org.apache.commons"         % "commons-compress" % "1.27.1" % Test,
+      "com.fasterxml.jackson.core" % "jackson-core"     % "2.18.6" % Test,
+    ),
   )
 
 // Documentation module - uses mdoc to compile code examples
