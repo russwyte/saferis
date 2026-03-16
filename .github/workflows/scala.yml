@@ -49,4 +49,4 @@ jobs:
     - uses: sbt/setup-sbt@13c2c27693f0ec4a33b1ebefd04c53c4c0ba618a # v1
 
     - name: Upload dependency graph
-      uses: scalacenter/sbt-dependency-submission@f3c0455a87097de07b66c3dc1b8619b5976c1c89 # v2
+      uses: scalacenter/sbt-dependency-submission@f43202114d7522a4b233e052f82c2eea8d658134 # v3.2.1
