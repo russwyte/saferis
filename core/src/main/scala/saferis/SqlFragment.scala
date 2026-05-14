@@ -21,6 +21,30 @@ final case class SqlFragment(
   private def doWrites(statement: PreparedStatement)(using trace: Trace) = ZIO.foreachDiscard(writes.zipWithIndex):
     (write, idx) => write.write(statement, idx + 1)
 
+  private def applyTimeout(statement: PreparedStatement)(using trace: Trace): ZIO[ConnectionProvider, Throwable, Unit] =
+    for
+      providerDefault <- ZIO.serviceWith[ConnectionProvider](_.defaultQueryTimeout)
+      fiberRefValue   <- Saferis.timeoutFiberRef.get
+      effective = fiberRefValue.orElse(providerDefault)
+      _ <- effective match
+        case Some(d) =>
+          val seconds = Saferis.toJdbcSeconds(d)
+          ZIO.attempt(statement.setQueryTimeout(seconds))
+        case None => ZIO.unit
+    yield ()
+
+  /** Map a throwable to a SaferisError, consulting the active provider's `retryClassifier` so that transient failures
+    * surface as `SaferisError.Retryable`.
+    */
+  private def classifyError[R <: ConnectionProvider, A](
+      effect: ZIO[R, Throwable, A],
+      sqlText: String,
+  )(using trace: Trace): ZIO[R, SaferisError, A] =
+    effect.flatMapError: t =>
+      ZIO
+        .serviceWith[ConnectionProvider](_.retryClassifier)
+        .map(SaferisError.fromThrowable(t, Some(sqlText), _))
+
   /** Executes a query and returns an effect of a Chunk of [[Table]] instances.
     *
     * @return
@@ -29,6 +53,7 @@ final case class SqlFragment(
     val effect = for
       connection <- ZIO.serviceWithZIO[ConnectionProvider](_.getConnection)
       statement  <- ZIO.attempt(connection.prepareStatement(sql))
+      _          <- applyTimeout(statement)
       _          <- doWrites(statement)
       rs         <- ZIO.attempt(statement.executeQuery())
       results    <-
@@ -39,7 +64,7 @@ final case class SqlFragment(
           }
         loop(Chunk.newBuilder[E])
     yield results
-    effect.mapError(SaferisError.fromThrowable(_, Some(sql)))
+    classifyError(effect, sql)
   end query
 
   /** Executes a query and returns an effect of an option of [[Table]]. If the query returns no rows, None is returned.
@@ -50,11 +75,12 @@ final case class SqlFragment(
     val effect = for
       connection <- ZIO.serviceWithZIO[ConnectionProvider](_.getConnection)
       statement  <- ZIO.attempt(connection.prepareStatement(sql))
+      _          <- applyTimeout(statement)
       _          <- doWrites(statement)
       rs         <- ZIO.attempt(statement.executeQuery())
       result     <- if rs.next() then make[E](rs).map(Some(_)) else ZIO.succeed(None)
     yield result
-    effect.mapError(SaferisError.fromThrowable(_, Some(sql)))
+    classifyError(effect, sql)
   end queryOne
 
   /** Executes a query and returns an effect of a simple value (like Int, String, etc.) from the first column of the
@@ -70,6 +96,7 @@ final case class SqlFragment(
     val effect = for
       connection <- ZIO.serviceWithZIO[ConnectionProvider](_.getConnection)
       statement  <- ZIO.attempt(connection.prepareStatement(sql))
+      _          <- applyTimeout(statement)
       _          <- doWrites(statement)
       rs         <- ZIO.attempt(statement.executeQuery())
       result     <-
@@ -79,7 +106,7 @@ final case class SqlFragment(
           decoder.decode(rs, name).map(Some(_))
         else ZIO.succeed(None)
     yield result
-    effect.mapError(SaferisError.fromThrowable(_, Some(sql)))
+    classifyError(effect, sql)
   end queryValue
 
   /** Executes a query and returns a lazy ZStream of [[Table]] instances.
@@ -93,16 +120,19 @@ final case class SqlFragment(
   inline def queryStream[E <: Product: Table](using
       trace: Trace
   ): ZStream[ConnectionProvider & Scope, SaferisError, E] =
-    val thisSql                                                           = sql
-    val acquire: ZIO[ConnectionProvider & Scope, SaferisError, ResultSet] =
-      (for
+    val thisSql    = sql
+    val acquireRaw =
+      for
         connection <- ZIO.serviceWithZIO[ConnectionProvider](_.getConnection)
         statement  <- ZIO.acquireRelease(ZIO.attempt(connection.prepareStatement(thisSql)))(s => ZIO.succeed(s.close()))
+        _          <- applyTimeout(statement)
         _          <- doWrites(statement)
         rs         <- ZIO.acquireRelease(ZIO.attempt(statement.executeQuery()))(r => ZIO.succeed(r.close()))
-      yield rs).mapError(SaferisError.fromThrowable(_, Some(thisSql)))
+      yield rs
+    val acquire: ZIO[ConnectionProvider & Scope, SaferisError, ResultSet] =
+      classifyError(acquireRaw, thisSql)
 
-    def iterate(rs: ResultSet): ZStream[Any, SaferisError, E] =
+    def iterate(rs: ResultSet, classifier: SaferisError.RetryClassifier): ZStream[Any, SaferisError, E] =
       ZStream
         .unfoldZIO(rs): resultSet =>
           ZIO
@@ -110,9 +140,14 @@ final case class SqlFragment(
             .flatMap: hasNext =>
               if hasNext then make[E](resultSet).map(e => Some((e, resultSet)))
               else ZIO.succeed(None)
-        .mapError(SaferisError.fromThrowable(_, Some(thisSql)))
+        .mapError(SaferisError.fromThrowable(_, Some(thisSql), classifier))
 
-    ZStream.unwrapScoped[ConnectionProvider & Scope](acquire.map(rs => iterate(rs)))
+    val streamed: ZIO[ConnectionProvider & Scope, SaferisError, ZStream[Any, SaferisError, E]] =
+      for
+        rs         <- acquire
+        classifier <- ZIO.serviceWith[ConnectionProvider](_.retryClassifier)
+      yield iterate(rs, classifier)
+    ZStream.unwrapScoped[ConnectionProvider & Scope](streamed)
   end queryStream
 
   /** alias for [[Statement.dml]]
@@ -147,11 +182,13 @@ final case class SqlFragment(
     val effect = for
       connection <- ZIO.serviceWithZIO[ConnectionProvider](_.getConnection)
       statement  <- ZIO.attempt(connection.prepareStatement(sql))
+      _          <- applyTimeout(statement)
       _          <- ZIO.foreach(writes.zipWithIndex): (write, idx) =>
         write.write(statement, idx + 1)
       result <- ZIO.attempt(statement.executeUpdate())
     yield result
-    effect.mapError(SaferisError.fromThrowable(_, Some(sql)))
+    classifyError(effect, sql)
+  end dml
 
   /** Strips leading whitespace from each line in the SQL string, and removes the margin character. See
     * [[String.stripMargin]]

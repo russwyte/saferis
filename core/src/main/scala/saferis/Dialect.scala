@@ -23,6 +23,17 @@ trait Dialect:
   /** Default length for variable-length types like VARCHAR */
   val DefaultVarcharLength: Int = 255
 
+  /** Per-dialect classifier for transient, retryable failures.
+    *
+    * Defaults to [[SaferisError.defaultRetryClassifier]], which recognizes standard transient SQLState classes
+    * (`08xxx`, `40001`, `40P01`). Override in dialect implementations to add driver-specific quirks — for example, the
+    * Databricks JDBC driver tunnels over HTTP and can surface transient transport errors as vendor-specific codes that
+    * the standards-based default does not catch.
+    *
+    * Users can override the dialect default per-Transactor via `Transactor.layer(retryClassifier = ...)`.
+    */
+  def retryClassifier: SaferisError.RetryClassifier = SaferisError.defaultRetryClassifier
+
   // === Auto-increment and Primary Key Support ===
 
   /** Returns the SQL clause for auto-increment/generated primary key columns.

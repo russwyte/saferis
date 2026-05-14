@@ -7,6 +7,8 @@ A comprehensive guide to Saferis - the type-safe, resource-safe SQL client libra
 - [Getting Started](#getting-started)
 - [Core Concepts](#core-concepts)
 - [Error Handling](#error-handling)
+- [Statement Timeouts](#statement-timeouts)
+- [Retryable Errors](#retryable-errors)
 - [SQL Injection Prevention](#sql-injection-prevention)
 - [Dialect System](#dialect-system)
 - [Data Definition Layer (DDL)](#data-definition-layer-ddl)
@@ -242,6 +244,8 @@ val defaultLayer = Transactor.layer()
 val limitedLayer = Transactor.layer(maxConcurrency = 1L)
 ```
 
+`Transactor.layer` also accepts an optional `defaultTimeout` that applies a JDBC statement timeout to every query run through the Transactor — see [Statement Timeouts](#statement-timeouts).
+
 **When to use `maxConcurrency`:**
 - SQLite or other embedded databases without connection pooling
 - Direct JDBC connections without a pool
@@ -264,6 +268,8 @@ Saferis uses a principled error type hierarchy defined in [SaferisError.scala](h
 | `SyntaxError` | Invalid SQL syntax |
 | `DataError` | Data type mismatch, division by zero, etc. |
 | `QueryError` | General SQL execution errors |
+| `Timeout` | Statement timeout fired (or query was canceled server-side) — see [Statement Timeouts](#statement-timeouts) |
+| `Retryable` | Transient failure the application can reasonably retry — see [Retryable Errors](#retryable-errors) |
 | `ConnectionError` | Cannot acquire database connection |
 | `DecodingError` | Cannot decode a column value to the expected Scala type |
 | `EncodingError` | Cannot encode a parameter value for the prepared statement |
@@ -381,6 +387,137 @@ def logError(error: SaferisError): String = error match
   case e =>
     e.message
 ```
+
+---
+
+## Statement Timeouts
+
+Long-running queries can hold a database connection for minutes and starve a pool. Saferis lets you cap the time the database spends on a statement using JDBC's `Statement.setQueryTimeout` — which, unlike `ZIO.timeout`, asks the driver to **actually cancel the query server-side**.
+
+There are two composable layers for setting a timeout:
+
+1. **`Saferis.queryTimeout(d)` aspect** — scopes a timeout to any Saferis fragments executed inside the decorated effect. Composes with other ZIO aspects.
+2. **Transactor `defaultTimeout`** — applies to every statement run through that Transactor.
+
+When both apply, the aspect wins (per-scope ad-hoc overrides beat the Transactor-wide default).
+
+### The `Saferis.queryTimeout` aspect
+
+```scala mdoc:compile-only
+import saferis.*
+import zio.*
+
+@tableName("users")
+case class User(@generated @key id: Int, name: String) derives Table
+
+def slowReport(xa: Transactor) =
+  xa.run(sql"SELECT * FROM ${Table[User]}".query[User]) @@ Saferis.queryTimeout(5.seconds)
+```
+
+Because `queryTimeout` is a regular `ZIOAspect`, it composes with the rest of ZIO's aspect ecosystem (`@@ ZIOAspect.loggedWith(...)`, etc.) and stacks naturally with `>>=`/`flatMap`.
+
+### Transactor-wide default
+
+```scala mdoc:compile-only
+import saferis.*
+import zio.*
+
+// Every statement run through this Transactor is bounded by 30 seconds, unless overridden by the aspect.
+val xaLayer = Transactor.layer(defaultTimeout = Some(30.seconds))
+```
+
+### Resolution order
+
+When a statement is about to execute, Saferis picks the timeout in this priority order:
+
+1. The value installed by `Saferis.queryTimeout(d)` for the current fiber, if any.
+2. The Transactor's `defaultTimeout`, if set.
+3. No timeout (current default behavior).
+
+### Granularity
+
+JDBC's `setQueryTimeout` accepts whole seconds. Saferis accepts a `zio.Duration` and rounds **up** to the nearest second, with a minimum of 1 second. This is intentional: `setQueryTimeout(0)` means *no limit* in JDBC, so a sub-second duration must not silently disable the cap.
+
+### Handling timeout errors
+
+A timed-out statement surfaces as `SaferisError.Timeout`. This applies to both client-side timeouts triggered by `setQueryTimeout` and server-side cancellations (SQLState `57014`):
+
+```scala mdoc:compile-only
+import saferis.*
+import zio.*
+
+@tableName("users")
+case class User(@generated @key id: Int, name: String) derives Table
+
+def safeReport(xa: Transactor) =
+  xa.run(sql"SELECT * FROM ${Table[User]}".query[User])
+    .catchSome:
+      case _: SaferisError.Timeout =>
+        ZIO.logWarning("Report query timed out, returning empty result").as(Chunk.empty)
+    @@ Saferis.queryTimeout(5.seconds)
+```
+
+---
+
+## Retryable Errors
+
+Some database failures are transient and worth retrying — connection blips, deadlocks, serialization failures, transport errors on HTTP-tunnelled drivers (Databricks, Snowflake). Saferis classifies such errors as `SaferisError.Retryable` so that a `ZIO.retry` policy can target exactly those cases without your code grokking JDBC error codes.
+
+### The default classifier
+
+Every Dialect ships a default classifier (`Dialect.retryClassifier`) that recognizes standard transient SQLState classes:
+
+- `08xxx` — connection exception (the driver lost or could not establish a connection)
+- `40001` — serialization failure
+- `40P01` — deadlock detected
+
+If a thrown `SQLException` matches one of these, Saferis emits `SaferisError.Retryable` instead of the usual SQLState-based variant.
+
+### Driving retries with ZIO
+
+```scala mdoc:compile-only
+import saferis.*
+import zio.*
+
+@tableName("users")
+case class User(@generated @key id: Int, name: String) derives Table
+
+def reportWithRetry(xa: Transactor) =
+  xa.run(sql"SELECT * FROM ${Table[User]}".query[User])
+    .retry(
+      Schedule.recurs(3) && Schedule.exponential(100.millis) && Schedule.recurWhile[SaferisError]:
+        case _: SaferisError.Retryable => true
+        case _                         => false
+    )
+```
+
+### Supplying a custom classifier
+
+Drivers that tunnel over HTTP (Databricks, Snowflake) can surface transport errors as vendor-specific codes that the standards-based default does not catch. Provide your own classifier on the Transactor — it replaces the dialect default:
+
+```scala mdoc:compile-only
+import saferis.*
+import zio.*
+import java.sql.SQLException
+
+// Treat Databricks vendor code 8000 (HTTP transport error) as transient.
+val databricksClassifier: SaferisError.RetryClassifier =
+  case e: SQLException =>
+    e.getErrorCode == 8000 || SaferisError.defaultRetryClassifier(e)
+  case _ => false
+
+val xaLayer = Transactor.layer(retryClassifier = Some(databricksClassifier))
+```
+
+Composing with the default (as shown above) keeps the standard SQLState rules and adds your driver-specific quirks on top.
+
+### When *not* to retry
+
+`SaferisError.Retryable` only signals that an error *might* be safe to retry — your application still owns the semantics:
+
+- For **read-only queries**, retrying is generally safe.
+- For **writes**, retry only if the operation is idempotent (e.g., upsert by primary key, set-to-fixed-value updates) or if the failure happened before any partial state could be observed.
+- For **transactions**, the whole transaction must be re-attempted — a single statement retry inside a failed transaction is meaningless.
 
 ---
 
