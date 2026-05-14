@@ -15,12 +15,25 @@ type Configurator = Connection => Unit
   * @param semaphore
   *   optional concurrency limiter. Use for SQLite/embedded databases or direct JDBC without pooling. Avoid with
   *   connection pools like HikariCP - they handle queuing more efficiently.
+  * @param defaultTimeout
+  *   optional JDBC statement timeout applied to every statement run through this Transactor. Can be overridden for a
+  *   scope by `Saferis.queryTimeout(d)`. `None` means no default cap.
+  * @param retryClassifier
+  *   classifier deciding whether a thrown exception represents a transient, retryable failure. Such failures surface as
+  *   `SaferisError.Retryable`, which the application can use to drive `ZIO.retry` policies. Defaults to a no-op
+  *   (everything non-retryable); pass the active dialect's `retryClassifier` (or a user-supplied function) to enable.
   */
 final class Transactor(
     connectionProvider: ConnectionProvider,
     configurator: Configurator,
     semaphore: Option[Semaphore],
+    defaultTimeout: Option[Duration] = None,
+    retryClassifier: SaferisError.RetryClassifier = _ => false,
 ):
+
+  private val effectiveProvider: ConnectionProvider =
+    ConnectionProvider.WithOverrides(connectionProvider, defaultTimeout, retryClassifier)
+
   /** Run a ZIO effect that requires a connection provider and a scope.
     *
     * This method will provide the connection provider and the scope to the ZIO effect.
@@ -38,7 +51,7 @@ final class Transactor(
           .blocking:
             semaphore.fold(zio):
               _.withPermit(zio)
-          .provideSomeLayer[Scope](ZLayer.succeed(connectionProvider))
+          .provideSomeLayer[Scope](ZLayer.succeed(effectiveProvider))
 
   /** Run a ZIO effect that requires a connection provider and a scope. The connection will be configured to run
     * statements in a transaction.
@@ -48,14 +61,16 @@ final class Transactor(
     */
   def transact[A](zio: ZIO[ConnectionProvider & Scope, SaferisError, A])(using Trace): IO[SaferisError, A] =
     val transaction = for
-      connection <- connectionProvider.getConnection
+      connection <- effectiveProvider.getConnection
         .mapError(SaferisError.ConnectionError(_))
         .map: con =>
           configurator(con)
           con.setAutoCommit(false)
           con
       result <- zio
-        .provideSomeLayer[Scope](ZLayer.succeed(ConnectionProvider.FromConnection(connection))) <* ZIO
+        .provideSomeLayer[Scope](
+          ZLayer.succeed(ConnectionProvider.FromConnection(connection, defaultTimeout, retryClassifier))
+        ) <* ZIO
         .attempt(connection.commit())
         .mapError(SaferisError.fromThrowable(_))
         .catchAll: e =>
@@ -71,8 +86,6 @@ final class Transactor(
 end Transactor
 
 object Transactor:
-  val layer: URLayer[ConnectionProvider & Configurator & Option[Semaphore], Transactor] =
-    ZLayer.derive[Transactor]
 
   private def semaphoreLayer(permitCount: Long): ULayer[Option[Semaphore]] =
     ZLayer:
@@ -84,6 +97,13 @@ object Transactor:
     *   configuration function (mutation) to apply to the connection before it is used - default is no-op
     * @param maxConcurrency
     *   Application-level concurrency limit using a ZIO Semaphore. Default is no limit (-1L).
+    * @param defaultTimeout
+    *   Optional JDBC statement timeout applied to every statement run through this Transactor. Override for a scope
+    *   with `Saferis.queryTimeout(d)`. Default is `None`.
+    * @param retryClassifier
+    *   Optional override of the active dialect's classifier for transient, retryable failures. When `None`, the
+    *   `summon[Dialect].retryClassifier` default is used. Pass a function (e.g. one that recognizes a driver-specific
+    *   transport error code) to extend or replace the default.
     *
     * '''When to use:'''
     *   - SQLite or other embedded databases without connection pooling
@@ -99,10 +119,20 @@ object Transactor:
   def layer(
       configurator: Configurator = _ => (),
       maxConcurrency: Long = -1L,
-  ): URLayer[ConnectionProvider, Transactor] = ZLayer.succeed(configurator) ++
-    (if maxConcurrency < 1L then ZLayer.succeed(None)
-     else semaphoreLayer(maxConcurrency)) >>> Transactor.layer
+      defaultTimeout: Option[Duration] = None,
+      retryClassifier: Option[SaferisError.RetryClassifier] = None,
+  )(using dialect: Dialect): URLayer[ConnectionProvider, Transactor] =
+    val semLayer: ULayer[Option[Semaphore]] =
+      if maxConcurrency < 1L then ZLayer.succeed(None) else semaphoreLayer(maxConcurrency)
+    val classifier = retryClassifier.getOrElse(dialect.retryClassifier)
+    ZLayer.makeSome[ConnectionProvider, Transactor](
+      semLayer,
+      ZLayer.fromFunction((cp: ConnectionProvider, s: Option[Semaphore]) =>
+        Transactor(cp, configurator, s, defaultTimeout, classifier)
+      ),
+    )
+  end layer
 
-  val default: URLayer[ConnectionProvider, Transactor] = layer()
+  def default(using Dialect): URLayer[ConnectionProvider, Transactor] = layer()
 
 end Transactor
