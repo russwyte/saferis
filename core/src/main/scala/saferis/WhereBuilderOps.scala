@@ -75,18 +75,65 @@ trait WhereBuilderOps[Parent, T]:
   /** IN subquery - check if value is in the results of another query.
     *
     * Type-safe: the subquery must return the same type T as this column.
+    *
+    * {{{
+    *   val activeIds = Query[Order].where(_.status).eq("active").select(_.userId)
+    *   Query[User].where(_.id).inSubquery(activeIds)
+    * }}}
     */
-  def in(subquery: SelectQuery[T]): Parent =
+  def inSubquery(subquery: SelectQuery[T]): Parent =
     val subquerySql = subquery.build
     val inSql       = s"${whereAlias.toSql}.${whereColumn.label} IN (${subquerySql.sql})"
     val whereFrag   = SqlFragment(inSql, subquerySql.writes)
     addPredicate(whereFrag)
 
   /** NOT IN subquery - type-safe variant */
-  def notIn(subquery: SelectQuery[T]): Parent =
+  def notInSubquery(subquery: SelectQuery[T]): Parent =
     val subquerySql = subquery.build
     val notInSql    = s"${whereAlias.toSql}.${whereColumn.label} NOT IN (${subquerySql.sql})"
     val whereFrag   = SqlFragment(notInSql, subquerySql.writes)
+    addPredicate(whereFrag)
+
+  // === Literal collection operators ===
+
+  /** IN literal — varargs form for inline values. Emits `col IN (?, ?, ?, ...)` with one bound parameter per distinct
+    * element. By construction at least one element is supplied, so this overload always produces valid SQL.
+    *
+    * {{{
+    *   Query[User].where(_.status).in("active", "pending")
+    * }}}
+    *
+    * For runtime collections use [[inList]] instead. For subqueries use [[inSubquery]].
+    */
+  def in(first: T, rest: T*)(using Encoder[T]): Parent =
+    inList(first +: rest)
+
+  /** IN literal collection — accepts any `Iterable[T]` (`Seq`, `List`, `Set`, `LinkedHashSet`, etc.). Duplicates are
+    * removed (set semantics). Emits `col IN (?, ?, ?, ...)`.
+    *
+    * On empty (or degenerate-empty-after-dedupe) input the resulting fragment carries a
+    * [[FragmentIssue.EmptyCollection]] that surfaces as [[SaferisError.InvalidStatement]] at execution. No DB
+    * round-trip on failure.
+    *
+    * {{{
+    *   Query[User].where(_.id).inList(runIds)
+    * }}}
+    */
+  def inList(values: Iterable[T])(using Encoder[T]): Parent =
+    val list      = Placeholder.listTagged(values, helper = "WhereBuilder.inList", origin = Placeholder.captureOrigin())
+    val inSql     = s"${whereAlias.toSql}.${whereColumn.label} IN (${list.sql})"
+    val whereFrag = SqlFragment(inSql, list.writes, issues = list.issues)
+    addPredicate(whereFrag)
+
+  /** NOT IN literal — varargs form for inline values. */
+  def notIn(first: T, rest: T*)(using Encoder[T]): Parent =
+    notInList(first +: rest)
+
+  /** NOT IN literal collection — symmetric to [[inList]]. */
+  def notInList(values: Iterable[T])(using Encoder[T]): Parent =
+    val list = Placeholder.listTagged(values, helper = "WhereBuilder.notInList", origin = Placeholder.captureOrigin())
+    val notInSql  = s"${whereAlias.toSql}.${whereColumn.label} NOT IN (${list.sql})"
+    val whereFrag = SqlFragment(notInSql, list.writes, issues = list.issues)
     addPredicate(whereFrag)
 
 end WhereBuilderOps

@@ -2127,18 +2127,68 @@ val activeUserIds = Query[SubOrder]
   .select(_.userId)  // Returns SelectQuery[Int]
 
 Query[SubUser]
-  .where(_.id).in(activeUserIds)  // Compiles: both are Int
+  .where(_.id).inSubquery(activeUserIds)  // Compiles: both are Int
   .build.sql
 ```
 
 ```scala mdoc
 // NOT IN subquery
 Query[SubUser]
-  .where(_.id).notIn(activeUserIds)
+  .where(_.id).notInSubquery(activeUserIds)
   .build.sql
 ```
 
 The type safety is enforced at compile time - if the column types don't match, it won't compile.
+
+### IN Literal Collections
+
+For IN-clauses over runtime values (not subqueries), use `in` (varargs) for inline literals or `inList` for any
+`Iterable[T]`. Both work in the typed Query DSL and via the top-level `in(...)` helper inside `sql"..."` interpolation.
+
+```scala mdoc
+// Varargs form — natural for inline literals
+Query[SubUser]
+  .where(_.name).in("Alice", "Bob")
+  .build.sql
+```
+
+```scala mdoc
+// Iterable form — for runtime collections (List, Set, Vector, LinkedHashSet, ranges, ...)
+val ids = List(1, 2, 3, 3)  // duplicates are removed automatically
+Query[SubUser]
+  .where(_.id).inList(ids)
+  .build.sql
+```
+
+```scala mdoc
+// Same helpers in raw sql"..." interpolation:
+sql"select * from sub_users where id in ${in(ids)}".sql
+sql"select * from sub_users where name in ${in("Alice", "Bob")}".sql
+```
+
+`notIn` / `notInList` are symmetric. `inSubquery` / `notInSubquery` (renamed from `in`/`notIn` on `SelectQuery`) cover
+the subquery case shown above.
+
+#### Empty collections fail at construction, not in the database
+
+An empty (or all-duplicates-collapse-to-empty) input would produce invalid SQL (`IN ()`) on every supported dialect.
+Saferis does **not** throw at the call site — instead the resulting fragment carries one
+`FragmentIssue.EmptyCollection` per offending helper. When the fragment is run, execution fails with
+`SaferisError.InvalidStatement(issues)` *before* any JDBC call:
+
+```scala mdoc:silent
+import zio.*
+
+// Recovery pattern for possibly-empty collections — no DB round-trip on failure:
+val ids2 = List.empty[Int]
+val recovered =
+  xa.run(Query[SubUser].where(_.id).inList(ids2).query[SubUser])
+    .catchSome { case _: SaferisError.InvalidStatement => ZIO.succeed(Chunk.empty[SubUser]) }
+```
+
+If you want to surface issues independently of execution, call `fragment.validate` on any `SqlFragment` — it succeeds
+with the fragment if there are no issues, fails with `InvalidStatement(issues)` otherwise. Multiple offending splices
+in a single statement accumulate into the same `InvalidStatement`, so you fix them all at once.
 
 ### EXISTS Subqueries
 
@@ -2238,11 +2288,11 @@ val electronicProductIds = Query[ComplexProduct]
   .select(_.id)
 
 val usersWithElectronics = Query[ComplexOrder]
-  .where(_.productId).in(electronicProductIds)
+  .where(_.productId).inSubquery(electronicProductIds)
   .select(_.userId)
 
 Query[ComplexUser]
-  .where(_.id).in(usersWithElectronics)
+  .where(_.id).inSubquery(usersWithElectronics)
   .build.sql
 ```
 

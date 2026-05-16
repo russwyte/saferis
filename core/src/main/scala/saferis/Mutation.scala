@@ -198,7 +198,11 @@ final case class UpdateReady[A <: Product: Table](
 
     if wherePredicates.nonEmpty then
       val whereJoined = Placeholder.join(wherePredicates, " and ")
-      result = result :+ SqlFragment(" where ", Seq.empty) :+ SqlFragment(whereJoined.sql, whereJoined.writes)
+      result = result :+ SqlFragment(" where ", Seq.empty) :+ SqlFragment(
+        whereJoined.sql,
+        whereJoined.writes,
+        whereJoined.issues,
+      )
 
     result
   end build
@@ -360,9 +364,14 @@ final case class DeleteReady[A <: Product: Table](
 
     if wherePredicates.nonEmpty then
       val whereJoined = Placeholder.join(wherePredicates, " and ")
-      result = result :+ SqlFragment(" where ", Seq.empty) :+ SqlFragment(whereJoined.sql, whereJoined.writes)
+      result = result :+ SqlFragment(" where ", Seq.empty) :+ SqlFragment(
+        whereJoined.sql,
+        whereJoined.writes,
+        whereJoined.issues,
+      )
 
     result
+  end build
 
   /** Build DELETE with RETURNING clause (for dialects that support it) */
   def returning: SqlFragment =

@@ -32,7 +32,7 @@ A comprehensive guide to Saferis - the type-safe, resource-safe SQL client libra
 Add Saferis to your `build.sbt`:
 
 ```scala
-libraryDependencies += "io.github.russwyte" %% "saferis" % "0.13.0"
+libraryDependencies += "io.github.russwyte" %% "saferis" % "0.13.0+1-1f2cda38"
 ```
 
 Saferis requires ZIO as a provided dependency:
@@ -201,7 +201,8 @@ val minPrice = 10.0
 val query = sql"SELECT * FROM $products WHERE ${products.price} > $minPrice"
 // query: SqlFragment = SqlFragment(
 //   sql = "SELECT * FROM products WHERE price > ?",
-//   writes = Vector(saferis.Write@392c17ac)
+//   writes = Vector(saferis.Write@1e31bdd1),
+//   issues = List()
 // )
 query.show
 // res8: String = "SELECT * FROM products WHERE price > 10.0"
@@ -1021,7 +1022,7 @@ run {
   yield jobs)
 }
 // res50: Chunk[Job] = IndexedSeq(
-//   Job(id = 1, status = "pending", retryAt = Some(2026-05-15T21:23:51.354198Z)),
+//   Job(id = 1, status = "pending", retryAt = Some(2026-05-16T17:24:56.773426Z)),
 //   Job(id = 2, status = "completed", retryAt = None)
 // )
 ```
@@ -2017,7 +2018,7 @@ case class ClaimTask(
 ```scala
 // Query for unclaimed or expired claims
 val now = java.time.Instant.now()
-// now: Instant = 2026-05-15T21:23:51.736858471Z
+// now: Instant = 2026-05-16T17:24:57.191810010Z
 Update[ClaimTask]
   .set(_.claimedBy, Some("worker-1"))
   .where(_.deadline).lte(now)
@@ -2064,7 +2065,7 @@ case class LockRow(
 ```scala
 // returningAs provides type-safe query execution
 val newExpiry = java.time.Instant.now().plusSeconds(60)
-// newExpiry: Instant = 2026-05-15T21:24:51.739130947Z
+// newExpiry: Instant = 2026-05-16T17:25:57.194319765Z
 Update[LockRow]
   .set(_.expiresAt, newExpiry)
   .where(_.instanceId).eq("instance-1")
@@ -2525,18 +2526,18 @@ val activeUserIds = Query[SubOrder]
 //     wherePredicates = Vector(
 //       SqlFragment(
 //         sql = "sub_orders_ref_1.status = ?",
-//         writes = Vector(saferis.Write@3a33d011)
+//         writes = Vector(saferis.Write@11b420d3),
+//         issues = List()
 //       )
 //     ),
 //     sorts = Vector(),
 //     seeks = Vector(),
 //     limitValue = None,
 //     offsetValue = None,
-//     selectColumns = Vector(
 // ...
 
 Query[SubUser]
-  .where(_.id).in(activeUserIds)  // Compiles: both are Int
+  .where(_.id).inSubquery(activeUserIds)  // Compiles: both are Int
   .build.sql
 // res134: String = "select * from sub_users as sub_users_ref_1 where sub_users_ref_1.id IN (select userId from sub_orders as sub_orders_ref_1 where sub_orders_ref_1.status = ?)"
 ```
@@ -2544,12 +2545,67 @@ Query[SubUser]
 ```scala
 // NOT IN subquery
 Query[SubUser]
-  .where(_.id).notIn(activeUserIds)
+  .where(_.id).notInSubquery(activeUserIds)
   .build.sql
 // res135: String = "select * from sub_users as sub_users_ref_1 where sub_users_ref_1.id NOT IN (select userId from sub_orders as sub_orders_ref_1 where sub_orders_ref_1.status = ?)"
 ```
 
 The type safety is enforced at compile time - if the column types don't match, it won't compile.
+
+### IN Literal Collections
+
+For IN-clauses over runtime values (not subqueries), use `in` (varargs) for inline literals or `inList` for any
+`Iterable[T]`. Both work in the typed Query DSL and via the top-level `in(...)` helper inside `sql"..."` interpolation.
+
+```scala
+// Varargs form — natural for inline literals
+Query[SubUser]
+  .where(_.name).in("Alice", "Bob")
+  .build.sql
+// res136: String = "select * from sub_users as sub_users_ref_1 where sub_users_ref_1.name IN (?, ?)"
+```
+
+```scala
+// Iterable form — for runtime collections (List, Set, Vector, LinkedHashSet, ranges, ...)
+val ids = List(1, 2, 3, 3)  // duplicates are removed automatically
+// ids: List[Int] = List(1, 2, 3, 3)
+Query[SubUser]
+  .where(_.id).inList(ids)
+  .build.sql
+// res137: String = "select * from sub_users as sub_users_ref_1 where sub_users_ref_1.id IN (?, ?, ?)"
+```
+
+```scala
+// Same helpers in raw sql"..." interpolation:
+sql"select * from sub_users where id in ${in(ids)}".sql
+// res138: String = "select * from sub_users where id in (?, ?, ?)"
+sql"select * from sub_users where name in ${in("Alice", "Bob")}".sql
+// res139: String = "select * from sub_users where name in (?, ?)"
+```
+
+`notIn` / `notInList` are symmetric. `inSubquery` / `notInSubquery` (renamed from `in`/`notIn` on `SelectQuery`) cover
+the subquery case shown above.
+
+#### Empty collections fail at construction, not in the database
+
+An empty (or all-duplicates-collapse-to-empty) input would produce invalid SQL (`IN ()`) on every supported dialect.
+Saferis does **not** throw at the call site — instead the resulting fragment carries one
+`FragmentIssue.EmptyCollection` per offending helper. When the fragment is run, execution fails with
+`SaferisError.InvalidStatement(issues)` *before* any JDBC call:
+
+```scala
+import zio.*
+
+// Recovery pattern for possibly-empty collections — no DB round-trip on failure:
+val ids2 = List.empty[Int]
+val recovered =
+  xa.run(Query[SubUser].where(_.id).inList(ids2).query[SubUser])
+    .catchSome { case _: SaferisError.InvalidStatement => ZIO.succeed(Chunk.empty[SubUser]) }
+```
+
+If you want to surface issues independently of execution, call `fragment.validate` on any `SqlFragment` — it succeeds
+with the fragment if there are no issues, fails with `InvalidStatement(issues)` otherwise. Multiple offending splices
+in a single statement accumulate into the same `InvalidStatement`, so you fix them all at once.
 
 ### EXISTS Subqueries
 
@@ -2560,7 +2616,7 @@ Use `whereExists()` or `whereNotExists()`:
 Query[SubUser]
   .whereExists(Query[SubOrder].all)
   .build.sql
-// res136: String = "select * from sub_users as sub_users_ref_1 where EXISTS (select * from sub_orders as sub_orders_ref_1)"
+// res140: String = "select * from sub_users as sub_users_ref_1 where EXISTS (select * from sub_orders as sub_orders_ref_1)"
 ```
 
 ```scala
@@ -2568,7 +2624,7 @@ Query[SubUser]
 Query[SubUser]
   .whereNotExists(Query[SubOrder].where(_.status).eq("cancelled"))
   .build.sql
-// res137: String = "select * from sub_users as sub_users_ref_1 where NOT EXISTS (select * from sub_orders as sub_orders_ref_1 where sub_orders_ref_1.status = ?)"
+// res141: String = "select * from sub_users as sub_users_ref_1 where NOT EXISTS (select * from sub_orders as sub_orders_ref_1 where sub_orders_ref_1.status = ?)"
 ```
 
 ### Correlated Subqueries
@@ -2615,7 +2671,7 @@ Query[SubUser]
     Query[SubOrder].where(sql"userId = ${users.id}")
   )
   .build.sql
-// res138: String = "select * from sub_users as sub_users_ref_1 where EXISTS (select * from sub_orders as sub_orders_ref_1 where userId = id)"
+// res142: String = "select * from sub_users as sub_users_ref_1 where EXISTS (select * from sub_orders as sub_orders_ref_1 where userId = id)"
 ```
 
 ### Derived Tables
@@ -2698,7 +2754,7 @@ val highValueOrders = Query[DerivedOrder]
 Query.from(highValueOrders, "high_value")
   .where(_.userId).gt(0)
   .build.sql
-// res140: String = "select * from (select * from derived_orders as derived_orders_ref_1 where derived_orders_ref_1.amount > ?) as high_value where high_value.userId > ?"
+// res144: String = "select * from (select * from derived_orders as derived_orders_ref_1 where derived_orders_ref_1.amount > ?) as high_value where high_value.userId > ?"
 ```
 
 ```scala
@@ -2707,7 +2763,7 @@ Query.from(highValueOrders, "summary")
   .innerJoin[DerivedUser].on(_.userId).eq(_.id)
   .all
   .build.sql
-// res141: String = "select * from (select * from derived_orders as derived_orders_ref_1 where derived_orders_ref_1.amount > ?) as summary inner join derived_users as derived_users_ref_1 on summary.userId = derived_users_ref_1.id"
+// res145: String = "select * from (select * from derived_orders as derived_orders_ref_1 where derived_orders_ref_1.amount > ?) as summary inner join derived_users as derived_users_ref_1 on summary.userId = derived_users_ref_1.id"
 ```
 
 ### Complex Nested Subqueries
@@ -2765,7 +2821,8 @@ val electronicProductIds = Query[ComplexProduct]
 //     wherePredicates = Vector(
 //       SqlFragment(
 //         sql = "complex_products_ref_1.category = ?",
-//         writes = Vector(saferis.Write@331bea30)
+//         writes = Vector(saferis.Write@4e2a6d10),
+//         issues = List()
 //       )
 //     ),
 //     sorts = Vector(),
@@ -2781,11 +2838,10 @@ val electronicProductIds = Query[ComplexProduct]
 //         isNullable = false,
 //         defaultValue = None,
 //         tableAlias = Some(Alias("complex_products_ref_1"))
-//       )
 // ...
 
 val usersWithElectronics = Query[ComplexOrder]
-  .where(_.productId).in(electronicProductIds)
+  .where(_.productId).inSubquery(electronicProductIds)
   .select(_.userId)
 // usersWithElectronics: SelectQuery[Int] = SelectQuery(
 //   Query1Ready(
@@ -2828,19 +2884,19 @@ val usersWithElectronics = Query[ComplexOrder]
 //     wherePredicates = Vector(
 //       SqlFragment(
 //         sql = "complex_orders_ref_1.productId IN (select id from complex_products as complex_products_ref_1 where complex_products_ref_1.category = ?)",
-//         writes = List(saferis.Write@331bea30)
+//         writes = List(saferis.Write@4e2a6d10),
+//         issues = List()
 //       )
 //     ),
 //     sorts = Vector(),
 //     seeks = Vector(),
 //     limitValue = None,
-//     offsetValue = None,
 // ...
 
 Query[ComplexUser]
-  .where(_.id).in(usersWithElectronics)
+  .where(_.id).inSubquery(usersWithElectronics)
   .build.sql
-// res143: String = "select * from complex_users as complex_users_ref_1 where complex_users_ref_1.id IN (select userId from complex_orders as complex_orders_ref_1 where complex_orders_ref_1.productId IN (select id from complex_products as complex_products_ref_1 where complex_products_ref_1.category = ?))"
+// res147: String = "select * from complex_users as complex_users_ref_1 where complex_users_ref_1.id IN (select userId from complex_orders as complex_orders_ref_1 where complex_orders_ref_1.productId IN (select id from complex_products as complex_products_ref_1 where complex_products_ref_1.category = ?))"
 ```
 
 ### Operator Reference
@@ -2883,12 +2939,12 @@ case class TimeoutRow(
 ```scala
 // Find rows that are due AND either unclaimed or with expired claims
 val now = java.time.Instant.now()
-// now: Instant = 2026-05-15T21:23:51.790211218Z
+// now: Instant = 2026-05-16T17:24:57.253612928Z
 Query[TimeoutRow]
   .where(_.deadline).lte(now)
   .andWhere(w => w(_.claimedBy).isNull.or(_.claimedUntil).lt(Some(now)))
   .build.sql
-// res145: String = "select * from timeout_rows as timeout_rows_ref_1 where timeout_rows_ref_1.deadline <= ? and (timeout_rows_ref_1.claimedBy IS NULL OR timeout_rows_ref_1.claimedUntil < ?)"
+// res149: String = "select * from timeout_rows as timeout_rows_ref_1 where timeout_rows_ref_1.deadline <= ? and (timeout_rows_ref_1.claimedBy IS NULL OR timeout_rows_ref_1.claimedUntil < ?)"
 ```
 
 This generates: `SELECT ... WHERE deadline <= ? AND (claimed_by IS NULL OR claimed_until < ?)`
@@ -2909,7 +2965,7 @@ Query[TimeoutRow]
       .or(_.deadline).gt(now)
   )
   .build.sql
-// res146: String = "select * from timeout_rows as timeout_rows_ref_1 where timeout_rows_ref_1.id > ? and (timeout_rows_ref_1.claimedBy IS NULL OR timeout_rows_ref_1.claimedUntil < ? OR timeout_rows_ref_1.deadline > ?)"
+// res150: String = "select * from timeout_rows as timeout_rows_ref_1 where timeout_rows_ref_1.id > ? and (timeout_rows_ref_1.claimedBy IS NULL OR timeout_rows_ref_1.claimedUntil < ? OR timeout_rows_ref_1.deadline > ?)"
 ```
 
 ```scala
@@ -2921,7 +2977,7 @@ Query[TimeoutRow]
       .and(_.claimedUntil).gt(Some(now))
   )
   .build.sql
-// res147: String = "select * from timeout_rows as timeout_rows_ref_1 where timeout_rows_ref_1.id > ? and (timeout_rows_ref_1.claimedBy IS NOT NULL AND timeout_rows_ref_1.claimedUntil > ?)"
+// res151: String = "select * from timeout_rows as timeout_rows_ref_1 where timeout_rows_ref_1.id > ? and (timeout_rows_ref_1.claimedBy IS NOT NULL AND timeout_rows_ref_1.claimedUntil > ?)"
 ```
 
 Available operations in the `andWhere` builder:
@@ -2970,7 +3026,7 @@ run {
     result <- Query[StreamEvent].all.queryStream[StreamEvent].runCollect
   yield result)
 }
-// res149: Chunk[StreamEvent] = IndexedSeq(
+// res153: Chunk[StreamEvent] = IndexedSeq(
 //   StreamEvent(id = 1, name = "event1", payload = "data1"),
 //   StreamEvent(id = 2, name = "event2", payload = "data2"),
 //   StreamEvent(id = 3, name = "event3", payload = "data3")
@@ -2999,7 +3055,7 @@ run {
     first2 <- Query[StreamEvent].all.queryStream[StreamEvent].take(2).runCollect
   yield first2)
 }
-// res150: Chunk[StreamEvent] = IndexedSeq(
+// res154: Chunk[StreamEvent] = IndexedSeq(
 //   StreamEvent(id = 1, name = "event1", payload = "data1"),
 //   StreamEvent(id = 2, name = "event2", payload = "data2")
 // )
@@ -3026,7 +3082,7 @@ run {
       .runCollect
   yield (names, batches.map(_.size)))
 }
-// res151: Tuple2[Chunk[String], Chunk[Int]] = (
+// res155: Tuple2[Chunk[String], Chunk[Int]] = (
 //   IndexedSeq("event1", "event2", "event3", "event4", "event5"),
 //   IndexedSeq(2, 2, 1)
 // )
@@ -3073,7 +3129,7 @@ run {
       .runCollect
   )
 }
-// res153: Chunk[StreamEvent] = IndexedSeq(
+// res157: Chunk[StreamEvent] = IndexedSeq(
 //   StreamEvent(id = 1, name = "event1", payload = "data1")
 // )
 ```
@@ -3092,7 +3148,7 @@ run {
       .runCollect
   )
 }
-// res154: Chunk[StreamEvent] = IndexedSeq(
+// res158: Chunk[StreamEvent] = IndexedSeq(
 //   StreamEvent(id = 1, name = "event1", payload = "data1")
 // )
 ```
@@ -3134,7 +3190,7 @@ run {
     }
   yield zipped.map((u, i) => s"${u.name} -> ${i.value}"))
 }
-// res156: Chunk[String] = IndexedSeq("Alice -> Item A", "Bob -> Item B")
+// res160: Chunk[String] = IndexedSeq("Alice -> Item A", "Bob -> Item B")
 ```
 
 ---
@@ -3179,7 +3235,7 @@ run {
       .runCollect
   yield pages.map(p => s"Page ${p.pageNumber}: ${p.items.size} items, cursor=${p.cursor}"))
 }
-// res158: Chunk[String] = IndexedSeq(
+// res162: Chunk[String] = IndexedSeq(
 //   "Page 0: 2 items, cursor=Some(2)",
 //   "Page 1: 2 items, cursor=Some(4)",
 //   "Page 2: 1 items, cursor=Some(5)"
@@ -3213,7 +3269,7 @@ run {
     finalCursor <- checkpoint.get
   yield s"Final cursor: $finalCursor")
 }
-// res159: String = "Final cursor: Some(5)"
+// res163: String = "Final cursor: Some(5)"
 ```
 
 ### Resuming from a Checkpoint
@@ -3237,7 +3293,7 @@ run {
       .runCollect
   yield (s"Saved cursor: $savedCursor", s"Remaining pages: ${remaining.size}"))
 }
-// res160: Tuple2[String, String] = (
+// res164: Tuple2[String, String] = (
 //   "Saved cursor: Some(2)",
 //   "Remaining pages: 2"
 // )
@@ -3256,7 +3312,7 @@ run {
       .map(items => s"Got ${items.size} items")
   )
 }
-// res161: String = "Got 5 items"
+// res165: String = "Got 5 items"
 ```
 
 ### Flattening Pages to Items
@@ -3273,7 +3329,7 @@ run {
       .map(items => s"Got ${items.size} items")
   )
 }
-// res162: String = "Got 5 items"
+// res166: String = "Got 5 items"
 ```
 
 ### Items with Checkpoint Callback
@@ -3295,7 +3351,7 @@ run {
     recorded <- checkpoints.get
   yield (s"Processed ${items.size} items", s"Checkpoints: ${recorded.toList}"))
 }
-// res163: Tuple2[String, String] = (
+// res167: Tuple2[String, String] = (
 //   "Processed 5 items",
 //   "Checkpoints: List(Some(2), Some(4), Some(5))"
 // )
@@ -3326,7 +3382,7 @@ run {
       .map(items => s"Unprocessed: ${items.size}")
   )
 }
-// res164: String = "Unprocessed: 5"
+// res168: String = "Unprocessed: 5"
 ```
 
 ### Resource Safety
@@ -3383,7 +3439,7 @@ Query[EventRow]
   .where(_.instanceId).eq("instance-1")
   .selectAggregate(_.sequenceNr)(_.max)
   .build.sql
-// res167: String = "select max(sequenceNr) from event_rows as event_rows_ref_1 where event_rows_ref_1.instanceId = ?"
+// res171: String = "select max(sequenceNr) from event_rows as event_rows_ref_1 where event_rows_ref_1.instanceId = ?"
 ```
 
 ```scala
@@ -3392,7 +3448,7 @@ Query[EventRow]
   .where(_.instanceId).eq("instance-1")
   .selectAggregate(_.amount)(_.min)
   .build.sql
-// res168: String = "select min(amount) from event_rows as event_rows_ref_1 where event_rows_ref_1.instanceId = ?"
+// res172: String = "select min(amount) from event_rows as event_rows_ref_1 where event_rows_ref_1.instanceId = ?"
 ```
 
 ```scala
@@ -3401,7 +3457,7 @@ Query[EventRow]
   .where(_.instanceId).eq("instance-1")
   .selectAggregate(_.amount)(_.sum)
   .build.sql
-// res169: String = "select sum(amount) from event_rows as event_rows_ref_1 where event_rows_ref_1.instanceId = ?"
+// res173: String = "select sum(amount) from event_rows as event_rows_ref_1 where event_rows_ref_1.instanceId = ?"
 ```
 
 ```scala
@@ -3410,7 +3466,7 @@ Query[EventRow]
   .where(_.instanceId).eq("instance-1")
   .selectAggregate(_.sequenceNr)(_.count)
   .build.sql
-// res170: String = "select count(sequenceNr) from event_rows as event_rows_ref_1 where event_rows_ref_1.instanceId = ?"
+// res174: String = "select count(sequenceNr) from event_rows as event_rows_ref_1 where event_rows_ref_1.instanceId = ?"
 ```
 
 ```scala
@@ -3419,7 +3475,7 @@ Query[EventRow]
   .where(_.instanceId).eq("instance-1")
   .selectAggregate(countAll)
   .build.sql
-// res171: String = "select count(*) from event_rows as event_rows_ref_1 where event_rows_ref_1.instanceId = ?"
+// res175: String = "select count(*) from event_rows as event_rows_ref_1 where event_rows_ref_1.instanceId = ?"
 ```
 
 ### COALESCE for Default Values
@@ -3432,7 +3488,7 @@ Query[EventRow]
   .where(_.instanceId).eq("instance-1")
   .selectAggregate(_.sequenceNr)(_.max.coalesce(0L))
   .build.sql
-// res172: String = "select coalesce(max(sequenceNr), ?) from event_rows as event_rows_ref_1 where event_rows_ref_1.instanceId = ?"
+// res176: String = "select coalesce(max(sequenceNr), ?) from event_rows as event_rows_ref_1 where event_rows_ref_1.instanceId = ?"
 ```
 
 ```scala
@@ -3441,7 +3497,7 @@ Query[EventRow]
   .where(_.instanceId).eq("nonexistent")
   .selectAggregate(_.amount)(_.sum.coalesce(BigDecimal(0)))
   .build.sql
-// res173: String = "select coalesce(sum(amount), ?) from event_rows as event_rows_ref_1 where event_rows_ref_1.instanceId = ?"
+// res177: String = "select coalesce(sum(amount), ?) from event_rows as event_rows_ref_1 where event_rows_ref_1.instanceId = ?"
 ```
 
 ### Executing Aggregate Queries
@@ -3469,7 +3525,7 @@ run {
       .queryValue[Long]
   yield (maxSeq, total, count))
 }
-// res174: Tuple3[Option[Long], Option[BigDecimal], Option[Long]] = (
+// res178: Tuple3[Option[Long], Option[BigDecimal], Option[Long]] = (
 //   Some(5L),
 //   Some(450),
 //   Some(3L)
@@ -3512,13 +3568,13 @@ case class UpsertLock(
 ```scala
 // Basic upsert - update all non-key columns on conflict
 val now = java.time.Instant.now()
-// now: Instant = 2026-05-15T21:23:52.124713651Z
+// now: Instant = 2026-05-16T17:24:57.606325191Z
 val lock = UpsertLock("instance-1", "node-1", now, now.plusSeconds(60))
 // lock: UpsertLock = UpsertLock(
 //   instanceId = "instance-1",
 //   nodeId = "node-1",
-//   acquiredAt = 2026-05-15T21:23:52.124713651Z,
-//   expiresAt = 2026-05-15T21:24:52.124713651Z
+//   acquiredAt = 2026-05-16T17:24:57.606325191Z,
+//   expiresAt = 2026-05-16T17:25:57.606325191Z
 // )
 
 Upsert[UpsertLock]
@@ -3526,7 +3582,7 @@ Upsert[UpsertLock]
   .onConflict(_.instanceId)
   .doUpdateAll
   .build.sql
-// res176: String = "insert into upsert_locks (instanceId, nodeId, acquiredAt, expiresAt) values (?, ?, ?, ?) on conflict (instanceId) do update set nodeId = ?, acquiredAt = ?, expiresAt = ?"
+// res180: String = "insert into upsert_locks (instanceId, nodeId, acquiredAt, expiresAt) values (?, ?, ?, ?) on conflict (instanceId) do update set nodeId = ?, acquiredAt = ?, expiresAt = ?"
 ```
 
 ### Conditional Upsert with WHERE
@@ -3541,7 +3597,7 @@ Upsert[UpsertLock]
   .doUpdateAll
   .where(_.expiresAt).lt(now)
   .build.sql
-// res177: String = "insert into upsert_locks (instanceId, nodeId, acquiredAt, expiresAt) values (?, ?, ?, ?) on conflict (instanceId) do update set nodeId = ?, acquiredAt = ?, expiresAt = ? WHERE upsert_locks.expiresAt < ?"
+// res181: String = "insert into upsert_locks (instanceId, nodeId, acquiredAt, expiresAt) values (?, ?, ?, ?) on conflict (instanceId) do update set nodeId = ?, acquiredAt = ?, expiresAt = ? WHERE upsert_locks.expiresAt < ?"
 ```
 
 This generates: `INSERT INTO ... ON CONFLICT (instance_id) DO UPDATE SET ... WHERE upsert_locks.expires_at < ?`
@@ -3559,7 +3615,7 @@ Upsert[UpsertLock]
   .where(_.expiresAt).lt(now)
   .or(_.nodeId).eqExcluded
   .build.sql
-// res178: String = "insert into upsert_locks (instanceId, nodeId, acquiredAt, expiresAt) values (?, ?, ?, ?) on conflict (instanceId) do update set nodeId = ?, acquiredAt = ?, expiresAt = ? WHERE upsert_locks.expiresAt < ? OR upsert_locks.nodeId = EXCLUDED.nodeId"
+// res182: String = "insert into upsert_locks (instanceId, nodeId, acquiredAt, expiresAt) values (?, ?, ?, ?) on conflict (instanceId) do update set nodeId = ?, acquiredAt = ?, expiresAt = ? WHERE upsert_locks.expiresAt < ? OR upsert_locks.nodeId = EXCLUDED.nodeId"
 ```
 
 The `.eqExcluded` generates `table.column = EXCLUDED.column`, referencing the value from the INSERT.
@@ -3575,7 +3631,7 @@ Upsert[UpsertLock]
   .onConflict(_.instanceId)
   .doNothing
   .build.sql
-// res179: String = "insert into upsert_locks (instanceId, nodeId, acquiredAt, expiresAt) values (?, ?, ?, ?) on conflict (instanceId) do nothing"
+// res183: String = "insert into upsert_locks (instanceId, nodeId, acquiredAt, expiresAt) values (?, ?, ?, ?) on conflict (instanceId) do nothing"
 ```
 
 ### Upsert with RETURNING
@@ -3590,7 +3646,7 @@ Upsert[UpsertLock]
   .doUpdateAll
   .returning
   .build.sql
-// res180: String = "insert into upsert_locks (instanceId, nodeId, acquiredAt, expiresAt) values (?, ?, ?, ?) on conflict (instanceId) do update set nodeId = ?, acquiredAt = ?, expiresAt = ? returning *"
+// res184: String = "insert into upsert_locks (instanceId, nodeId, acquiredAt, expiresAt) values (?, ?, ?, ?) on conflict (instanceId) do update set nodeId = ?, acquiredAt = ?, expiresAt = ? returning *"
 ```
 
 ```scala
@@ -3602,7 +3658,7 @@ Upsert[UpsertLock]
   .where(_.expiresAt).lt(now)
   .returning
   .build.sql
-// res181: String = "insert into upsert_locks (instanceId, nodeId, acquiredAt, expiresAt) values (?, ?, ?, ?) on conflict (instanceId) do update set nodeId = ?, acquiredAt = ?, expiresAt = ? WHERE upsert_locks.expiresAt < ? returning *"
+// res185: String = "insert into upsert_locks (instanceId, nodeId, acquiredAt, expiresAt) values (?, ?, ?, ?) on conflict (instanceId) do update set nodeId = ?, acquiredAt = ?, expiresAt = ? WHERE upsert_locks.expiresAt < ? returning *"
 ```
 
 ### Compound Conflict Columns
@@ -3636,7 +3692,7 @@ Upsert[UpsertItem]
   .onConflict(_.tenantId).and(_.sku)
   .doUpdateAll
   .build.sql
-// res183: String = "insert into upsert_items (tenantId, sku, name, quantity) values (?, ?, ?, ?) on conflict (tenantId, sku) do update set name = ?, quantity = ?"
+// res187: String = "insert into upsert_items (tenantId, sku, name, quantity) values (?, ?, ?, ?) on conflict (tenantId, sku) do update set name = ?, quantity = ?"
 ```
 
 ### Full Atomic Lock Acquisition Example
@@ -3685,21 +3741,21 @@ run {
 
   yield (result1, result2))
 }
-// res185: Tuple2[Option[AtomicLock], Option[AtomicLock]] = (
+// res189: Tuple2[Option[AtomicLock], Option[AtomicLock]] = (
 //   Some(
 //     AtomicLock(
 //       instanceId = "lock-1",
 //       nodeId = "node-A",
-//       acquiredAt = 2026-05-15T21:23:52.137642Z,
-//       expiresAt = 2026-05-15T21:24:52.137642Z
+//       acquiredAt = 2026-05-16T17:24:57.619236Z,
+//       expiresAt = 2026-05-16T17:25:57.619236Z
 //     )
 //   ),
 //   Some(
 //     AtomicLock(
 //       instanceId = "lock-1",
 //       nodeId = "node-A",
-//       acquiredAt = 2026-05-15T21:23:52.137642Z,
-//       expiresAt = 2026-05-15T21:25:52.137642Z
+//       acquiredAt = 2026-05-16T17:24:57.619236Z,
+//       expiresAt = 2026-05-16T17:26:57.619236Z
 //     )
 //   )
 // )
@@ -3757,7 +3813,7 @@ run {
     all <- sql"SELECT * FROM ${Table[SpecializedItem]}".query[SpecializedItem]
   yield (inserted, all))
 }
-// res187: Tuple2[SpecializedItem, Chunk[SpecializedItem]] = (
+// res191: Tuple2[SpecializedItem, Chunk[SpecializedItem]] = (
 //   SpecializedItem(id = 1, name = "Widget", category = "hardware"),
 //   IndexedSeq(
 //     SpecializedItem(id = 1, name = "Widget", category = "hardware"),
@@ -3775,7 +3831,7 @@ The `SpecializedDML` object provides operations that require specific dialect ca
 run {
   xa.run(sql"SELECT * FROM ${Table[SpecializedItem]} ORDER BY ${Table[SpecializedItem].id}".query[SpecializedItem])
 }
-// res188: Chunk[SpecializedItem] = IndexedSeq(
+// res192: Chunk[SpecializedItem] = IndexedSeq(
 //   SpecializedItem(id = 1, name = "Widget", category = "hardware"),
 //   SpecializedItem(id = 2, name = "Gadget", category = "electronics")
 // )
@@ -3812,7 +3868,7 @@ Write functions that require specific capabilities using intersection types:
 run {
   xa.run(dml.insertReturning(SpecializedItem(-1, "Capability Demo", "demo")))
 }
-// res189: SpecializedItem = SpecializedItem(
+// res193: SpecializedItem = SpecializedItem(
 //   id = 3,
 //   name = "Capability Demo",
 //   category = "demo"
@@ -3864,20 +3920,20 @@ run {
     all <- sql"SELECT * FROM $events".query[Event]
   yield all)
 }
-// res191: Chunk[Event] = IndexedSeq(
+// res195: Chunk[Event] = IndexedSeq(
 //   Event(
 //     id = 1,
 //     name = "Conference",
-//     occurredAt = 2026-05-15T21:23:52.182038Z,
-//     scheduledFor = Some(2026-05-22T16:23:52.182073),
-//     eventDate = 2026-05-15
+//     occurredAt = 2026-05-16T17:24:57.668176Z,
+//     scheduledFor = Some(2026-05-23T12:24:57.668216),
+//     eventDate = 2026-05-16
 //   ),
 //   Event(
 //     id = 2,
 //     name = "Meeting",
-//     occurredAt = 2026-05-15T21:23:52.186397Z,
+//     occurredAt = 2026-05-16T17:24:57.673015Z,
 //     scheduledFor = None,
-//     eventDate = 2026-05-16
+//     eventDate = 2026-05-17
 //   )
 // )
 ```
@@ -3907,8 +3963,8 @@ run {
     found <- sql"SELECT * FROM $entities WHERE ${entities.id} = $id1".queryOne[Entity]
   yield found)
 }
-// res193: Option[Entity] = Some(
-//   Entity(id = 5cb96193-ba33-4830-933f-699a24c5e076, name = "First Entity")
+// res197: Option[Entity] = Some(
+//   Entity(id = 3d5923a6-310c-4672-a32f-acda182a7530, name = "First Entity")
 // )
 ```
 
@@ -3958,7 +4014,7 @@ run {
     all <- sql"SELECT * FROM $events".query[JsonEvent]
   yield all)
 }
-// res195: Chunk[JsonEvent] = IndexedSeq(
+// res199: Chunk[JsonEvent] = IndexedSeq(
 //   JsonEvent(
 //     id = 1,
 //     name = "Deploy",
@@ -4016,7 +4072,7 @@ run {
     avgPrice <- sql"SELECT AVG(${items.price}) FROM $items".queryValue[Double]
   yield (count, maxPrice, avgPrice))
 }
-// res197: Tuple3[Option[Int], Option[Double], Option[Double]] = (
+// res201: Tuple3[Option[Int], Option[Double], Option[Double]] = (
 //   Some(3),
 //   Some(25.0),
 //   Some(16.666666666666668)
@@ -4055,7 +4111,7 @@ run {
     result <- sql"SELECT * FROM ${Table[ExecItem]}".query[ExecItem]
   yield (insertCount, updateCount, result))
 }
-// res199: Tuple3[Int, Int, Chunk[ExecItem]] = (
+// res203: Tuple3[Int, Int, Chunk[ExecItem]] = (
 //   1,
 //   1,
 //   IndexedSeq(ExecItem(id = 1, name = "Widget", quantity = 20))

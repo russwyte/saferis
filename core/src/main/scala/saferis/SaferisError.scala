@@ -98,6 +98,18 @@ object SaferisError:
       val summary = if count == 1 then "1 issue" else s"$count issues"
       s"Schema validation failed with $summary:\n${issues.map(i => s"  - ${i.description}").mkString("\n")}"
 
+  // === Statement Construction ===
+
+  /** A statement could not be sent to JDBC because one or more validation issues were detected during fragment
+    * construction (e.g. an empty `IN ()` list). The fragment carries the issues from the offending helper(s); execution
+    * refuses to acquire a connection and fails with this error instead.
+    */
+  final case class InvalidStatement(issues: List[FragmentIssue]) extends SaferisError:
+    def message =
+      val count   = issues.length
+      val summary = if count == 1 then "1 issue" else s"$count issues"
+      s"Statement construction failed with $summary:\n${issues.map(i => s"  - ${i.description}").mkString("\n")}"
+
   // === Unexpected (for truly unexpected non-SQL errors) ===
 
   final case class Unexpected(cause: Throwable) extends SaferisError:
