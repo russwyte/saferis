@@ -155,11 +155,11 @@ object MutationSpecs extends ZIOSpecDefault:
       ,
       test("isNull generates correct SQL"):
         val frag = Delete[TestUser].where(_.status).isNull().build
-        assertTrue(frag.sql.contains("IS NULL"))
+        assertTrue(frag.sql.contains("is null"))
       ,
       test("isNotNull generates correct SQL"):
         val frag = Delete[TestUser].where(_.status).isNotNull().build
-        assertTrue(frag.sql.contains("IS NOT NULL")),
+        assertTrue(frag.sql.contains("is not null")),
     ),
   )
 

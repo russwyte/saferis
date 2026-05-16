@@ -251,7 +251,7 @@ final case class UpsertWhereReady[A <: Product: Table](
 
     // Build WHERE clause from predicates
     val whereJoined = if wherePredicates.nonEmpty then
-      val joined = Placeholder.join(wherePredicates, " OR ")
+      val joined = Placeholder.join(wherePredicates, " or ")
       Some(joined.sql)
     else None
 

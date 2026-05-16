@@ -158,7 +158,7 @@ trait UpsertSupport:
       conflictWhere: Option[String],
   ): String =
     val baseUpsert  = upsertSql(tableName, insertColumns, conflictColumns, updateColumns)
-    val whereClause = conflictWhere.map(w => s" WHERE $w").getOrElse("")
+    val whereClause = conflictWhere.map(w => s" where $w").getOrElse("")
     baseUpsert + whereClause
   end upsertWithWhereSql
 

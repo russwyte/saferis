@@ -65,7 +65,7 @@ final case class ExcludedCondition(
     excludedColumn: Column[?],
 ) extends Condition:
   def toSql: String =
-    s"${alias.toSql}.${column.label} ${operator.sql} EXCLUDED.${excludedColumn.label}"
+    s"${alias.toSql}.${column.label} ${operator.sql} excluded.${excludedColumn.label}"
 
   def writes: Seq[Write[?]] = Seq.empty
 end ExcludedCondition
@@ -75,6 +75,6 @@ object Condition:
   def toSqlFragment(conditions: Seq[Condition]): SqlFragment =
     if conditions.isEmpty then SqlFragment("", Seq.empty)
     else
-      val sql    = conditions.map(_.toSql).mkString(" AND ")
+      val sql    = conditions.map(_.toSql).mkString(" and ")
       val writes = conditions.flatMap(_.writes)
       SqlFragment(sql, writes)
