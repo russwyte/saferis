@@ -277,7 +277,7 @@ object QuerySpecs extends ZIOSpecDefault:
     suite("IN Subqueries")(
       test("simple IN subquery") {
         val subquery = Query[Order].select(_.userId)
-        val q        = Query[User].where(_.id).in(subquery)
+        val q        = Query[User].where(_.id).inSubquery(subquery)
         val sql      = q.build.sql
         assertTrue(
           sql.contains("IN (select userId from orders as orders_ref_1)")
@@ -285,7 +285,7 @@ object QuerySpecs extends ZIOSpecDefault:
       },
       test("IN subquery with where clause") {
         val subquery = Query[Order].where(_.status).eq("paid").select(_.userId)
-        val q        = Query[User].where(_.id).in(subquery)
+        val q        = Query[User].where(_.id).inSubquery(subquery)
         val sql      = q.build.sql
         assertTrue(
           sql.contains("IN (select userId from orders as orders_ref_1 where"),
@@ -294,11 +294,100 @@ object QuerySpecs extends ZIOSpecDefault:
       },
       test("NOT IN subquery") {
         val subquery = Query[Order].select(_.userId)
-        val q        = Query[User].where(_.id).notIn(subquery)
+        val q        = Query[User].where(_.id).notInSubquery(subquery)
         val sql      = q.build.sql
         assertTrue(
           sql.contains("NOT IN (select userId from orders as orders_ref_1)")
         )
+      },
+      test("inList with a Iterable produces parameterized IN") {
+        val q = Query[User].where(_.id).inList(List(1, 2, 3)).build
+        assertTrue(q.sql.contains("IN (?, ?, ?)"), q.writes.size == 3, q.issues.isEmpty)
+      },
+      test("notInList produces parameterized NOT IN") {
+        val q = Query[User].where(_.id).notInList(List(1, 2, 3)).build
+        assertTrue(q.sql.contains("NOT IN (?, ?, ?)"), q.writes.size == 3)
+      },
+      test("in varargs produces parameterized IN") {
+        val q = Query[User].where(_.name).in("active", "pending").build
+        assertTrue(q.sql.contains("IN (?, ?)"), q.writes.size == 2)
+      },
+      test("notIn varargs produces parameterized NOT IN") {
+        val q = Query[User].where(_.name).notIn("archived").build
+        assertTrue(q.sql.contains("NOT IN (?)"), q.writes.size == 1)
+      },
+      test("inList with single element") {
+        val q = Query[User].where(_.id).inList(List(42)).build
+        assertTrue(q.sql.contains("IN (?)"), q.writes.size == 1)
+      },
+      test("inList accepts a Set") {
+        val q = Query[User].where(_.id).inList(Set(1, 2, 3)).build
+        assertTrue(q.writes.size == 3, q.sql.contains("IN (?, ?, ?)"))
+      },
+      test("inList accepts a Vector") {
+        val q = Query[User].where(_.id).inList(Vector(1, 2, 3)).build
+        assertTrue(q.writes.size == 3, q.sql.contains("IN (?, ?, ?)"))
+      },
+      test("inList deduplicates input") {
+        val q = Query[User].where(_.id).inList(List(1, 1, 2)).build
+        assertTrue(q.writes.size == 2, q.sql.contains("IN (?, ?)"))
+      },
+      test("varargs in dedupes too") {
+        val q = Query[User].where(_.id).in(1, 1, 2, 2, 3).build
+        assertTrue(q.writes.size == 3, q.sql.contains("IN (?, ?, ?)"))
+      },
+      test("inSubquery still works alongside the literal in/inList overloads") {
+        val subquery = Query[Order].select(_.userId)
+        val q        = Query[User].where(_.id).inSubquery(subquery).build
+        assertTrue(q.sql.contains("IN (select"), q.issues.isEmpty)
+      },
+      test("inList mixed with other where predicates preserves parameter order") {
+        val q = Query[User].where(_.name).eq("Bob").where(_.id).inList(List(1, 2, 3)).build
+        assertTrue(q.sql.contains("name = ?"), q.sql.contains("IN (?, ?, ?)"), q.writes.size == 4)
+      },
+      test("two inList calls on different columns accumulate writes") {
+        val q = Query[User].where(_.id).inList(List(1, 2)).where(_.name).inList(List("a", "b", "c")).build
+        assertTrue(q.writes.size == 5)
+      },
+      test("inList(empty) does not throw — fragment carries one issue tagged WhereBuilder.inList") {
+        val q = Query[User].where(_.id).inList(List.empty[Int]).build
+        assertTrue(
+          q.issues.size == 1,
+          q.issues.exists {
+            case FragmentIssue.EmptyCollection("WhereBuilder.inList", _) => true
+            case _                                                       => false
+          },
+        )
+      },
+      test("notInList(empty) carries one issue tagged WhereBuilder.notInList") {
+        val q = Query[User].where(_.id).notInList(List.empty[Int]).build
+        assertTrue(
+          q.issues.size == 1,
+          q.issues.exists {
+            case FragmentIssue.EmptyCollection("WhereBuilder.notInList", _) => true
+            case _                                                          => false
+          },
+        )
+      },
+      test("all-duplicates collapsing to one is NOT an error") {
+        val q = Query[User].where(_.id).inList(List(7, 7, 7)).build
+        assertTrue(q.issues.isEmpty, q.writes.size == 1, q.sql.contains("IN (?)"))
+      },
+      test("two empty inList calls produce two accumulated issues") {
+        val q = Query[User].where(_.id).inList(List.empty[Int]).where(_.name).inList(List.empty[String]).build
+        assertTrue(q.issues.size == 2)
+      },
+      test("SqlFragment.validate succeeds for a valid query") {
+        val q = Query[User].where(_.id).inList(List(1, 2)).build
+        for r <- q.validate
+        yield assertTrue(r == q)
+      },
+      test("SqlFragment.validate fails with InvalidStatement for an empty inList") {
+        val q = Query[User].where(_.id).inList(List.empty[Int]).build
+        for r <- q.validate.either
+        yield assertTrue(r match
+          case Left(SaferisError.InvalidStatement(issues)) if issues.size == 1 => true
+          case _                                                               => false)
       },
       test("select modifies query to select specific column") {
         val q   = Query[User].select(_.id)

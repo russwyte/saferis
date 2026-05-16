@@ -108,4 +108,176 @@ object InterpolatorSpecs extends ZIOSpecDefault:
           query.sql == "SELECT * FROM \"users\" WHERE \"name\" = ?"
         }
 
+      // === Placeholder.list ===
+
+      test("Placeholder.list produces comma-separated placeholders"):
+        val ph = Placeholder.list(List(1, 2, 3))
+        assertTrue(ph.sql == "?, ?, ?", ph.writes.size == 3, ph.issues.isEmpty)
+
+      test("Placeholder.list single-element edge"):
+        val ph = Placeholder.list(List("only"))
+        assertTrue(ph.sql == "?", ph.writes.size == 1)
+
+      test("Placeholder.list varargs overload matches Iterable form"):
+        val viaVarargs  = Placeholder.list(1, 2, 3)
+        val viaIterable = Placeholder.list(List(1, 2, 3))
+        assertTrue(viaVarargs.sql == viaIterable.sql, viaVarargs.writes.size == viaIterable.writes.size)
+
+      test("Placeholder.list deduplicates"):
+        val ph = Placeholder.list(List("a", "a", "b", "b", "c"))
+        assertTrue(ph.sql == "?, ?, ?", ph.writes.size == 3)
+
+      // === in (top-level helper) ===
+
+      test("in with Iterable produces parenthesized placeholders"):
+        val ph = in(List("a", "b", "c"))
+        assertTrue(ph.sql == "(?, ?, ?)", ph.writes.size == 3, ph.issues.isEmpty)
+
+      test("in with single element"):
+        val ph = in(List("only"))
+        assertTrue(ph.sql == "(?)", ph.writes.size == 1)
+
+      test("in varargs"):
+        val ph = in("active", "pending")
+        assertTrue(ph.sql == "(?, ?)", ph.writes.size == 2)
+
+      test("in varargs single arg"):
+        val ph = in(42)
+        assertTrue(ph.sql == "(?)", ph.writes.size == 1)
+
+      test("in inside a real fragment"):
+        val frag = sql"select * from t where x in ${in(List(1, 2))}"
+        assertTrue(frag.sql == "select * from t where x in (?, ?)", frag.writes.size == 2)
+
+      // === collection-type variety ===
+
+      test("in accepts Vector"):
+        val ph = in(Vector(1, 2, 3))
+        assertTrue(ph.sql == "(?, ?, ?)", ph.writes.size == 3)
+
+      test("in accepts Set (count only — order unspecified)"):
+        val ph = in(Set(1, 2, 3))
+        assertTrue(ph.writes.size == 3, ph.sql == "(?, ?, ?)")
+
+      test("in preserves LinkedHashSet insertion order"):
+        val lhs  = scala.collection.mutable.LinkedHashSet("a", "b", "c")
+        val ph   = in(lhs)
+        val show = sql"x in $ph".show
+        assertTrue(show == "x in ('a', 'b', 'c')")
+
+      test("in with SortedSet emits sorted order"):
+        val ss   = scala.collection.immutable.SortedSet(3, 1, 2)
+        val ph   = in(ss)
+        val show = sql"x in $ph".show
+        assertTrue(show == "x in (1, 2, 3)")
+
+      test("in accepts a Range"):
+        val ph = in(1 to 3)
+        assertTrue(ph.writes.size == 3, ph.sql == "(?, ?, ?)")
+
+      // === dedupe ===
+
+      test("in deduplicates"):
+        val ph   = in(List(1, 1, 2, 2, 3))
+        val show = sql"x in $ph".show
+        assertTrue(ph.sql == "(?, ?, ?)", ph.writes.size == 3, show == "x in (1, 2, 3)")
+
+      test("Placeholder.list dedupes single-element collapse"):
+        val ph = Placeholder.list(List("a", "a"))
+        assertTrue(ph.sql == "?", ph.writes.size == 1)
+
+      test("in with all-duplicates collapses to one and is NOT an error"):
+        val ph = in(List(1, 1, 1))
+        assertTrue(ph.sql == "(?)", ph.writes.size == 1, ph.issues.isEmpty)
+
+      // === negative: empty (issue accumulation) ===
+
+      test("in(empty) returns placeholder with EmptyCollection issue tagged 'in'"):
+        val ph = in(List.empty[String])
+        assertTrue(
+          ph.issues.size == 1,
+          ph.issues.exists {
+            case FragmentIssue.EmptyCollection("in", origin) => origin.isDefined
+            case _                                           => false
+          },
+        )
+
+      test("Placeholder.list(empty) issue tagged 'Placeholder.list'"):
+        val ph = Placeholder.list(List.empty[String])
+        assertTrue(
+          ph.issues.size == 1,
+          ph.issues.exists {
+            case FragmentIssue.EmptyCollection("Placeholder.list", _) => true
+            case _                                                    => false
+          },
+        )
+
+      test("in degenerate-empty-after-filter yields one issue"):
+        val ph = in(List(1, 2, 3).filter(_ > 100))
+        assertTrue(ph.issues.size == 1)
+
+      test("fragment with one in(empty) carries one issue and validate fails"):
+        val frag = sql"select * from t where x in ${in(List.empty[Int])}"
+        for result <- frag.validate.either
+        yield assertTrue(
+          frag.issues.size == 1,
+          result match
+            case Left(SaferisError.InvalidStatement(List(FragmentIssue.EmptyCollection("in", _)))) => true
+            case _                                                                                 => false,
+        )
+
+      test("multi-issue accumulation: two empty in() splices yield two issues"):
+        val frag =
+          sql"select * from t where a in ${in(List.empty[Int])} or b in ${in(List.empty[Int])}"
+        for result <- frag.validate.either
+        yield assertTrue(
+          frag.issues.size == 2,
+          result match
+            case Left(SaferisError.InvalidStatement(issues)) if issues.size == 2 =>
+              issues.forall:
+                case FragmentIssue.EmptyCollection("in", _) => true
+                case _                                      => false
+            case _ => false,
+        )
+
+      test("mix valid + invalid in() splices: writes from valid, issues from invalid"):
+        val frag = sql"select * from t where a in ${in(List(1, 2))} or b in ${in(List.empty[Int])}"
+        assertTrue(frag.writes.size == 2, frag.issues.size == 1)
+
+      test("origin frame is non-null and outside the saferis package"):
+        val ph = in(List.empty[Int])
+        assertTrue(ph.issues.exists {
+          case FragmentIssue.EmptyCollection(_, Some(frame)) =>
+            frame.getFileName != null && !frame.getClassName.startsWith("saferis.")
+          case _ => false
+        })
+
+      // === macro interaction: parameter ordering ===
+
+      test("mixed splice keeps writes in argument order"):
+        val name = "Bob"
+        val ids  = List(10, 20, 30)
+        val age  = 42
+        val frag = sql"select * from t where a = $name and b in ${in(ids)} and c = $age"
+        assertTrue(
+          frag.sql == "select * from t where a = ? and b in (?, ?, ?) and c = ?",
+          frag.writes.size == 5,
+          frag.show == "select * from t where a = 'Bob' and b in (10, 20, 30) and c = 42",
+        )
+
+      test("two in() splices keep ordering across argument positions"):
+        val xs   = List(1, 2)
+        val ys   = List(3, 4, 5)
+        val frag = sql"... a in ${in(xs)} and b in ${in(ys)}"
+        assertTrue(
+          frag.sql == "... a in (?, ?) and b in (?, ?, ?)",
+          frag.writes.size == 5,
+          frag.show == "... a in (1, 2) and b in (3, 4, 5)",
+        )
+
+      test("SqlFragment.validate succeeds for valid fragments"):
+        val frag = sql"select 1"
+        for result <- frag.validate
+        yield assertTrue(result == frag)
+
 end InterpolatorSpecs

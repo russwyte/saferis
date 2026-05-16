@@ -9,8 +9,43 @@ class silent extends Annotation
 
 export Interpolator.sql
 export Interpolator.sqlEcho
+export Interpolator.in
 
 object Interpolator:
+
+  /** Splice a collection of values as `(?, ?, ?, ...)` for an IN clause:
+    *
+    * {{{
+    *   sql"select * from $table where ${table.id} in ${in(ids)}"
+    * }}}
+    *
+    * Accepts any `Iterable[A]` (`Seq`, `List`, `Set`, `LinkedHashSet`, etc.). Duplicates are removed before placeholder
+    * construction. Each remaining element binds one parameter via the implicit `Encoder[A]`.
+    *
+    * On empty (or degenerate-empty-after-dedupe) input, the resulting placeholder carries a
+    * [[FragmentIssue.EmptyCollection]] that surfaces as [[SaferisError.InvalidStatement]] at execution. No DB
+    * round-trip on failure.
+    */
+  def in[A](values: Iterable[A])(using Encoder[A]): Placeholder =
+    Placeholder.concat(
+      Placeholder.raw("("),
+      Placeholder.listTagged(values, helper = "in", origin = Placeholder.captureOrigin()),
+      Placeholder.raw(")"),
+    )
+
+  /** Varargs convenience overload — at least one element by construction.
+    *
+    * {{{
+    *   sql"... where ${table.status} in ${in("active", "pending")}"
+    * }}}
+    */
+  def in[A](first: A, rest: A*)(using Encoder[A]): Placeholder =
+    Placeholder.concat(
+      Placeholder.raw("("),
+      Placeholder.listTagged(first +: rest, helper = "in", origin = Placeholder.captureOrigin()),
+      Placeholder.raw(")"),
+    )
+
   extension (inline sc: StringContext)
     /** Interpolates a string context creating an [[SqlFragment]].
       *
@@ -64,9 +99,10 @@ object Interpolator:
     val holder     = '{ (Vector.newBuilder[Placeholder]) }
     val placeExprs = getPlaceHoldersExpr(allArgsExprs, holder)
     val writeExprs = '{ Placeholder.allWrites($placeExprs) }
+    val issueExprs = '{ Placeholder.allIssues($placeExprs) }
     val query      = '{ $sc.s($placeExprs.map(_.sql)*) }
     val res        = '{
-      SqlFragment($query, $writeExprs)
+      SqlFragment($query, $writeExprs, $issueExprs)
     }
     res
 

@@ -78,10 +78,10 @@ trait QueryBase:
   *   val subquery: SelectQuery[Int] = Query[Order].select(_.userId)
   *
   *   // IN requires matching types - this compiles because _.id is Int
-  *   Query[User].where(_.id).in(subquery)
+  *   Query[User].where(_.id).inSubquery(subquery)
   *
   *   // This would NOT compile: _.name is String, subquery returns Int
-  *   // Query[User].where(_.name).in(subquery)
+  *   // Query[User].where(_.name).inSubquery(subquery)
   * }}}
   */
 final case class SelectQuery[T](query: QueryBase) extends QueryBase:
@@ -404,7 +404,7 @@ final case class Query1Ready[A <: Product: Table](
     val allPredicates  = (wherePredicates ++ seekPredicates).filter(_.sql.trim.nonEmpty)
     if allPredicates.nonEmpty then
       val joined = Placeholder.join(allPredicates, " and ")
-      result = result :+ SqlFragment(" where ", Seq.empty) :+ SqlFragment(joined.sql, joined.writes)
+      result = result :+ SqlFragment(" where ", Seq.empty) :+ SqlFragment(joined.sql, joined.writes, joined.issues)
 
     // ORDER BY clause (explicit sorts + seek sorts)
     val seekSorts = seeks.map(_.toSort)
@@ -412,7 +412,7 @@ final case class Query1Ready[A <: Product: Table](
     if allSorts.nonEmpty then
       val sortFragments = allSorts.map(_.toSqlFragment)
       val joined        = Placeholder.join(sortFragments, ", ")
-      result = result :+ SqlFragment(" order by ", Seq.empty) :+ SqlFragment(joined.sql, joined.writes)
+      result = result :+ SqlFragment(" order by ", Seq.empty) :+ SqlFragment(joined.sql, joined.writes, joined.issues)
 
     // LIMIT/OFFSET
     limitValue.foreach(n => result = result :+ SqlFragment(s" limit $n", Seq.empty))
@@ -876,7 +876,7 @@ final case class Query2Ready[A <: Product: Table, B <: Product: Table](
     val allPredicates  = (wherePredicates ++ seekPredicates).filter(_.sql.trim.nonEmpty)
     if allPredicates.nonEmpty then
       val joined = Placeholder.join(allPredicates, " and ")
-      result = result :+ SqlFragment(" where ", Seq.empty) :+ SqlFragment(joined.sql, joined.writes)
+      result = result :+ SqlFragment(" where ", Seq.empty) :+ SqlFragment(joined.sql, joined.writes, joined.issues)
 
     // ORDER BY clause
     val seekSorts = seeks.map(_.toSort)
@@ -884,7 +884,7 @@ final case class Query2Ready[A <: Product: Table, B <: Product: Table](
     if allSorts.nonEmpty then
       val sortFragments = allSorts.map(_.toSqlFragment)
       val joined        = Placeholder.join(sortFragments, ", ")
-      result = result :+ SqlFragment(" order by ", Seq.empty) :+ SqlFragment(joined.sql, joined.writes)
+      result = result :+ SqlFragment(" order by ", Seq.empty) :+ SqlFragment(joined.sql, joined.writes, joined.issues)
 
     // LIMIT/OFFSET
     limitValue.foreach(n => result = result :+ SqlFragment(s" limit $n", Seq.empty))
@@ -1163,14 +1163,14 @@ final case class Query3Ready[A <: Product: Table, B <: Product: Table, C <: Prod
     val allPredicates  = (wherePredicates ++ seekPredicates).filter(_.sql.trim.nonEmpty)
     if allPredicates.nonEmpty then
       val joined = Placeholder.join(allPredicates, " and ")
-      result = result :+ SqlFragment(" where ", Seq.empty) :+ SqlFragment(joined.sql, joined.writes)
+      result = result :+ SqlFragment(" where ", Seq.empty) :+ SqlFragment(joined.sql, joined.writes, joined.issues)
 
     val seekSorts = seeks.map(_.toSort)
     val allSorts  = sorts ++ seekSorts
     if allSorts.nonEmpty then
       val sortFragments = allSorts.map(_.toSqlFragment)
       val joined        = Placeholder.join(sortFragments, ", ")
-      result = result :+ SqlFragment(" order by ", Seq.empty) :+ SqlFragment(joined.sql, joined.writes)
+      result = result :+ SqlFragment(" order by ", Seq.empty) :+ SqlFragment(joined.sql, joined.writes, joined.issues)
 
     limitValue.foreach(n => result = result :+ SqlFragment(s" limit $n", Seq.empty))
     offsetValue.foreach(n => result = result :+ SqlFragment(s" offset $n", Seq.empty))
@@ -1365,14 +1365,14 @@ final case class Query4Ready[A <: Product: Table, B <: Product: Table, C <: Prod
     val allPredicates  = (wherePredicates ++ seekPredicates).filter(_.sql.trim.nonEmpty)
     if allPredicates.nonEmpty then
       val joined = Placeholder.join(allPredicates, " and ")
-      result = result :+ SqlFragment(" where ", Seq.empty) :+ SqlFragment(joined.sql, joined.writes)
+      result = result :+ SqlFragment(" where ", Seq.empty) :+ SqlFragment(joined.sql, joined.writes, joined.issues)
 
     val seekSorts = seeks.map(_.toSort)
     val allSorts  = sorts ++ seekSorts
     if allSorts.nonEmpty then
       val sortFragments = allSorts.map(_.toSqlFragment)
       val joined        = Placeholder.join(sortFragments, ", ")
-      result = result :+ SqlFragment(" order by ", Seq.empty) :+ SqlFragment(joined.sql, joined.writes)
+      result = result :+ SqlFragment(" order by ", Seq.empty) :+ SqlFragment(joined.sql, joined.writes, joined.issues)
 
     limitValue.foreach(n => result = result :+ SqlFragment(s" limit $n", Seq.empty))
     offsetValue.foreach(n => result = result :+ SqlFragment(s" offset $n", Seq.empty))
@@ -1603,14 +1603,14 @@ final case class Query5Ready[
     val allPredicates  = (wherePredicates ++ seekPredicates).filter(_.sql.trim.nonEmpty)
     if allPredicates.nonEmpty then
       val joined = Placeholder.join(allPredicates, " and ")
-      result = result :+ SqlFragment(" where ", Seq.empty) :+ SqlFragment(joined.sql, joined.writes)
+      result = result :+ SqlFragment(" where ", Seq.empty) :+ SqlFragment(joined.sql, joined.writes, joined.issues)
 
     val seekSorts = seeks.map(_.toSort)
     val allSorts  = sorts ++ seekSorts
     if allSorts.nonEmpty then
       val sortFragments = allSorts.map(_.toSqlFragment)
       val joined        = Placeholder.join(sortFragments, ", ")
-      result = result :+ SqlFragment(" order by ", Seq.empty) :+ SqlFragment(joined.sql, joined.writes)
+      result = result :+ SqlFragment(" order by ", Seq.empty) :+ SqlFragment(joined.sql, joined.writes, joined.issues)
 
     limitValue.foreach(n => result = result :+ SqlFragment(s" limit $n", Seq.empty))
     offsetValue.foreach(n => result = result :+ SqlFragment(s" offset $n", Seq.empty))
