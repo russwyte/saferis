@@ -201,7 +201,7 @@ val minPrice = 10.0
 val query = sql"SELECT * FROM $products WHERE ${products.price} > $minPrice"
 // query: SqlFragment = SqlFragment(
 //   sql = "SELECT * FROM products WHERE price > ?",
-//   writes = Vector(saferis.Write@1e31bdd1),
+//   writes = Vector(saferis.Write@35415745),
 //   issues = List()
 // )
 query.show
@@ -1022,7 +1022,7 @@ run {
   yield jobs)
 }
 // res50: Chunk[Job] = IndexedSeq(
-//   Job(id = 1, status = "pending", retryAt = Some(2026-05-16T17:24:56.773426Z)),
+//   Job(id = 1, status = "pending", retryAt = Some(2026-05-16T18:26:17.571154Z)),
 //   Job(id = 2, status = "completed", retryAt = None)
 // )
 ```
@@ -1932,8 +1932,8 @@ All mutation builders support these operators in WHERE clauses:
 | `.lte(value)` | `<= ?` | Less than or equal |
 | `.gt(value)` | `> ?` | Greater than |
 | `.gte(value)` | `>= ?` | Greater than or equal |
-| `.isNull()` | `IS NULL` | Null check |
-| `.isNotNull()` | `IS NOT NULL` | Non-null check |
+| `.isNull()` | `is null` | Null check |
+| `.isNotNull()` | `is not null` | Non-null check |
 
 You can also use raw `SqlFragment` for complex conditions:
 
@@ -2018,16 +2018,16 @@ case class ClaimTask(
 ```scala
 // Query for unclaimed or expired claims
 val now = java.time.Instant.now()
-// now: Instant = 2026-05-16T17:24:57.191810010Z
+// now: Instant = 2026-05-16T18:26:17.992448994Z
 Update[ClaimTask]
   .set(_.claimedBy, Some("worker-1"))
   .where(_.deadline).lte(now)
   .andWhere(w => w(_.claimedBy).isNull.or(_.claimedUntil).lt(Some(now)))
   .build.sql
-// res101: String = "update claim_tasks set claimedBy = ? where claim_tasks.deadline <= ? and (claim_tasks.claimedBy IS NULL OR claim_tasks.claimedUntil < ?)"
+// res101: String = "update claim_tasks set claimedBy = ? where claim_tasks.deadline <= ? and (claim_tasks.claimedBy is null or claim_tasks.claimedUntil < ?)"
 ```
 
-This generates: `UPDATE ... WHERE deadline <= ? AND (claimed_by IS NULL OR claimed_until < ?)`
+This generates: `update ... where deadline <= ? and (claimed_by is null or claimed_until < ?)`
 
 The `andWhere` lambda provides a builder that supports:
 - `w(_.column)` - Start a condition on a column
@@ -2043,7 +2043,7 @@ Delete[ClaimTask]
   .where(_.deadline).lt(now)
   .andWhere(w => w(_.claimedBy).isNotNull.or(_.claimedUntil).lt(Some(now)))
   .build.sql
-// res102: String = "delete from claim_tasks where claim_tasks.deadline < ? and (claim_tasks.claimedBy IS NOT NULL OR claim_tasks.claimedUntil < ?)"
+// res102: String = "delete from claim_tasks where claim_tasks.deadline < ? and (claim_tasks.claimedBy is not null or claim_tasks.claimedUntil < ?)"
 ```
 
 #### Type-Safe UPDATE with RETURNING
@@ -2065,7 +2065,7 @@ case class LockRow(
 ```scala
 // returningAs provides type-safe query execution
 val newExpiry = java.time.Instant.now().plusSeconds(60)
-// newExpiry: Instant = 2026-05-16T17:25:57.194319765Z
+// newExpiry: Instant = 2026-05-16T18:27:17.995551489Z
 Update[LockRow]
   .set(_.expiresAt, newExpiry)
   .where(_.instanceId).eq("instance-1")
@@ -2193,7 +2193,7 @@ Query[QueryUser].where(_.age).gt(21).build.sql
 ```scala
 // IS NULL / IS NOT NULL
 Query[QueryUser].where(_.email).isNotNull().build.sql
-// res113: String = "select * from query_users as query_users_ref_1 where query_users_ref_1.email IS NOT NULL"
+// res113: String = "select * from query_users as query_users_ref_1 where query_users_ref_1.email is not null"
 ```
 
 You can also use raw `SqlFragment` for complex conditions:
@@ -2337,8 +2337,8 @@ All comparison operators are available in the ON clause:
 | `lte()` | `<=` | Less than or equal |
 | `gt()` | `>` | Greater than |
 | `gte()` | `>=` | Greater than or equal |
-| `isNull()` | `IS NULL` | Null check |
-| `isNotNull()` | `IS NOT NULL` | Non-null check |
+| `isNull()` | `is null` | Null check |
+| `isNotNull()` | `is not null` | Non-null check |
 | `op(Operator.X)` | Custom | Any operator |
 
 ### Pagination
@@ -2526,7 +2526,7 @@ val activeUserIds = Query[SubOrder]
 //     wherePredicates = Vector(
 //       SqlFragment(
 //         sql = "sub_orders_ref_1.status = ?",
-//         writes = Vector(saferis.Write@11b420d3),
+//         writes = Vector(saferis.Write@27cc6c50),
 //         issues = List()
 //       )
 //     ),
@@ -2539,7 +2539,7 @@ val activeUserIds = Query[SubOrder]
 Query[SubUser]
   .where(_.id).inSubquery(activeUserIds)  // Compiles: both are Int
   .build.sql
-// res134: String = "select * from sub_users as sub_users_ref_1 where sub_users_ref_1.id IN (select userId from sub_orders as sub_orders_ref_1 where sub_orders_ref_1.status = ?)"
+// res134: String = "select * from sub_users as sub_users_ref_1 where sub_users_ref_1.id in (select userId from sub_orders as sub_orders_ref_1 where sub_orders_ref_1.status = ?)"
 ```
 
 ```scala
@@ -2547,7 +2547,7 @@ Query[SubUser]
 Query[SubUser]
   .where(_.id).notInSubquery(activeUserIds)
   .build.sql
-// res135: String = "select * from sub_users as sub_users_ref_1 where sub_users_ref_1.id NOT IN (select userId from sub_orders as sub_orders_ref_1 where sub_orders_ref_1.status = ?)"
+// res135: String = "select * from sub_users as sub_users_ref_1 where sub_users_ref_1.id not in (select userId from sub_orders as sub_orders_ref_1 where sub_orders_ref_1.status = ?)"
 ```
 
 The type safety is enforced at compile time - if the column types don't match, it won't compile.
@@ -2562,7 +2562,7 @@ For IN-clauses over runtime values (not subqueries), use `in` (varargs) for inli
 Query[SubUser]
   .where(_.name).in("Alice", "Bob")
   .build.sql
-// res136: String = "select * from sub_users as sub_users_ref_1 where sub_users_ref_1.name IN (?, ?)"
+// res136: String = "select * from sub_users as sub_users_ref_1 where sub_users_ref_1.name in (?, ?)"
 ```
 
 ```scala
@@ -2572,7 +2572,7 @@ val ids = List(1, 2, 3, 3)  // duplicates are removed automatically
 Query[SubUser]
   .where(_.id).inList(ids)
   .build.sql
-// res137: String = "select * from sub_users as sub_users_ref_1 where sub_users_ref_1.id IN (?, ?, ?)"
+// res137: String = "select * from sub_users as sub_users_ref_1 where sub_users_ref_1.id in (?, ?, ?)"
 ```
 
 ```scala
@@ -2616,7 +2616,7 @@ Use `whereExists()` or `whereNotExists()`:
 Query[SubUser]
   .whereExists(Query[SubOrder].all)
   .build.sql
-// res140: String = "select * from sub_users as sub_users_ref_1 where EXISTS (select * from sub_orders as sub_orders_ref_1)"
+// res140: String = "select * from sub_users as sub_users_ref_1 where exists (select * from sub_orders as sub_orders_ref_1)"
 ```
 
 ```scala
@@ -2624,7 +2624,7 @@ Query[SubUser]
 Query[SubUser]
   .whereNotExists(Query[SubOrder].where(_.status).eq("cancelled"))
   .build.sql
-// res141: String = "select * from sub_users as sub_users_ref_1 where NOT EXISTS (select * from sub_orders as sub_orders_ref_1 where sub_orders_ref_1.status = ?)"
+// res141: String = "select * from sub_users as sub_users_ref_1 where not exists (select * from sub_orders as sub_orders_ref_1 where sub_orders_ref_1.status = ?)"
 ```
 
 ### Correlated Subqueries
@@ -2671,7 +2671,7 @@ Query[SubUser]
     Query[SubOrder].where(sql"userId = ${users.id}")
   )
   .build.sql
-// res142: String = "select * from sub_users as sub_users_ref_1 where EXISTS (select * from sub_orders as sub_orders_ref_1 where userId = id)"
+// res142: String = "select * from sub_users as sub_users_ref_1 where exists (select * from sub_orders as sub_orders_ref_1 where userId = id)"
 ```
 
 ### Derived Tables
@@ -2821,7 +2821,7 @@ val electronicProductIds = Query[ComplexProduct]
 //     wherePredicates = Vector(
 //       SqlFragment(
 //         sql = "complex_products_ref_1.category = ?",
-//         writes = Vector(saferis.Write@4e2a6d10),
+//         writes = Vector(saferis.Write@6b8ea419),
 //         issues = List()
 //       )
 //     ),
@@ -2883,8 +2883,8 @@ val usersWithElectronics = Query[ComplexOrder]
 //     ),
 //     wherePredicates = Vector(
 //       SqlFragment(
-//         sql = "complex_orders_ref_1.productId IN (select id from complex_products as complex_products_ref_1 where complex_products_ref_1.category = ?)",
-//         writes = List(saferis.Write@4e2a6d10),
+//         sql = "complex_orders_ref_1.productId in (select id from complex_products as complex_products_ref_1 where complex_products_ref_1.category = ?)",
+//         writes = List(saferis.Write@6b8ea419),
 //         issues = List()
 //       )
 //     ),
@@ -2896,7 +2896,7 @@ val usersWithElectronics = Query[ComplexOrder]
 Query[ComplexUser]
   .where(_.id).inSubquery(usersWithElectronics)
   .build.sql
-// res147: String = "select * from complex_users as complex_users_ref_1 where complex_users_ref_1.id IN (select userId from complex_orders as complex_orders_ref_1 where complex_orders_ref_1.productId IN (select id from complex_products as complex_products_ref_1 where complex_products_ref_1.category = ?))"
+// res147: String = "select * from complex_users as complex_users_ref_1 where complex_users_ref_1.id in (select userId from complex_orders as complex_orders_ref_1 where complex_orders_ref_1.productId in (select id from complex_products as complex_products_ref_1 where complex_products_ref_1.category = ?))"
 ```
 
 ### Operator Reference
@@ -2911,13 +2911,13 @@ All available operators in `Operator`:
 | `Lte` | `<=` | Less than or equal |
 | `Gt` | `>` | Greater than |
 | `Gte` | `>=` | Greater than or equal |
-| `Like` | `LIKE` | Pattern matching |
-| `ILike` | `ILIKE` | Case-insensitive LIKE (PostgreSQL) |
-| `SimilarTo` | `SIMILAR TO` | Regex pattern (PostgreSQL) |
+| `Like` | `like` | Pattern matching |
+| `ILike` | `ilike` | Case-insensitive LIKE (PostgreSQL) |
+| `SimilarTo` | `similar to` | Regex pattern (PostgreSQL) |
 | `RegexMatch` | `~` | Regex match (PostgreSQL) |
 | `RegexMatchCI` | `~*` | Case-insensitive regex (PostgreSQL) |
-| `IsNull` | `IS NULL` | Null check |
-| `IsNotNull` | `IS NOT NULL` | Non-null check |
+| `IsNull` | `is null` | Null check |
+| `IsNotNull` | `is not null` | Non-null check |
 
 ### Complex WHERE with OR and Grouping
 
@@ -2939,15 +2939,15 @@ case class TimeoutRow(
 ```scala
 // Find rows that are due AND either unclaimed or with expired claims
 val now = java.time.Instant.now()
-// now: Instant = 2026-05-16T17:24:57.253612928Z
+// now: Instant = 2026-05-16T18:26:18.061117409Z
 Query[TimeoutRow]
   .where(_.deadline).lte(now)
   .andWhere(w => w(_.claimedBy).isNull.or(_.claimedUntil).lt(Some(now)))
   .build.sql
-// res149: String = "select * from timeout_rows as timeout_rows_ref_1 where timeout_rows_ref_1.deadline <= ? and (timeout_rows_ref_1.claimedBy IS NULL OR timeout_rows_ref_1.claimedUntil < ?)"
+// res149: String = "select * from timeout_rows as timeout_rows_ref_1 where timeout_rows_ref_1.deadline <= ? and (timeout_rows_ref_1.claimedBy is null or timeout_rows_ref_1.claimedUntil < ?)"
 ```
 
-This generates: `SELECT ... WHERE deadline <= ? AND (claimed_by IS NULL OR claimed_until < ?)`
+This generates: `select ... where deadline <= ? and (claimed_by is null or claimed_until < ?)`
 
 The parentheses are automatically added around the grouped conditions.
 
@@ -2965,7 +2965,7 @@ Query[TimeoutRow]
       .or(_.deadline).gt(now)
   )
   .build.sql
-// res150: String = "select * from timeout_rows as timeout_rows_ref_1 where timeout_rows_ref_1.id > ? and (timeout_rows_ref_1.claimedBy IS NULL OR timeout_rows_ref_1.claimedUntil < ? OR timeout_rows_ref_1.deadline > ?)"
+// res150: String = "select * from timeout_rows as timeout_rows_ref_1 where timeout_rows_ref_1.id > ? and (timeout_rows_ref_1.claimedBy is null or timeout_rows_ref_1.claimedUntil < ? or timeout_rows_ref_1.deadline > ?)"
 ```
 
 ```scala
@@ -2977,7 +2977,7 @@ Query[TimeoutRow]
       .and(_.claimedUntil).gt(Some(now))
   )
   .build.sql
-// res151: String = "select * from timeout_rows as timeout_rows_ref_1 where timeout_rows_ref_1.id > ? and (timeout_rows_ref_1.claimedBy IS NOT NULL AND timeout_rows_ref_1.claimedUntil > ?)"
+// res151: String = "select * from timeout_rows as timeout_rows_ref_1 where timeout_rows_ref_1.id > ? and (timeout_rows_ref_1.claimedBy is not null and timeout_rows_ref_1.claimedUntil > ?)"
 ```
 
 Available operations in the `andWhere` builder:
@@ -3568,13 +3568,13 @@ case class UpsertLock(
 ```scala
 // Basic upsert - update all non-key columns on conflict
 val now = java.time.Instant.now()
-// now: Instant = 2026-05-16T17:24:57.606325191Z
+// now: Instant = 2026-05-16T18:26:18.537130118Z
 val lock = UpsertLock("instance-1", "node-1", now, now.plusSeconds(60))
 // lock: UpsertLock = UpsertLock(
 //   instanceId = "instance-1",
 //   nodeId = "node-1",
-//   acquiredAt = 2026-05-16T17:24:57.606325191Z,
-//   expiresAt = 2026-05-16T17:25:57.606325191Z
+//   acquiredAt = 2026-05-16T18:26:18.537130118Z,
+//   expiresAt = 2026-05-16T18:27:18.537130118Z
 // )
 
 Upsert[UpsertLock]
@@ -3597,7 +3597,7 @@ Upsert[UpsertLock]
   .doUpdateAll
   .where(_.expiresAt).lt(now)
   .build.sql
-// res181: String = "insert into upsert_locks (instanceId, nodeId, acquiredAt, expiresAt) values (?, ?, ?, ?) on conflict (instanceId) do update set nodeId = ?, acquiredAt = ?, expiresAt = ? WHERE upsert_locks.expiresAt < ?"
+// res181: String = "insert into upsert_locks (instanceId, nodeId, acquiredAt, expiresAt) values (?, ?, ?, ?) on conflict (instanceId) do update set nodeId = ?, acquiredAt = ?, expiresAt = ? where upsert_locks.expiresAt < ?"
 ```
 
 This generates: `INSERT INTO ... ON CONFLICT (instance_id) DO UPDATE SET ... WHERE upsert_locks.expires_at < ?`
@@ -3615,10 +3615,10 @@ Upsert[UpsertLock]
   .where(_.expiresAt).lt(now)
   .or(_.nodeId).eqExcluded
   .build.sql
-// res182: String = "insert into upsert_locks (instanceId, nodeId, acquiredAt, expiresAt) values (?, ?, ?, ?) on conflict (instanceId) do update set nodeId = ?, acquiredAt = ?, expiresAt = ? WHERE upsert_locks.expiresAt < ? OR upsert_locks.nodeId = EXCLUDED.nodeId"
+// res182: String = "insert into upsert_locks (instanceId, nodeId, acquiredAt, expiresAt) values (?, ?, ?, ?) on conflict (instanceId) do update set nodeId = ?, acquiredAt = ?, expiresAt = ? where upsert_locks.expiresAt < ? or upsert_locks.nodeId = excluded.nodeId"
 ```
 
-The `.eqExcluded` generates `table.column = EXCLUDED.column`, referencing the value from the INSERT.
+The `.eqExcluded` generates `table.column = excluded.column`, referencing the value from the INSERT.
 
 ### Upsert with DO NOTHING
 
@@ -3658,7 +3658,7 @@ Upsert[UpsertLock]
   .where(_.expiresAt).lt(now)
   .returning
   .build.sql
-// res185: String = "insert into upsert_locks (instanceId, nodeId, acquiredAt, expiresAt) values (?, ?, ?, ?) on conflict (instanceId) do update set nodeId = ?, acquiredAt = ?, expiresAt = ? WHERE upsert_locks.expiresAt < ? returning *"
+// res185: String = "insert into upsert_locks (instanceId, nodeId, acquiredAt, expiresAt) values (?, ?, ?, ?) on conflict (instanceId) do update set nodeId = ?, acquiredAt = ?, expiresAt = ? where upsert_locks.expiresAt < ? returning *"
 ```
 
 ### Compound Conflict Columns
@@ -3746,16 +3746,16 @@ run {
 //     AtomicLock(
 //       instanceId = "lock-1",
 //       nodeId = "node-A",
-//       acquiredAt = 2026-05-16T17:24:57.619236Z,
-//       expiresAt = 2026-05-16T17:25:57.619236Z
+//       acquiredAt = 2026-05-16T18:26:18.553611Z,
+//       expiresAt = 2026-05-16T18:27:18.553611Z
 //     )
 //   ),
 //   Some(
 //     AtomicLock(
 //       instanceId = "lock-1",
 //       nodeId = "node-A",
-//       acquiredAt = 2026-05-16T17:24:57.619236Z,
-//       expiresAt = 2026-05-16T17:26:57.619236Z
+//       acquiredAt = 2026-05-16T18:26:18.553611Z,
+//       expiresAt = 2026-05-16T18:28:18.553611Z
 //     )
 //   )
 // )
@@ -3924,14 +3924,14 @@ run {
 //   Event(
 //     id = 1,
 //     name = "Conference",
-//     occurredAt = 2026-05-16T17:24:57.668176Z,
-//     scheduledFor = Some(2026-05-23T12:24:57.668216),
+//     occurredAt = 2026-05-16T18:26:18.603019Z,
+//     scheduledFor = Some(2026-05-23T13:26:18.603050),
 //     eventDate = 2026-05-16
 //   ),
 //   Event(
 //     id = 2,
 //     name = "Meeting",
-//     occurredAt = 2026-05-16T17:24:57.673015Z,
+//     occurredAt = 2026-05-16T18:26:18.607831Z,
 //     scheduledFor = None,
 //     eventDate = 2026-05-17
 //   )
@@ -3964,7 +3964,7 @@ run {
   yield found)
 }
 // res197: Option[Entity] = Some(
-//   Entity(id = 3d5923a6-310c-4672-a32f-acda182a7530, name = "First Entity")
+//   Entity(id = 4006a1a5-57ff-4fdf-aabb-ce920b6bf829, name = "First Entity")
 // )
 ```
 

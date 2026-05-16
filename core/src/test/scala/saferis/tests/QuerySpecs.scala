@@ -266,12 +266,12 @@ object QuerySpecs extends ZIOSpecDefault:
       test("type-safe where with isNull") {
         val q   = Query[User].where(_.email).isNull()
         val sql = q.build.sql
-        assertTrue(sql.contains("IS NULL"))
+        assertTrue(sql.contains("is null"))
       },
       test("type-safe where with isNotNull") {
         val q   = Query[User].where(_.email).isNotNull()
         val sql = q.build.sql
-        assertTrue(sql.contains("IS NOT NULL"))
+        assertTrue(sql.contains("is not null"))
       },
     ),
     suite("IN Subqueries")(
@@ -280,7 +280,7 @@ object QuerySpecs extends ZIOSpecDefault:
         val q        = Query[User].where(_.id).inSubquery(subquery)
         val sql      = q.build.sql
         assertTrue(
-          sql.contains("IN (select userId from orders as orders_ref_1)")
+          sql.contains("in (select userId from orders as orders_ref_1)")
         )
       },
       test("IN subquery with where clause") {
@@ -288,7 +288,7 @@ object QuerySpecs extends ZIOSpecDefault:
         val q        = Query[User].where(_.id).inSubquery(subquery)
         val sql      = q.build.sql
         assertTrue(
-          sql.contains("IN (select userId from orders as orders_ref_1 where"),
+          sql.contains("in (select userId from orders as orders_ref_1 where"),
           sql.contains("status ="),
         )
       },
@@ -297,53 +297,53 @@ object QuerySpecs extends ZIOSpecDefault:
         val q        = Query[User].where(_.id).notInSubquery(subquery)
         val sql      = q.build.sql
         assertTrue(
-          sql.contains("NOT IN (select userId from orders as orders_ref_1)")
+          sql.contains("not in (select userId from orders as orders_ref_1)")
         )
       },
       test("inList with a Iterable produces parameterized IN") {
         val q = Query[User].where(_.id).inList(List(1, 2, 3)).build
-        assertTrue(q.sql.contains("IN (?, ?, ?)"), q.writes.size == 3, q.issues.isEmpty)
+        assertTrue(q.sql.contains("in (?, ?, ?)"), q.writes.size == 3, q.issues.isEmpty)
       },
       test("notInList produces parameterized NOT IN") {
         val q = Query[User].where(_.id).notInList(List(1, 2, 3)).build
-        assertTrue(q.sql.contains("NOT IN (?, ?, ?)"), q.writes.size == 3)
+        assertTrue(q.sql.contains("not in (?, ?, ?)"), q.writes.size == 3)
       },
       test("in varargs produces parameterized IN") {
         val q = Query[User].where(_.name).in("active", "pending").build
-        assertTrue(q.sql.contains("IN (?, ?)"), q.writes.size == 2)
+        assertTrue(q.sql.contains("in (?, ?)"), q.writes.size == 2)
       },
       test("notIn varargs produces parameterized NOT IN") {
         val q = Query[User].where(_.name).notIn("archived").build
-        assertTrue(q.sql.contains("NOT IN (?)"), q.writes.size == 1)
+        assertTrue(q.sql.contains("not in (?)"), q.writes.size == 1)
       },
       test("inList with single element") {
         val q = Query[User].where(_.id).inList(List(42)).build
-        assertTrue(q.sql.contains("IN (?)"), q.writes.size == 1)
+        assertTrue(q.sql.contains("in (?)"), q.writes.size == 1)
       },
       test("inList accepts a Set") {
         val q = Query[User].where(_.id).inList(Set(1, 2, 3)).build
-        assertTrue(q.writes.size == 3, q.sql.contains("IN (?, ?, ?)"))
+        assertTrue(q.writes.size == 3, q.sql.contains("in (?, ?, ?)"))
       },
       test("inList accepts a Vector") {
         val q = Query[User].where(_.id).inList(Vector(1, 2, 3)).build
-        assertTrue(q.writes.size == 3, q.sql.contains("IN (?, ?, ?)"))
+        assertTrue(q.writes.size == 3, q.sql.contains("in (?, ?, ?)"))
       },
       test("inList deduplicates input") {
         val q = Query[User].where(_.id).inList(List(1, 1, 2)).build
-        assertTrue(q.writes.size == 2, q.sql.contains("IN (?, ?)"))
+        assertTrue(q.writes.size == 2, q.sql.contains("in (?, ?)"))
       },
       test("varargs in dedupes too") {
         val q = Query[User].where(_.id).in(1, 1, 2, 2, 3).build
-        assertTrue(q.writes.size == 3, q.sql.contains("IN (?, ?, ?)"))
+        assertTrue(q.writes.size == 3, q.sql.contains("in (?, ?, ?)"))
       },
       test("inSubquery still works alongside the literal in/inList overloads") {
         val subquery = Query[Order].select(_.userId)
         val q        = Query[User].where(_.id).inSubquery(subquery).build
-        assertTrue(q.sql.contains("IN (select"), q.issues.isEmpty)
+        assertTrue(q.sql.contains("in (select"), q.issues.isEmpty)
       },
       test("inList mixed with other where predicates preserves parameter order") {
         val q = Query[User].where(_.name).eq("Bob").where(_.id).inList(List(1, 2, 3)).build
-        assertTrue(q.sql.contains("name = ?"), q.sql.contains("IN (?, ?, ?)"), q.writes.size == 4)
+        assertTrue(q.sql.contains("name = ?"), q.sql.contains("in (?, ?, ?)"), q.writes.size == 4)
       },
       test("two inList calls on different columns accumulate writes") {
         val q = Query[User].where(_.id).inList(List(1, 2)).where(_.name).inList(List("a", "b", "c")).build
@@ -371,7 +371,7 @@ object QuerySpecs extends ZIOSpecDefault:
       },
       test("all-duplicates collapsing to one is NOT an error") {
         val q = Query[User].where(_.id).inList(List(7, 7, 7)).build
-        assertTrue(q.issues.isEmpty, q.writes.size == 1, q.sql.contains("IN (?)"))
+        assertTrue(q.issues.isEmpty, q.writes.size == 1, q.sql.contains("in (?)"))
       },
       test("two empty inList calls produce two accumulated issues") {
         val q = Query[User].where(_.id).inList(List.empty[Int]).where(_.name).inList(List.empty[String]).build
@@ -403,7 +403,7 @@ object QuerySpecs extends ZIOSpecDefault:
         val q        = Query[User].whereExists(subquery)
         val sql      = q.build.sql
         assertTrue(
-          sql.contains("EXISTS (select * from orders as orders_ref_1)")
+          sql.contains("exists (select * from orders as orders_ref_1)")
         )
       },
       test("EXISTS subquery with where clause") {
@@ -411,7 +411,7 @@ object QuerySpecs extends ZIOSpecDefault:
         val q        = Query[User].whereExists(subquery)
         val sql      = q.build.sql
         assertTrue(
-          sql.contains("EXISTS (select * from orders as orders_ref_1 where")
+          sql.contains("exists (select * from orders as orders_ref_1 where")
         )
       },
       test("NOT EXISTS subquery") {
@@ -419,7 +419,7 @@ object QuerySpecs extends ZIOSpecDefault:
         val q        = Query[User].whereNotExists(subquery)
         val sql      = q.build.sql
         assertTrue(
-          sql.contains("NOT EXISTS (select * from orders as orders_ref_1)")
+          sql.contains("not exists (select * from orders as orders_ref_1)")
         )
       },
       test("correlated EXISTS using sql interpolation") {
@@ -428,7 +428,7 @@ object QuerySpecs extends ZIOSpecDefault:
         val q        = Query[User].whereExists(subquery)
         val sql      = q.build.sql
         assertTrue(
-          sql.contains("EXISTS"),
+          sql.contains("exists"),
           sql.contains("userId = id"),
         )
       },
@@ -511,6 +511,150 @@ object QuerySpecs extends ZIOSpecDefault:
           sql.contains(") as totals"),
           sql.contains("inner join users as users_ref_1"),
           sql.contains("totals.userId = users_ref_1.id"),
+        )
+      },
+    ),
+    suite("Schema-qualified table names")(
+      test("schema-qualified tableName produces valid alias (no dots)") {
+        @tableName("prd.foo")
+        final case class PrdFoo(@key id: Long, name: String) derives Table
+
+        val sql = Query[PrdFoo].all.build.sql
+        assertTrue(
+          sql == "select * from prd.foo as foo_ref_1",
+          !sql.contains("prd.foo_ref_1"),
+        )
+      },
+      test("schema-qualified tableName produces valid column reference in where") {
+        @tableName("prd.foo")
+        final case class PrdFoo(@key id: Long, name: String) derives Table
+
+        val sql = Query[PrdFoo].where(_.name).eq("a").build.sql
+        assertTrue(
+          sql.contains("foo_ref_1.name"),
+          !sql.contains("prd.foo_ref_1"),
+        )
+      },
+      test("same bare name in different schemas get distinct, valid aliases") {
+        @tableName("prd.user_acct")
+        final case class PrdUser(@key id: Long, name: String) derives Table
+
+        @tableName("staging.user_acct")
+        final case class StagingUser(@key id: Long, name: String) derives Table
+
+        val sql = Query[PrdUser]
+          .innerJoin[StagingUser]
+          .on(_.id)
+          .eq(_.id)
+          .endJoin
+          .all
+          .build
+          .sql
+        assertTrue(
+          sql.contains("from prd.user_acct as user_acct_ref_1"),
+          sql.contains("inner join staging.user_acct as user_acct_ref_2"),
+          sql.contains("user_acct_ref_1.id = user_acct_ref_2.id"),
+          !sql.contains("prd.user_acct_ref"),
+          !sql.contains("staging.user_acct_ref"),
+        )
+      },
+      test("isNull / isNotNull produce valid column refs (UnaryCondition path)") {
+        @tableName("prd.foo")
+        final case class PrdFoo(@key id: Long, name: Option[String]) derives Table
+
+        val isNullSql    = Query[PrdFoo].where(_.name).isNull().build.sql
+        val isNotNullSql = Query[PrdFoo].where(_.name).isNotNull().build.sql
+        assertTrue(
+          isNullSql.contains("foo_ref_1.name is null"),
+          isNotNullSql.contains("foo_ref_1.name is not null"),
+          !isNullSql.contains("prd.foo_ref_1"),
+          !isNotNullSql.contains("prd.foo_ref_1"),
+        )
+      },
+      test("orderBy uses valid alias-qualified column ref") {
+        @tableName("prd.foo")
+        final case class PrdFoo(@key id: Long, name: String) derives Table
+
+        val foo = Table[PrdFoo]
+        val sql = Query[PrdFoo].orderBy(foo.name.asc).all.build.sql
+        assertTrue(
+          // orderBy uses the unaliased column from Table[A], so the assertion is just
+          // that nothing in the emitted SQL includes the dotted-alias bug.
+          !sql.contains("prd.foo_ref_1"),
+          sql.contains("order by"),
+        )
+      },
+      test("select(_.col) for subqueries emits clean SQL (no dotted alias in FROM)") {
+        @tableName("prd.foo")
+        final case class PrdFoo(@key id: Long, name: String) derives Table
+
+        // Note: select(_.col) emits the bare column label in the SELECT list
+        // (matches existing behavior in IN subquery tests).
+        val sub = Query[PrdFoo].select(_.id)
+        val sql = sub.build.sql
+        assertTrue(
+          sql == "select id from prd.foo as foo_ref_1",
+          !sql.contains("prd.foo_ref_1"),
+        )
+      },
+      test("seekAfter on schema-qualified table produces valid SQL") {
+        @tableName("prd.foo")
+        final case class PrdFoo(@key id: Long, name: String) derives Table
+
+        val foo = Table[PrdFoo]
+        val sql = Query[PrdFoo].seekAfter(foo.id, 100L).build.sql
+        assertTrue(
+          !sql.contains("prd.foo_ref_1"),
+          sql.contains("where"),
+          sql.contains("order by"),
+        )
+      },
+      test("3-table join with schema-qualified names emits valid aliases everywhere") {
+        @tableName("prd.aaa")
+        final case class A(@key id: Long, name: String) derives Table
+
+        @tableName("prd.bbb")
+        final case class B(@key id: Long, aId: Long) derives Table
+
+        @tableName("staging.aaa")
+        final case class C(@key id: Long, bId: Long) derives Table
+
+        val sql = Query[A]
+          .innerJoin[B]
+          .on(_.id)
+          .eq(_.aId)
+          .innerJoin[C]
+          .onPrev(_.id)
+          .eq(_.bId)
+          .endJoin
+          .all
+          .build
+          .sql
+        assertTrue(
+          sql.contains("from prd.aaa as aaa_ref_1"),
+          sql.contains("inner join prd.bbb as bbb_ref_1"),
+          // staging.aaa shares the bare name "aaa" with prd.aaa, so its counter is 2
+          sql.contains("inner join staging.aaa as aaa_ref_2"),
+          sql.contains("aaa_ref_1.id = bbb_ref_1.aId"),
+          sql.contains("bbb_ref_1.id = aaa_ref_2.bId"),
+          !sql.contains("prd.aaa_ref"),
+          !sql.contains("prd.bbb_ref"),
+          !sql.contains("staging.aaa_ref"),
+        )
+      },
+      test("raw sql interpolation with schema-qualified column references") {
+        @tableName("prd.foo")
+        final case class PrdFoo(@key id: Long, name: String) derives Table
+
+        // Column.sql is also used when a Column is interpolated into a raw sql"..." fragment.
+        // For Table[A] the alias is None so columns emit just their label — verify that path
+        // doesn't accidentally pick up the schema prefix.
+        val foo = Table[PrdFoo]
+        val sql = sql"select ${foo.name} from $foo".sql
+        assertTrue(
+          !sql.contains("prd.foo_ref"),
+          sql.contains("name"),
+          sql.contains("prd.foo"),
         )
       },
     ),

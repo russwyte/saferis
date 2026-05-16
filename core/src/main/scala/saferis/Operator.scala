@@ -51,17 +51,17 @@ object Operator:
 
   /** LIKE operator for pattern matching */
   case object Like extends Operator:
-    def sql = "LIKE"
+    def sql = "like"
 
   // === PostgreSQL-specific operators ===
 
   /** Case-insensitive LIKE (PostgreSQL only) */
   case object ILike extends Operator:
-    def sql = "ILIKE"
+    def sql = "ilike"
 
   /** SQL SIMILAR TO pattern matching (PostgreSQL only) */
   case object SimilarTo extends Operator:
-    def sql = "SIMILAR TO"
+    def sql = "similar to"
 
   /** POSIX regex match, case-sensitive (PostgreSQL only) */
   case object RegexMatch extends Operator:
@@ -75,9 +75,9 @@ object Operator:
 
   /** IS NULL - checks if column value is null */
   case object IsNull extends Operator:
-    def sql = "IS NULL"
+    def sql = "is null"
 
   /** IS NOT NULL - checks if column value is not null */
   case object IsNotNull extends Operator:
-    def sql = "IS NOT NULL"
+    def sql = "is not null"
 end Operator

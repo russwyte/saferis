@@ -83,14 +83,14 @@ trait WhereBuilderOps[Parent, T]:
     */
   def inSubquery(subquery: SelectQuery[T]): Parent =
     val subquerySql = subquery.build
-    val inSql       = s"${whereAlias.toSql}.${whereColumn.label} IN (${subquerySql.sql})"
+    val inSql       = s"${whereAlias.toSql}.${whereColumn.label} in (${subquerySql.sql})"
     val whereFrag   = SqlFragment(inSql, subquerySql.writes)
     addPredicate(whereFrag)
 
   /** NOT IN subquery - type-safe variant */
   def notInSubquery(subquery: SelectQuery[T]): Parent =
     val subquerySql = subquery.build
-    val notInSql    = s"${whereAlias.toSql}.${whereColumn.label} NOT IN (${subquerySql.sql})"
+    val notInSql    = s"${whereAlias.toSql}.${whereColumn.label} not in (${subquerySql.sql})"
     val whereFrag   = SqlFragment(notInSql, subquerySql.writes)
     addPredicate(whereFrag)
 
@@ -121,7 +121,7 @@ trait WhereBuilderOps[Parent, T]:
     */
   def inList(values: Iterable[T])(using Encoder[T]): Parent =
     val list      = Placeholder.listTagged(values, helper = "WhereBuilder.inList", origin = Placeholder.captureOrigin())
-    val inSql     = s"${whereAlias.toSql}.${whereColumn.label} IN (${list.sql})"
+    val inSql     = s"${whereAlias.toSql}.${whereColumn.label} in (${list.sql})"
     val whereFrag = SqlFragment(inSql, list.writes, issues = list.issues)
     addPredicate(whereFrag)
 
@@ -132,7 +132,7 @@ trait WhereBuilderOps[Parent, T]:
   /** NOT IN literal collection — symmetric to [[inList]]. */
   def notInList(values: Iterable[T])(using Encoder[T]): Parent =
     val list = Placeholder.listTagged(values, helper = "WhereBuilder.notInList", origin = Placeholder.captureOrigin())
-    val notInSql  = s"${whereAlias.toSql}.${whereColumn.label} NOT IN (${list.sql})"
+    val notInSql  = s"${whereAlias.toSql}.${whereColumn.label} not in (${list.sql})"
     val whereFrag = SqlFragment(notInSql, list.writes, issues = list.issues)
     addPredicate(whereFrag)
 

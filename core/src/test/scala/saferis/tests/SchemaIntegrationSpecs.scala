@@ -35,6 +35,10 @@ object SchemaIntegrationSpecs extends ZIOSpecDefault:
       age: Int,
   ) derives Table
 
+  // Schema-qualified table for testing typed Query DSL against a real namespaced table.
+  @tableName("prd.schema_int_qualified")
+  final case class QualifiedRow(@key id: Long, name: String) derives Table
+
   @tableName("schema_int_profiles")
   final case class Profile(
       @generated @key id: Int,
@@ -514,6 +518,26 @@ object SchemaIntegrationSpecs extends ZIOSpecDefault:
         )
         end for
       },
+    ),
+    // === Schema-qualified table names with typed Query DSL ===
+    suite("Schema-qualified table names")(
+      test("typed Query DSL works against a schema-qualified table") {
+        for
+          xa <- ZIO.service[Transactor]
+          _  <- xa.run(sql"create schema if not exists prd".insert)
+          _  <- xa.run(dropTable[QualifiedRow](ifExists = true))
+          _  <- xa.run(sql"create table prd.schema_int_qualified (id bigint primary key, name text)".insert)
+          _  <- xa.run(sql"insert into prd.schema_int_qualified (id, name) values (1, 'alice')".insert)
+          _  <- xa.run(sql"insert into prd.schema_int_qualified (id, name) values (2, 'bob')".insert)
+          // Typed Query DSL — exercises both the FROM-clause alias and the WHERE column reference.
+          alice <- xa.run(Query[QualifiedRow].where(_.name).eq("alice").queryOne[QualifiedRow])
+          all   <- xa.run(Query[QualifiedRow].all.query[QualifiedRow])
+        yield assertTrue(
+          alice.exists(_.id == 1L),
+          alice.exists(_.name == "alice"),
+          all.length == 2,
+        )
+      }
     ),
     // === Foreign Key with Index ===
     suite("Foreign key with index")(

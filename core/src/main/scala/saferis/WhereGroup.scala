@@ -23,7 +23,7 @@ final case class OrGroup(conditions: Vector[WhereGroup]) extends WhereGroup:
     if conditions.isEmpty then SqlFragment("", Seq.empty)
     else
       val parts  = conditions.map(_.toSqlFragment)
-      val joined = Placeholder.join(parts, " OR ")
+      val joined = Placeholder.join(parts, " or ")
       val writes = parts.flatMap(_.writes)
       SqlFragment(s"(${joined.sql})", writes)
 
@@ -36,7 +36,7 @@ final case class AndGroup(conditions: Vector[WhereGroup]) extends WhereGroup:
     if conditions.isEmpty then SqlFragment("", Seq.empty)
     else
       val parts  = conditions.map(_.toSqlFragment)
-      val joined = Placeholder.join(parts, " AND ")
+      val joined = Placeholder.join(parts, " and ")
       val writes = parts.flatMap(_.writes)
       SqlFragment(s"(${joined.sql})", writes)
 

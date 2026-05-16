@@ -33,12 +33,19 @@ private[saferis] class AliasGenerator:
   // Map of table name -> counter (mutable, but instance is scoped per query)
   private val counters = mutable.Map[String, Int]()
 
-  /** Generate next alias for a table name. Uses format: tablename_ref_N (e.g., "users_ref_1", "orders_ref_1")
+  /** Generate next alias for a table name. Uses format: tablename_ref_N (e.g., "users_ref_1", "orders_ref_1").
+    *
+    * For schema-qualified table names (e.g. "prd.foo"), the schema prefix is stripped and any remaining non-identifier
+    * characters are replaced with underscores so the alias is a valid unquoted SQL identifier. The `counters` map is
+    * keyed on the *sanitized* bare name so distinct schemas with the same bare name (e.g. "prd.foo" vs "staging.foo")
+    * share a counter and therefore get distinct aliases (`foo_ref_1`, `foo_ref_2`).
     */
   def next(tableName: String): Alias =
-    val count = counters.getOrElse(tableName, 0) + 1
-    counters(tableName) = count
-    Alias.unsafe(s"${tableName}_ref_$count")
+    val bare      = tableName.substring(tableName.lastIndexOf('.') + 1)
+    val sanitized = bare.replaceAll("[^A-Za-z0-9_]", "_")
+    val count     = counters.getOrElse(sanitized, 0) + 1
+    counters(sanitized) = count
+    Alias.unsafe(s"${sanitized}_ref_$count")
 
   /** Create an aliased Instance from a Table with a generated alias */
   def aliasedInstance[A <: Product](using table: Table[A]): Instance[A] =
@@ -179,14 +186,14 @@ final case class Query1Builder[A <: Product: Table](
   /** EXISTS subquery */
   def whereExists(subquery: QueryBase): Query1Ready[A] =
     val subquerySql = subquery.build
-    val existsSql   = s"EXISTS (${subquerySql.sql})"
+    val existsSql   = s"exists (${subquerySql.sql})"
     val whereFrag   = SqlFragment(existsSql, subquerySql.writes)
     Query1Ready(baseInstance, Vector(whereFrag), sorts, Vector.empty, None, None, selectColumns, derivedSource)
 
   /** NOT EXISTS subquery */
   def whereNotExists(subquery: QueryBase): Query1Ready[A] =
     val subquerySql  = subquery.build
-    val notExistsSql = s"NOT EXISTS (${subquerySql.sql})"
+    val notExistsSql = s"not exists (${subquerySql.sql})"
     val whereFrag    = SqlFragment(notExistsSql, subquerySql.writes)
     Query1Ready(baseInstance, Vector(whereFrag), sorts, Vector.empty, None, None, selectColumns, derivedSource)
 
@@ -268,14 +275,14 @@ final case class Query1Ready[A <: Product: Table](
   /** EXISTS subquery */
   def whereExists(subquery: QueryBase): Query1Ready[A] =
     val subquerySql = subquery.build
-    val existsSql   = s"EXISTS (${subquerySql.sql})"
+    val existsSql   = s"exists (${subquerySql.sql})"
     val whereFrag   = SqlFragment(existsSql, subquerySql.writes)
     copy(wherePredicates = wherePredicates :+ whereFrag)
 
   /** NOT EXISTS subquery */
   def whereNotExists(subquery: QueryBase): Query1Ready[A] =
     val subquerySql  = subquery.build
-    val notExistsSql = s"NOT EXISTS (${subquerySql.sql})"
+    val notExistsSql = s"not exists (${subquerySql.sql})"
     val whereFrag    = SqlFragment(notExistsSql, subquerySql.writes)
     copy(wherePredicates = wherePredicates :+ whereFrag)
 

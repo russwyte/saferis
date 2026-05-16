@@ -1654,8 +1654,8 @@ All mutation builders support these operators in WHERE clauses:
 | `.lte(value)` | `<= ?` | Less than or equal |
 | `.gt(value)` | `> ?` | Greater than |
 | `.gte(value)` | `>= ?` | Greater than or equal |
-| `.isNull()` | `IS NULL` | Null check |
-| `.isNotNull()` | `IS NOT NULL` | Non-null check |
+| `.isNull()` | `is null` | Null check |
+| `.isNotNull()` | `is not null` | Non-null check |
 
 You can also use raw `SqlFragment` for complex conditions:
 
@@ -1695,7 +1695,7 @@ Update[ClaimTask]
   .build.sql
 ```
 
-This generates: `UPDATE ... WHERE deadline <= ? AND (claimed_by IS NULL OR claimed_until < ?)`
+This generates: `update ... where deadline <= ? and (claimed_by is null or claimed_until < ?)`
 
 The `andWhere` lambda provides a builder that supports:
 - `w(_.column)` - Start a condition on a column
@@ -1986,8 +1986,8 @@ All comparison operators are available in the ON clause:
 | `lte()` | `<=` | Less than or equal |
 | `gt()` | `>` | Greater than |
 | `gte()` | `>=` | Greater than or equal |
-| `isNull()` | `IS NULL` | Null check |
-| `isNotNull()` | `IS NOT NULL` | Non-null check |
+| `isNull()` | `is null` | Null check |
+| `isNotNull()` | `is not null` | Non-null check |
 | `op(Operator.X)` | Custom | Any operator |
 
 ### Pagination
@@ -2308,13 +2308,13 @@ All available operators in `Operator`:
 | `Lte` | `<=` | Less than or equal |
 | `Gt` | `>` | Greater than |
 | `Gte` | `>=` | Greater than or equal |
-| `Like` | `LIKE` | Pattern matching |
-| `ILike` | `ILIKE` | Case-insensitive LIKE (PostgreSQL) |
-| `SimilarTo` | `SIMILAR TO` | Regex pattern (PostgreSQL) |
+| `Like` | `like` | Pattern matching |
+| `ILike` | `ilike` | Case-insensitive LIKE (PostgreSQL) |
+| `SimilarTo` | `similar to` | Regex pattern (PostgreSQL) |
 | `RegexMatch` | `~` | Regex match (PostgreSQL) |
 | `RegexMatchCI` | `~*` | Case-insensitive regex (PostgreSQL) |
-| `IsNull` | `IS NULL` | Null check |
-| `IsNotNull` | `IS NOT NULL` | Non-null check |
+| `IsNull` | `is null` | Null check |
+| `IsNotNull` | `is not null` | Non-null check |
 
 ### Complex WHERE with OR and Grouping
 
@@ -2342,7 +2342,7 @@ Query[TimeoutRow]
   .build.sql
 ```
 
-This generates: `SELECT ... WHERE deadline <= ? AND (claimed_by IS NULL OR claimed_until < ?)`
+This generates: `select ... where deadline <= ? and (claimed_by is null or claimed_until < ?)`
 
 The parentheses are automatically added around the grouped conditions.
 
@@ -2952,7 +2952,7 @@ Upsert[UpsertLock]
   .build.sql
 ```
 
-The `.eqExcluded` generates `table.column = EXCLUDED.column`, referencing the value from the INSERT.
+The `.eqExcluded` generates `table.column = excluded.column`, referencing the value from the INSERT.
 
 ### Upsert with DO NOTHING
 
