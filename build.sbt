@@ -1,7 +1,7 @@
 import xerial.sbt.Sonatype.sonatypeCentralHost
 
-val scala3Version = "3.3.6"
-val zioVersion    = "2.1.24"
+val scala3Version = "3.3.8"
+val zioVersion    = "2.1.26"
 
 // Global settings using ThisBuild scope
 ThisBuild / scalaVersion         := scala3Version
@@ -71,7 +71,7 @@ lazy val core = project
       "dev.zio"           %% "zio-test-sbt"              % zioVersion % Test,
       "dev.zio"           %% "zio-test-magnolia"         % zioVersion % Test,
       "org.testcontainers" % "postgresql"                % "1.21.4"   % Test,
-      "org.postgresql"     % "postgresql"                % "42.7.9"   % Test,
+      "org.postgresql"     % "postgresql"                % "42.7.11"   % Test,
     ),
     dependencyOverrides ++= Seq(
       "org.apache.commons"         % "commons-compress" % "1.27.1" % Test,
@@ -93,7 +93,7 @@ lazy val docs = project
       "dev.zio"           %% "zio"        % zioVersion,
       "dev.zio"           %% "zio-json"   % "0.9.0",
       "org.testcontainers" % "postgresql" % "1.21.4",
-      "org.postgresql"     % "postgresql" % "42.7.9",
+      "org.postgresql"     % "postgresql" % "42.7.11",
     ),
     mdocVariables := Map(
       "VERSION" -> version.value
