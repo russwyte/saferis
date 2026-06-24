@@ -1,0 +1,56 @@
+name: "Code Analysis"
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  schedule:
+    - cron: '0 0 * * 1' # Runs every Monday at midnight, this is to ensure that there is at least 1 scan every 7 days.
+
+  workflow_dispatch:
+
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Analyze Scala
+    runs-on: 'ubuntu-latest'
+    permissions:
+      # required for all workflows
+      security-events: write
+
+      # required to fetch internal or private CodeQL packs
+      packages: read
+
+      # only required for workflows in private repositories
+      actions: read
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: 'false'
+
+      - name: Clone Forked Rules Repo
+        uses: actions/checkout@v4
+        with:
+          repository: 'Iterable/semgrep-rules'
+          path: 'scala-security'
+
+      - name: Run Semgrep using Forked Rules
+        uses: semgrep/semgrep-action@713efdd345f3035192eaa63f56867b88e63e4e5d
+        with:
+          config: "scala-security/scala"
+          generateSarif: "1"
+
+      - name: Upload SARIF results to GitHub Code Scanning
+        uses: github/codeql-action/upload-sarif@v4
+        if: always()
+        with:
+          sarif_file: semgrep.sarif
+          category: semgrep
