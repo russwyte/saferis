@@ -24,13 +24,13 @@ jobs:
       uses: actions/setup-java@ad2b38190b15e4d6bdf0c97fb4fca8412226d287 # v5
       with:
         distribution: temurin
-        java-version: 21
+        java-version: 25
         cache: sbt
     - uses: sbt/setup-sbt@3afe9cf056c5d139bfc46579af1192d77a2f0821 # v1
 
     - name: Build and test
       shell: bash
-      run: sbt -v "clean; scalafmtCheckAll; test; docs/mdoc"
+      run: sbt -v "clean; scalafmtCheckAll; test; docs/marklitCompile"
 
   dependency-submission:
     runs-on: ubuntu-latest
@@ -44,7 +44,7 @@ jobs:
       uses: actions/setup-java@ad2b38190b15e4d6bdf0c97fb4fca8412226d287 # v5
       with:
         distribution: temurin
-        java-version: 21
+        java-version: 25
         cache: sbt
     - uses: sbt/setup-sbt@3afe9cf056c5d139bfc46579af1192d77a2f0821 # v1
 

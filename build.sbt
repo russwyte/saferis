@@ -1,7 +1,5 @@
-import xerial.sbt.Sonatype.sonatypeCentralHost
-
-val scala3Version = "3.3.6"
-val zioVersion    = "2.1.24"
+val scala3Version = "3.3.8"
+val zioVersion    = "2.1.26"
 
 // Global settings using ThisBuild scope
 ThisBuild / scalaVersion         := scala3Version
@@ -24,10 +22,20 @@ ThisBuild / developers := List(
     url = url("https://github.com/russwyte"),
   )
 )
-ThisBuild / versionScheme          := Some("early-semver")
-ThisBuild / sonatypeCredentialHost := sonatypeCentralHost
+ThisBuild / versionScheme := Some("early-semver")
 
-usePgpKeyHex("2F64727A87F1BCF42FD307DD8582C4F16659A7D6")
+// Publishing to Sonatype's Central Portal. sbt 1.11+ has built-in support via
+// `localStaging` / `publishSigned` / `sonaRelease` — no sbt-sonatype plugin needed.
+ThisBuild / publishTo := {
+  val centralSnapshots =
+    "https://central.sonatype.com/repository/maven-snapshots/"
+  if (isSnapshot.value) Some("central-snapshots" at centralSnapshots)
+  else localStaging.value
+}
+
+// CI overrides the key via PGP_KEY_HEX (dedicated GitHub Actions signing key);
+// local manual publishing falls back to the personal key on this machine.
+usePgpKeyHex(sys.env.getOrElse("PGP_KEY_HEX", "2F64727A87F1BCF42FD307DD8582C4F16659A7D6"))
 
 lazy val commonSettings = Seq(
   scalacOptions ++= Seq(
@@ -39,10 +47,8 @@ lazy val commonSettings = Seq(
 )
 
 lazy val publishSettings = Seq(
-  publishMavenStyle      := true,
-  pomIncludeRepository   := { _ => false },
-  sonatypeCredentialHost := sonatypeCentralHost,
-  publishTo              := sonatypePublishToBundle.value,
+  publishMavenStyle    := true,
+  pomIncludeRepository := { _ => false },
 )
 
 // Root project aggregates all modules but is not published
@@ -65,26 +71,19 @@ lazy val core = project
     libraryDependencies ++= Seq(
       "dev.zio"           %% "zio"                       % zioVersion % "provided",
       "dev.zio"           %% "zio-streams"               % zioVersion % "provided",
-      "dev.zio"           %% "zio-json"                  % "0.9.0"    % "provided",
+      "dev.zio"           %% "zio-json"                  % "0.9.2"    % "provided",
       "dev.zio"           %% "zio-logging-slf4j2-bridge" % "2.5.3"    % Test,
       "dev.zio"           %% "zio-test"                  % zioVersion % Test,
       "dev.zio"           %% "zio-test-sbt"              % zioVersion % Test,
       "dev.zio"           %% "zio-test-magnolia"         % zioVersion % Test,
       "org.testcontainers" % "postgresql"                % "1.21.4"   % Test,
-      "org.postgresql"     % "postgresql"                % "42.7.9"   % Test,
-    ),
-    dependencyOverrides ++= Seq(
-      "org.apache.commons"         % "commons-compress" % "1.27.1" % Test,
-      "org.apache.commons"         % "commons-lang3"    % "3.18.0" % Test,
-      "com.fasterxml.jackson.core" % "jackson-core"     % "2.18.6" % Test,
+      "org.postgresql"     % "postgresql"                % "42.7.11"  % Test,
     ),
   )
 
-// Documentation module - uses mdoc to compile code examples
 lazy val docs = project
   .in(file("saferis-docs"))
   .dependsOn(core)
-  .enablePlugins(MdocPlugin)
   .settings(commonSettings)
   .settings(
     name           := "saferis-docs",
@@ -93,13 +92,11 @@ lazy val docs = project
       "dev.zio"           %% "zio"        % zioVersion,
       "dev.zio"           %% "zio-json"   % "0.9.0",
       "org.testcontainers" % "postgresql" % "1.21.4",
-      "org.postgresql"     % "postgresql" % "42.7.9",
+      "org.postgresql"     % "postgresql" % "42.7.11",
+      "org.slf4j"          % "slf4j-nop"  % "2.0.18",
     ),
-    mdocVariables := Map(
-      "VERSION" -> version.value
-    ),
-    mdocIn  := file("saferis-docs") / "docs",
-    mdocOut := file("docs"),
-    // Suppress unused warnings in mdoc - examples often show imports without using them
+    marklitTargetDirectory  := (ThisBuild / baseDirectory).value / "docs",
+    marklitRunResourceClass := Some("saferis.docs.DocsTransactor"),
+    marklitShowWarnings     := false,
     scalacOptions ~= (_.filterNot(_ == "-Wunused:all")),
   )

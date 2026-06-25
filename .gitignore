@@ -14,6 +14,7 @@ project/local-plugins.sbt
 .ensime_cache/
 .sbt-scripted/
 local.sbt
+build.sbt.semanticdb
 
 # Bloop
 .bsp
@@ -34,3 +35,4 @@ metals.sbt
 
 CLAUDE.md
 .mcp.json
+.claude/
