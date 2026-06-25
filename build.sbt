@@ -1,8 +1,3 @@
-<<<<<<< HEAD
-=======
-import xerial.sbt.Sonatype.sonatypeCentralHost
-
->>>>>>> bde5f9d (version bumps)
 val scala3Version = "3.3.8"
 val zioVersion    = "2.1.26"
 
@@ -82,16 +77,7 @@ lazy val core = project
       "dev.zio"           %% "zio-test-sbt"              % zioVersion % Test,
       "dev.zio"           %% "zio-test-magnolia"         % zioVersion % Test,
       "org.testcontainers" % "postgresql"                % "1.21.4"   % Test,
-<<<<<<< HEAD
       "org.postgresql"     % "postgresql"                % "42.7.11"  % Test,
-=======
-      "org.postgresql"     % "postgresql"                % "42.7.11"   % Test,
-    ),
-    dependencyOverrides ++= Seq(
-      "org.apache.commons"         % "commons-compress" % "1.27.1" % Test,
-      "org.apache.commons"         % "commons-lang3"    % "3.18.0" % Test,
-      "com.fasterxml.jackson.core" % "jackson-core"     % "2.18.6" % Test,
->>>>>>> bde5f9d (version bumps)
     ),
   )
 
@@ -107,10 +93,7 @@ lazy val docs = project
       "dev.zio"           %% "zio-json"   % "0.9.0",
       "org.testcontainers" % "postgresql" % "1.21.4",
       "org.postgresql"     % "postgresql" % "42.7.11",
-<<<<<<< HEAD
       "org.slf4j"          % "slf4j-nop"  % "2.0.18",
-=======
->>>>>>> bde5f9d (version bumps)
     ),
     marklitTargetDirectory  := (ThisBuild / baseDirectory).value / "docs",
     marklitRunResourceClass := Some("saferis.docs.DocsTransactor"),
