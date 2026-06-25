@@ -30,7 +30,7 @@ jobs:
 
     - name: Build and test
       shell: bash
-      run: sbt -v "clean; scalafmtCheckAll; test; docs/mdoc"
+      run: sbt -v "clean; scalafmtCheckAll; test; docs/marklitCompile"
 
   dependency-submission:
     runs-on: ubuntu-latest

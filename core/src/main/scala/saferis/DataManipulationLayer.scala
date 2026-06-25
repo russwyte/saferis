@@ -11,7 +11,6 @@ object DataManipulationLayer:
       table: Table[A]
   )(using trace: Trace): ZIO[ConnectionProvider & Scope, SaferisError, Int] =
     (sql"insert into ${table.instance} ${table.insertColumnsSql} values " :+ table.insertPlaceholdersSql(a)).insert
-  end insert
 
   inline def insertReturning[A <: Product](a: A)(using
       table: Table[A]

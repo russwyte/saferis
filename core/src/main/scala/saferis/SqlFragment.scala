@@ -17,7 +17,6 @@ final case class SqlFragment(
   inline private def make[E <: Product](rs: ResultSet)(using table: Table[E])(using trace: Trace): Task[E] =
     for cs <- ZIO.foreach(table.columns)(c => c.read(rs))
     yield (Macros.make[E](cs))
-  end make
 
   private def doWrites(statement: PreparedStatement)(using trace: Trace) = ZIO.foreachDiscard(writes.zipWithIndex):
     (write, idx) => write.write(statement, idx + 1)
