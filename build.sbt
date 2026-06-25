@@ -71,18 +71,13 @@ lazy val core = project
     libraryDependencies ++= Seq(
       "dev.zio"           %% "zio"                       % zioVersion % "provided",
       "dev.zio"           %% "zio-streams"               % zioVersion % "provided",
-      "dev.zio"           %% "zio-json"                  % "0.9.0"    % "provided",
+      "dev.zio"           %% "zio-json"                  % "0.9.2"    % "provided",
       "dev.zio"           %% "zio-logging-slf4j2-bridge" % "2.5.3"    % Test,
       "dev.zio"           %% "zio-test"                  % zioVersion % Test,
       "dev.zio"           %% "zio-test-sbt"              % zioVersion % Test,
       "dev.zio"           %% "zio-test-magnolia"         % zioVersion % Test,
       "org.testcontainers" % "postgresql"                % "1.21.4"   % Test,
       "org.postgresql"     % "postgresql"                % "42.7.11"  % Test,
-    ),
-    dependencyOverrides ++= Seq(
-      "org.apache.commons"         % "commons-compress" % "1.27.1" % Test,
-      "org.apache.commons"         % "commons-lang3"    % "3.18.0" % Test,
-      "com.fasterxml.jackson.core" % "jackson-core"     % "2.18.6" % Test,
     ),
   )
 
@@ -98,7 +93,7 @@ lazy val docs = project
       "dev.zio"           %% "zio-json"   % "0.9.0",
       "org.testcontainers" % "postgresql" % "1.21.4",
       "org.postgresql"     % "postgresql" % "42.7.11",
-      "org.slf4j"          % "slf4j-nop"  % "1.7.36",
+      "org.slf4j"          % "slf4j-nop"  % "2.0.18",
     ),
     marklitTargetDirectory  := (ThisBuild / baseDirectory).value / "docs",
     marklitRunResourceClass := Some("saferis.docs.DocsTransactor"),
