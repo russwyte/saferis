@@ -24,7 +24,7 @@ object SchemaIntrospection:
       case _                             => introspectViaJdbc(tableName)
 
   /** Verify a schema against the database using default options. */
-  def verify[A <: Product](instance: Instance[A])(using
+  def verify[A](instance: Instance[A])(using
       dialect: Dialect
   )(using
       Trace
@@ -32,7 +32,7 @@ object SchemaIntrospection:
     verifyWith(instance, VerifyOptions.default)
 
   /** Verify a schema against the database with custom options. */
-  def verifyWith[A <: Product](instance: Instance[A], options: VerifyOptions)(using
+  def verifyWith[A](instance: Instance[A], options: VerifyOptions)(using
       dialect: Dialect
   )(using
       Trace
@@ -46,7 +46,7 @@ object SchemaIntrospection:
     yield ()
 
   /** Compare expected schema against actual database table. */
-  private def compare[A <: Product](
+  private def compare[A](
       instance: Instance[A],
       dbTable: DatabaseTable,
       options: VerifyOptions,

@@ -1,8 +1,8 @@
 package external
 
 // Deliberately OUTSIDE the `saferis` package to verify the `Alias("literal")` macro still expands when
-// `Alias.fromLiteral` is `private[saferis]`. If macro hygiene did NOT preserve access, this would fail to compile.
-// It also documents that user code cannot call the internal factories directly.
+// `Alias.unsafe` is `private[saferis]`. If macro hygiene did NOT preserve access, this would fail to compile.
+// It also documents that user code cannot call the internal factory directly.
 
 import saferis.*
 import scala.compiletime.testing.typeCheckErrors
@@ -15,12 +15,8 @@ object AliasExternalSpecs extends ZIOSpecDefault:
       val alias = Alias("u")
       assertTrue(alias.value == "u", alias.toSql == "u")
     ,
-    test("Alias.fromLiteral is not accessible from user code"):
-      // fromLiteral is private[saferis]; a direct call must not typecheck from an external package.
-      val errs = typeCheckErrors("""saferis.Alias.fromLiteral("x")""")
-      assertTrue(errs.nonEmpty)
-    ,
     test("Alias.unsafe is not accessible from user code"):
+      // unsafe is private[saferis]; a direct call must not typecheck from an external package.
       val errs = typeCheckErrors("""saferis.Alias.unsafe("x")""")
       assertTrue(errs.nonEmpty)
     ,

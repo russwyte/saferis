@@ -34,7 +34,7 @@ end ForeignKeyAction
   * @param constraintName
   *   Optional custom constraint name
   */
-final case class ForeignKeySpec[From <: Product, To <: Product](
+final case class ForeignKeySpec[From, To](
     fromColumns: Seq[String],
     toTable: String,
     toColumns: Seq[String],

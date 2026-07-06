@@ -32,7 +32,7 @@ import zio.*
   * }}}
   */
 /** Schema wrapper that provides the fluent DSL for indexes and foreign keys. */
-final case class Schema[A <: Product](instance: Instance[A]):
+final case class Schema[A](instance: Instance[A]):
   /** Add an index on a column. */
   transparent inline def withIndex[T](inline selector: A => T): InstanceIndexBuilder[A] =
     Schema.withIndexOn(instance, selector)
@@ -137,10 +137,10 @@ object Schema:
     * @tparam A
     *   The table type (case class with derives Table)
     */
-  inline def apply[A <: Product](using @scala.annotation.unused t: Table[A]): Schema[A] =
+  inline def apply[A](using @scala.annotation.unused t: Table[A]): Schema[A] =
     ${ schemaApplyImpl[A] }
 
-  private def schemaApplyImpl[A <: Product: Type](using Quotes): Expr[Schema[A]] =
+  private def schemaApplyImpl[A: Type](using Quotes): Expr[Schema[A]] =
     import quotes.reflect.*
     val table = Expr
       .summon[Table[A]]
@@ -162,147 +162,147 @@ object Schema:
 
   // Top-level inline functions that Schema class methods delegate to
 
-  inline def withIndexOn[A <: Product, T](instance: Instance[A], inline selector: A => T): InstanceIndexBuilder[A] =
+  inline def withIndexOn[A, T](instance: Instance[A], inline selector: A => T): InstanceIndexBuilder[A] =
     ${ withIndexImpl[A, T]('instance, 'selector, '{ false }) }
 
-  inline def withUniqueIndexOn[A <: Product, T](
+  inline def withUniqueIndexOn[A, T](
       instance: Instance[A],
       inline selector: A => T,
   ): InstanceIndexBuilder[A] =
     ${ withIndexImpl[A, T]('instance, 'selector, '{ true }) }
 
-  inline def withForeignKeyOn[A <: Product, T](
+  inline def withForeignKeyOn[A, T](
       instance: Instance[A],
       inline selector: A => T,
   ): InstanceFKBuilder[A, T] =
     ${ withForeignKeyImpl[A, T]('instance, 'selector) }
 
-  inline def withUniqueConstraintOn[A <: Product, T](
+  inline def withUniqueConstraintOn[A, T](
       instance: Instance[A],
       inline selector: A => T,
   ): InstanceUniqueBuilder[A] =
     ${ withUniqueConstraintImpl[A, T]('instance, 'selector) }
 
-  inline def uniqueAnd[A <: Product, T](
+  inline def uniqueAnd[A, T](
       builder: InstanceUniqueBuilder[A],
       inline selector: A => T,
   ): InstanceUniqueBuilder[A] =
     ${ instanceUniqueAndImpl[A, T]('builder, 'selector) }
 
-  inline def indexAnd[A <: Product, T](
+  inline def indexAnd[A, T](
       builder: InstanceIndexBuilder[A],
       inline selector: A => T,
   ): InstanceIndexBuilder[A] =
     ${ instanceIndexAndImpl[A, T]('builder, 'selector) }
 
-  inline def indexWhere[A <: Product, T](
+  inline def indexWhere[A, T](
       builder: InstanceIndexBuilder[A],
       inline selector: A => T,
   ): InstanceWhereColumnBuilder[A, T] =
     ${ instanceIndexWhereImpl[A, T]('builder, 'selector) }
 
-  inline def conditionAnd[A <: Product, T](
+  inline def conditionAnd[A, T](
       builder: InstanceWhereConditionBuilder[A],
       inline selector: A => T,
   ): InstanceWhereColumnBuilder[A, T] =
     ${ instanceWhereAndImpl[A, T]('builder, 'selector) }
 
-  inline def conditionOr[A <: Product, T](
+  inline def conditionOr[A, T](
       builder: InstanceWhereConditionBuilder[A],
       inline selector: A => T,
   ): InstanceWhereColumnBuilder[A, T] =
     ${ instanceWhereOrImpl[A, T]('builder, 'selector) }
 
-  inline def fkAnd[A <: Product, T, T2](
+  inline def fkAnd[A, T, T2](
       builder: InstanceFKBuilder[A, T],
       inline selector: A => T2,
   ): InstanceFKBuilder[A, T2] =
     ${ instanceFKAndImpl[A, T, T2]('builder, 'selector) }
 
   // Group WHERE macros
-  inline def groupWhere[A <: Product, T](
+  inline def groupWhere[A, T](
       builder: InstanceWhereGroupBuilder[A],
       inline selector: A => T,
   ): InstanceWhereGroupColumnBuilder[A, T] =
     ${ groupWhereImpl[A, T]('builder, 'selector) }
 
-  inline def groupResultAnd[A <: Product, T](
+  inline def groupResultAnd[A, T](
       builder: InstanceWhereGroupResult[A],
       inline selector: A => T,
   ): InstanceWhereGroupColumnBuilder[A, T] =
     ${ groupResultAndImpl[A, T]('builder, 'selector) }
 
-  inline def groupResultOr[A <: Product, T](
+  inline def groupResultOr[A, T](
       builder: InstanceWhereGroupResult[A],
       inline selector: A => T,
   ): InstanceWhereGroupColumnBuilder[A, T] =
     ${ groupResultOrImpl[A, T]('builder, 'selector) }
 
-  inline def fkReferences[A <: Product, To <: Product, T2](
+  inline def fkReferences[A, To, T2](
       builder: InstanceFKBuilder[A, ?],
       inline selector: To => T2,
   )(using @scala.annotation.unused t: Table[To]): InstanceFKRefBuilder[A, To, T2] =
     ${ instanceFKReferencesImpl[A, To, T2]('builder, 'selector) }
 
-  inline def fkRefAnd[A <: Product, To <: Product](
+  inline def fkRefAnd[A, To](
       builder: InstanceFKRefBuilder[A, To, ?],
       inline selector: To => Any,
   ): InstanceFKRefBuilder[A, To, Any] =
     ${ instanceFKRefAndImpl[A, To]('builder, 'selector) }
 
-  inline def chainIndexFromBuilder[A <: Product, T](
+  inline def chainIndexFromBuilder[A, T](
       builder: InstanceIndexBuilder[A],
       inline selector: A => T,
       unique: Boolean,
   ): InstanceIndexBuilder[A] =
     ${ chainIndexFromBuilderImpl[A, T]('builder, 'selector, '{ unique }) }
 
-  inline def chainFKFromBuilder[A <: Product, T](
+  inline def chainFKFromBuilder[A, T](
       builder: InstanceIndexBuilder[A],
       inline selector: A => T,
   ): InstanceFKBuilder[A, T] =
     ${ chainFKFromBuilderImpl[A, T]('builder, 'selector) }
 
-  inline def chainIndexFromCondition[A <: Product, T](
+  inline def chainIndexFromCondition[A, T](
       builder: InstanceWhereConditionBuilder[A],
       inline selector: A => T,
       unique: Boolean,
   ): InstanceIndexBuilder[A] =
     ${ chainIndexFromConditionImpl[A, T]('builder, 'selector, '{ unique }) }
 
-  inline def chainFKFromCondition[A <: Product, T](
+  inline def chainFKFromCondition[A, T](
       builder: InstanceWhereConditionBuilder[A],
       inline selector: A => T,
   ): InstanceFKBuilder[A, T] =
     ${ chainFKFromConditionImpl[A, T]('builder, 'selector) }
 
-  inline def chainIndexFromFKConfig[A <: Product, T](
+  inline def chainIndexFromFKConfig[A, T](
       builder: InstanceFKConfigBuilder[A, ?],
       inline selector: A => T,
       unique: Boolean,
   ): InstanceIndexBuilder[A] =
     ${ chainIndexFromFKConfigImpl[A, T]('builder, 'selector, '{ unique }) }
 
-  inline def chainFKFromFKConfig[A <: Product, T](
+  inline def chainFKFromFKConfig[A, T](
       builder: InstanceFKConfigBuilder[A, ?],
       inline selector: A => T,
   ): InstanceFKBuilder[A, T] =
     ${ chainFKFromFKConfigImpl[A, T]('builder, 'selector) }
 
-  inline def chainIndexFromUnique[A <: Product, T](
+  inline def chainIndexFromUnique[A, T](
       builder: InstanceUniqueBuilder[A],
       inline selector: A => T,
       unique: Boolean,
   ): InstanceIndexBuilder[A] =
     ${ chainIndexFromUniqueImpl[A, T]('builder, 'selector, '{ unique }) }
 
-  inline def chainFKFromUnique[A <: Product, T](
+  inline def chainFKFromUnique[A, T](
       builder: InstanceUniqueBuilder[A],
       inline selector: A => T,
   ): InstanceFKBuilder[A, T] =
     ${ chainFKFromUniqueImpl[A, T]('builder, 'selector) }
 
-  inline def chainUniqueFromUnique[A <: Product, T](
+  inline def chainUniqueFromUnique[A, T](
       builder: InstanceUniqueBuilder[A],
       inline selector: A => T,
   ): InstanceUniqueBuilder[A] =
@@ -345,7 +345,7 @@ object Schema:
     extractFromTerm(selector.asTerm)
   end extractFieldName
 
-  private def withIndexImpl[A <: Product: Type, T: Type](
+  private def withIndexImpl[A: Type, T: Type](
       instance: Expr[Instance[A]],
       selector: Expr[A => T],
       unique: Expr[Boolean],
@@ -362,7 +362,7 @@ object Schema:
     }
   end withIndexImpl
 
-  private def instanceIndexAndImpl[A <: Product: Type, T: Type](
+  private def instanceIndexAndImpl[A: Type, T: Type](
       builder: Expr[InstanceIndexBuilder[A]],
       selector: Expr[A => T],
   )(using Quotes): Expr[InstanceIndexBuilder[A]] =
@@ -373,7 +373,7 @@ object Schema:
     }
   end instanceIndexAndImpl
 
-  private def instanceIndexWhereImpl[A <: Product: Type, T: Type](
+  private def instanceIndexWhereImpl[A: Type, T: Type](
       builder: Expr[InstanceIndexBuilder[A]],
       selector: Expr[A => T],
   )(using Quotes): Expr[InstanceWhereColumnBuilder[A, T]] =
@@ -381,7 +381,7 @@ object Schema:
     '{ InstanceWhereColumnBuilder[A, T]($builder, ${ Expr(columnName) }) }
   end instanceIndexWhereImpl
 
-  private def instanceWhereAndImpl[A <: Product: Type, T: Type](
+  private def instanceWhereAndImpl[A: Type, T: Type](
       builder: Expr[InstanceWhereConditionBuilder[A]],
       selector: Expr[A => T],
   )(using Quotes): Expr[InstanceWhereColumnBuilder[A, T]] =
@@ -393,7 +393,7 @@ object Schema:
     }
   end instanceWhereAndImpl
 
-  private def instanceWhereOrImpl[A <: Product: Type, T: Type](
+  private def instanceWhereOrImpl[A: Type, T: Type](
       builder: Expr[InstanceWhereConditionBuilder[A]],
       selector: Expr[A => T],
   )(using Quotes): Expr[InstanceWhereColumnBuilder[A, T]] =
@@ -405,7 +405,7 @@ object Schema:
     }
   end instanceWhereOrImpl
 
-  private def withForeignKeyImpl[A <: Product: Type, T: Type](
+  private def withForeignKeyImpl[A: Type, T: Type](
       instance: Expr[Instance[A]],
       selector: Expr[A => T],
   )(using Quotes): Expr[InstanceFKBuilder[A, T]] =
@@ -414,7 +414,7 @@ object Schema:
   end withForeignKeyImpl
 
   // Chain macros that handle builder-to-instance conversion internally
-  private def chainIndexFromBuilderImpl[A <: Product: Type, T: Type](
+  private def chainIndexFromBuilderImpl[A: Type, T: Type](
       builder: Expr[InstanceIndexBuilder[A]],
       selector: Expr[A => T],
       unique: Expr[Boolean],
@@ -433,7 +433,7 @@ object Schema:
     }
   end chainIndexFromBuilderImpl
 
-  private def chainFKFromBuilderImpl[A <: Product: Type, T: Type](
+  private def chainFKFromBuilderImpl[A: Type, T: Type](
       builder: Expr[InstanceIndexBuilder[A]],
       selector: Expr[A => T],
   )(using Quotes): Expr[InstanceFKBuilder[A, T]] =
@@ -445,7 +445,7 @@ object Schema:
     }
   end chainFKFromBuilderImpl
 
-  private def chainIndexFromConditionImpl[A <: Product: Type, T: Type](
+  private def chainIndexFromConditionImpl[A: Type, T: Type](
       builder: Expr[InstanceWhereConditionBuilder[A]],
       selector: Expr[A => T],
       unique: Expr[Boolean],
@@ -464,7 +464,7 @@ object Schema:
     }
   end chainIndexFromConditionImpl
 
-  private def chainFKFromConditionImpl[A <: Product: Type, T: Type](
+  private def chainFKFromConditionImpl[A: Type, T: Type](
       builder: Expr[InstanceWhereConditionBuilder[A]],
       selector: Expr[A => T],
   )(using Quotes): Expr[InstanceFKBuilder[A, T]] =
@@ -477,7 +477,7 @@ object Schema:
   end chainFKFromConditionImpl
 
   // Chain macros for FK config
-  private def chainIndexFromFKConfigImpl[A <: Product: Type, T: Type](
+  private def chainIndexFromFKConfigImpl[A: Type, T: Type](
       builder: Expr[InstanceFKConfigBuilder[A, ?]],
       selector: Expr[A => T],
       unique: Expr[Boolean],
@@ -496,7 +496,7 @@ object Schema:
     }
   end chainIndexFromFKConfigImpl
 
-  private def chainFKFromFKConfigImpl[A <: Product: Type, T: Type](
+  private def chainFKFromFKConfigImpl[A: Type, T: Type](
       builder: Expr[InstanceFKConfigBuilder[A, ?]],
       selector: Expr[A => T],
   )(using Quotes): Expr[InstanceFKBuilder[A, T]] =
@@ -509,7 +509,7 @@ object Schema:
   end chainFKFromFKConfigImpl
 
   // Unique constraint macros
-  private def withUniqueConstraintImpl[A <: Product: Type, T: Type](
+  private def withUniqueConstraintImpl[A: Type, T: Type](
       instance: Expr[Instance[A]],
       selector: Expr[A => T],
   )(using Quotes): Expr[InstanceUniqueBuilder[A]] =
@@ -523,7 +523,7 @@ object Schema:
     }
   end withUniqueConstraintImpl
 
-  private def instanceUniqueAndImpl[A <: Product: Type, T: Type](
+  private def instanceUniqueAndImpl[A: Type, T: Type](
       builder: Expr[InstanceUniqueBuilder[A]],
       selector: Expr[A => T],
   )(using Quotes): Expr[InstanceUniqueBuilder[A]] =
@@ -534,7 +534,7 @@ object Schema:
     }
   end instanceUniqueAndImpl
 
-  private def chainIndexFromUniqueImpl[A <: Product: Type, T: Type](
+  private def chainIndexFromUniqueImpl[A: Type, T: Type](
       builder: Expr[InstanceUniqueBuilder[A]],
       selector: Expr[A => T],
       unique: Expr[Boolean],
@@ -553,7 +553,7 @@ object Schema:
     }
   end chainIndexFromUniqueImpl
 
-  private def chainFKFromUniqueImpl[A <: Product: Type, T: Type](
+  private def chainFKFromUniqueImpl[A: Type, T: Type](
       builder: Expr[InstanceUniqueBuilder[A]],
       selector: Expr[A => T],
   )(using Quotes): Expr[InstanceFKBuilder[A, T]] =
@@ -565,7 +565,7 @@ object Schema:
     }
   end chainFKFromUniqueImpl
 
-  private def chainUniqueFromUniqueImpl[A <: Product: Type, T: Type](
+  private def chainUniqueFromUniqueImpl[A: Type, T: Type](
       builder: Expr[InstanceUniqueBuilder[A]],
       selector: Expr[A => T],
   )(using Quotes): Expr[InstanceUniqueBuilder[A]] =
@@ -577,7 +577,7 @@ object Schema:
     }
   end chainUniqueFromUniqueImpl
 
-  private def instanceFKAndImpl[A <: Product: Type, T: Type, T2: Type](
+  private def instanceFKAndImpl[A: Type, T: Type, T2: Type](
       builder: Expr[InstanceFKBuilder[A, T]],
       selector: Expr[A => T2],
   )(using Quotes): Expr[InstanceFKBuilder[A, T2]] =
@@ -589,14 +589,14 @@ object Schema:
   end instanceFKAndImpl
 
   // Group WHERE macro implementations
-  private def groupWhereImpl[A <: Product: Type, T: Type](
+  private def groupWhereImpl[A: Type, T: Type](
       builder: Expr[InstanceWhereGroupBuilder[A]],
       selector: Expr[A => T],
   )(using Quotes): Expr[InstanceWhereGroupColumnBuilder[A, T]] =
     val columnName = extractFieldName(selector)
     '{ InstanceWhereGroupColumnBuilder[A, T]($builder.instance, ${ Expr(columnName) }, Seq.empty, "and") }
 
-  private def groupResultAndImpl[A <: Product: Type, T: Type](
+  private def groupResultAndImpl[A: Type, T: Type](
       builder: Expr[InstanceWhereGroupResult[A]],
       selector: Expr[A => T],
   )(using Quotes): Expr[InstanceWhereGroupColumnBuilder[A, T]] =
@@ -606,7 +606,7 @@ object Schema:
       InstanceWhereGroupColumnBuilder[A, T](b.instance, ${ Expr(columnName) }, b.conditions, "and")
     }
 
-  private def groupResultOrImpl[A <: Product: Type, T: Type](
+  private def groupResultOrImpl[A: Type, T: Type](
       builder: Expr[InstanceWhereGroupResult[A]],
       selector: Expr[A => T],
   )(using Quotes): Expr[InstanceWhereGroupColumnBuilder[A, T]] =
@@ -616,7 +616,7 @@ object Schema:
       InstanceWhereGroupColumnBuilder[A, T](b.instance, ${ Expr(columnName) }, b.conditions, "or")
     }
 
-  private def instanceFKReferencesImpl[A <: Product: Type, To <: Product: Type, T2: Type](
+  private def instanceFKReferencesImpl[A: Type, To: Type, T2: Type](
       builder: Expr[InstanceFKBuilder[A, ?]],
       selector: Expr[To => T2],
   )(using Quotes): Expr[InstanceFKRefBuilder[A, To, T2]] =
@@ -639,7 +639,7 @@ object Schema:
     }
   end instanceFKReferencesImpl
 
-  private def instanceFKRefAndImpl[A <: Product: Type, To <: Product: Type](
+  private def instanceFKRefAndImpl[A: Type, To: Type](
       builder: Expr[InstanceFKRefBuilder[A, To, ?]],
       selector: Expr[To => Any],
   )(using Quotes): Expr[InstanceFKRefBuilder[A, To, Any]] =
@@ -667,7 +667,7 @@ val TableAspects = Schema
 /** Builder for indexes on Instance with proper type inference. Note: Table[A] is not required here - the Instance
   * already contains table info.
   */
-final case class InstanceIndexBuilder[A <: Product](
+final case class InstanceIndexBuilder[A](
     instance: Instance[A],
     columns: Seq[String],
     unique: Boolean,
@@ -725,7 +725,7 @@ end InstanceIndexBuilder
   *
   * Extends SchemaWhereOps to inherit all comparison operators for DDL literal SQL generation.
   */
-final case class InstanceWhereColumnBuilder[A <: Product, T](
+final case class InstanceWhereColumnBuilder[A, T](
     parent: InstanceIndexBuilder[A],
     columnName: String,
     operator: String = "and",
@@ -739,7 +739,7 @@ end InstanceWhereColumnBuilder
 
 /** Builder for WHERE conditions on Instance indexes.
   */
-final case class InstanceWhereConditionBuilder[A <: Product](
+final case class InstanceWhereConditionBuilder[A](
     instance: Instance[A],
     columns: Seq[String],
     unique: Boolean,
@@ -812,7 +812,7 @@ final case class InstanceWhereConditionBuilder[A <: Product](
 end InstanceWhereConditionBuilder
 
 object InstanceWhereConditionBuilder:
-  def apply[A <: Product](
+  def apply[A](
       parent: InstanceIndexBuilder[A],
       conditions: Seq[String],
       operator: String,
@@ -829,7 +829,7 @@ end InstanceWhereConditionBuilder
 
 /** Builder for foreign keys on Instance with proper type inference.
   */
-final case class InstanceFKBuilder[A <: Product, T](
+final case class InstanceFKBuilder[A, T](
     instance: Instance[A],
     fromColumns: Seq[String],
 ):
@@ -838,7 +838,7 @@ final case class InstanceFKBuilder[A <: Product, T](
     Schema.fkAnd(this, selector)
 
   /** Specify the referenced table and column. */
-  transparent inline def references[To <: Product: Table](
+  transparent inline def references[To: Table](
       inline selector: To => Any
   ): InstanceFKRefBuilder[A, To, Any] =
     Schema.fkReferences[A, To, Any](this, selector)
@@ -846,7 +846,7 @@ end InstanceFKBuilder
 
 /** Builder for FK configuration on Instance.
   */
-final case class InstanceFKConfigBuilder[A <: Product, To <: Product](
+final case class InstanceFKConfigBuilder[A, To](
     instance: Instance[A],
     fromColumns: Seq[String],
     toTable: String,
@@ -905,7 +905,7 @@ end InstanceFKConfigBuilder
 
 /** Builder for FK reference column chaining (for compound FKs).
   */
-final case class InstanceFKRefBuilder[A <: Product, To <: Product, T](
+final case class InstanceFKRefBuilder[A, To, T](
     instance: Instance[A],
     fromColumns: Seq[String],
     toTable: String,
@@ -948,7 +948,7 @@ end InstanceFKRefBuilder
 
 /** Builder for unique constraints on Instance with proper type inference.
   */
-final case class InstanceUniqueBuilder[A <: Product](
+final case class InstanceUniqueBuilder[A](
     instance: Instance[A],
     columns: Seq[String],
     constraintName: Option[String],
@@ -1003,7 +1003,7 @@ end InstanceUniqueBuilder
 /** Builder for grouped WHERE conditions (for explicit parentheses). Used via `.andGroup(g => ...)` or
   * `.orGroup(g => ...)`.
   */
-final case class InstanceWhereGroupBuilder[A <: Product](
+final case class InstanceWhereGroupBuilder[A](
     instance: Instance[A]
 ):
   /** Start a grouped WHERE clause. */
@@ -1014,7 +1014,7 @@ final case class InstanceWhereGroupBuilder[A <: Product](
   *
   * Extends SchemaWhereOps to inherit all comparison operators for DDL literal SQL generation.
   */
-final case class InstanceWhereGroupColumnBuilder[A <: Product, T](
+final case class InstanceWhereGroupColumnBuilder[A, T](
     instance: Instance[A],
     columnName: String,
     previousConditions: Seq[String],
@@ -1029,7 +1029,7 @@ end InstanceWhereGroupColumnBuilder
 
 /** Result of a grouped WHERE condition, can be chained with and/or.
   */
-final case class InstanceWhereGroupResult[A <: Product](
+final case class InstanceWhereGroupResult[A](
     instance: Instance[A],
     conditions: Seq[String],
     operator: String,
@@ -1050,7 +1050,7 @@ end InstanceWhereGroupResult
   *   2. A JsonSupport dialect is in scope
   *   3. The type T has a JsonCodec
   */
-extension [A <: Product, T](builder: InstanceWhereColumnBuilder[A, Json[T]])
+extension [A, T](builder: InstanceWhereColumnBuilder[A, Json[T]])
 
   /** Check if JSON column contains the given value. PostgreSQL: `column @> '{"key": "value"}'` MySQL:
     * `JSON_CONTAINS(column, '{"key": "value"}')`
@@ -1091,7 +1091,7 @@ end extension
 
 /** Builder for JSON path comparisons. Created via `.jsonPath("field.path")` on a JSON column WHERE builder.
   */
-final case class JsonPathBuilder[A <: Product](
+final case class JsonPathBuilder[A](
     parent: InstanceIndexBuilder[A],
     columnName: String,
     path: String,

@@ -48,7 +48,7 @@ private[saferis] class AliasGenerator:
     Alias.unsafe(s"${sanitized}_ref_$count")
 
   /** Create an aliased Instance from a Table with a generated alias */
-  def aliasedInstance[A <: Product](using table: Table[A]): Instance[A] =
+  def aliasedInstance[A](using table: Table[A]): Instance[A] =
     val alias   = next(table.name)
     val columns = table.columns.map(_.withTableAlias(Some(alias)))
     Instance[A](table.name, columns, Some(alias), Vector.empty)
@@ -115,7 +115,7 @@ final case class DerivedSource(subquery: SelectQuery[?], alias: Alias)
   *     .query[User]
   * }}}
   */
-final case class Query1Builder[A <: Product: Table](
+final case class Query1Builder[A: Table](
     private[saferis] val gen: AliasGenerator,
     baseInstance: Instance[A],
     sorts: Vector[Sort[?]] = Vector.empty,
@@ -148,7 +148,7 @@ final case class Query1Builder[A <: Product: Table](
     copy(selectColumns = columns.toVector)
 
   /** Select all columns with a specified result type (for use in derived tables). */
-  def selectAll[R <: Product](using @scala.annotation.unused t: Table[R]): SelectQuery[R] =
+  def selectAll[R](using @scala.annotation.unused t: Table[R]): SelectQuery[R] =
     SelectQuery[R](
       Query1Ready(baseInstance, Vector.empty, sorts, Vector.empty, None, None, selectColumns, derivedSource)
     )
@@ -156,19 +156,19 @@ final case class Query1Builder[A <: Product: Table](
   // === JOIN Methods (stay on Builder) ===
 
   /** Start an INNER JOIN */
-  def innerJoin[B <: Product: Table]: JoinBuilder1[A, B] =
+  def innerJoin[B: Table]: JoinBuilder1[A, B] =
     JoinBuilder1(this, JoinType.Inner)
 
   /** Start a LEFT JOIN */
-  def leftJoin[B <: Product: Table]: JoinBuilder1[A, B] =
+  def leftJoin[B: Table]: JoinBuilder1[A, B] =
     JoinBuilder1(this, JoinType.Left)
 
   /** Start a RIGHT JOIN */
-  def rightJoin[B <: Product: Table]: JoinBuilder1[A, B] =
+  def rightJoin[B: Table]: JoinBuilder1[A, B] =
     JoinBuilder1(this, JoinType.Right)
 
   /** Start a FULL JOIN */
-  def fullJoin[B <: Product: Table]: JoinBuilder1[A, B] =
+  def fullJoin[B: Table]: JoinBuilder1[A, B] =
     JoinBuilder1(this, JoinType.Full)
 
   // === WHERE Methods (transition to Ready) ===
@@ -250,7 +250,7 @@ end Query1Builder
   * This type has execution methods (.query, .queryOne, .build) because it has been constrained by WHERE, LIMIT,
   * pagination, or explicit .all.
   */
-final case class Query1Ready[A <: Product: Table](
+final case class Query1Ready[A: Table](
     baseInstance: Instance[A],
     wherePredicates: Vector[SqlFragment],
     sorts: Vector[Sort[?]],
@@ -361,7 +361,7 @@ final case class Query1Ready[A <: Product: Table](
     copy(selectColumns = columns.toVector)
 
   /** Select all columns with a specified result type (for use in derived tables). */
-  def selectAll[R <: Product](using @scala.annotation.unused t: Table[R]): SelectQuery[R] =
+  def selectAll[R](using @scala.annotation.unused t: Table[R]): SelectQuery[R] =
     SelectQuery[R](this)
 
   // === AGGREGATE Methods ===
@@ -429,13 +429,13 @@ final case class Query1Ready[A <: Product: Table](
   end build
 
   /** Execute query */
-  inline def query[R <: Product: Table](using Trace): ScopedQuery[Chunk[R]] = build.query[R]
+  inline def query[R: Table](using Trace): ScopedQuery[Chunk[R]] = build.query[R]
 
   /** Execute query returning first row */
-  inline def queryOne[R <: Product: Table](using Trace): ScopedQuery[Option[R]] = build.queryOne[R]
+  inline def queryOne[R: Table](using Trace): ScopedQuery[Option[R]] = build.queryOne[R]
 
   /** Execute query as lazy stream */
-  inline def queryStream[R <: Product: Table](using Trace): ZStream[ConnectionProvider & Scope, SaferisError, R] =
+  inline def queryStream[R: Table](using Trace): ZStream[ConnectionProvider & Scope, SaferisError, R] =
     build.queryStream[R]
 
   /** Stream pages of results using seek pagination.
@@ -494,7 +494,7 @@ end Query1Ready
   *
   * Returns Query1Ready since adding a WHERE clause makes the query safe.
   */
-final case class WhereBuilder1[A <: Product: Table, T](
+final case class WhereBuilder1[A: Table, T](
     builder: Query1Builder[A],
     fromAlias: Alias,
     fromColumn: Column[T],
@@ -520,7 +520,7 @@ end WhereBuilder1
 // ============================================================================
 
 /** Builder for chaining additional WHERE conditions on Query1Ready. */
-final case class WhereBuilder1Ready[A <: Product: Table, T](
+final case class WhereBuilder1Ready[A: Table, T](
     ready: Query1Ready[A],
     fromAlias: Alias,
     fromColumn: Column[T],
@@ -536,7 +536,7 @@ end WhereBuilder1Ready
 // JoinBuilder1 - Building ON clause for first join
 // ============================================================================
 
-final case class JoinBuilder1[A <: Product: Table, B <: Product: Table](
+final case class JoinBuilder1[A: Table, B: Table](
     query: Query1Builder[A],
     joinType: JoinType,
 ):
@@ -553,7 +553,7 @@ end JoinBuilder1
 // ============================================================================
 
 /** Builder for the first ON condition - awaiting the right-hand side. */
-final case class OnBuilder1[A <: Product: Table, B <: Product: Table, T](
+final case class OnBuilder1[A: Table, B: Table, T](
     query: Query1Builder[A],
     joinType: JoinType,
     leftAlias: Alias,
@@ -610,7 +610,7 @@ end OnBuilder1
 // ============================================================================
 
 /** Chain state after first ON condition - allows .and() or finalization. */
-final case class OnChain1[A <: Product: Table, B <: Product: Table](
+final case class OnChain1[A: Table, B: Table](
     query: Query1Builder[A],
     joinType: JoinType,
     leftAlias: Alias,
@@ -629,7 +629,7 @@ final case class OnChain1[A <: Product: Table, B <: Product: Table](
     OnAndBuilder1(this, rightAlias, col)
 
   /** Finalize the JOIN and create Query2Builder */
-  def endJoin(using Dialect): Query2Builder[A, B] =
+  def endJoin: Query2Builder[A, B] =
     val bTable        = summon[Table[B]]
     val conditionFrag = Condition.toSqlFragment(conditions)
     Query2Builder(
@@ -644,26 +644,26 @@ final case class OnChain1[A <: Product: Table, B <: Product: Table](
 
   // Convenience methods that implicitly finalize
 
-  def orderBy(sort: Sort[?])(using Dialect): Query2Builder[A, B]      = endJoin.orderBy(sort)
-  def limit(n: Int)(using Dialect): Query2Ready[A, B]                 = endJoin.limit(n)
-  def offset(n: Long)(using Dialect): Query2Builder[A, B]             = endJoin.offset(n)
-  def where(predicate: SqlFragment)(using Dialect): Query2Ready[A, B] = endJoin.where(predicate)
-  def all(using Dialect): Query2Ready[A, B]                           = endJoin.all
+  def orderBy(sort: Sort[?]): Query2Builder[A, B]      = endJoin.orderBy(sort)
+  def limit(n: Int): Query2Ready[A, B]                 = endJoin.limit(n)
+  def offset(n: Long): Query2Builder[A, B]             = endJoin.offset(n)
+  def where(predicate: SqlFragment): Query2Ready[A, B] = endJoin.where(predicate)
+  def all: Query2Ready[A, B]                           = endJoin.all
 
-  inline def where[T](inline selector: A => T)(using Dialect): WhereBuilder2[A, B, T] =
+  inline def where[T](inline selector: A => T): WhereBuilder2[A, B, T] =
     val alias = query.baseInstance.alias.getOrElse(Alias.unsafe(query.baseInstance.tableName))
     val col   = query.baseInstance.column(selector)
     WhereBuilder2(endJoin, alias, col)
 
-  inline def whereFrom[T](inline selector: B => T)(using Dialect): WhereBuilder2[A, B, T] =
+  inline def whereFrom[T](inline selector: B => T): WhereBuilder2[A, B, T] =
     val alias = rightInstance.alias.getOrElse(Alias.unsafe(rightInstance.tableName))
     val col   = rightInstance.column(selector)
     WhereBuilder2(endJoin, alias, col)
 
-  def innerJoin[C <: Product: Table](using Dialect): JoinBuilder2[A, B, C] = endJoin.innerJoin[C]
-  def leftJoin[C <: Product: Table](using Dialect): JoinBuilder2[A, B, C]  = endJoin.leftJoin[C]
-  def rightJoin[C <: Product: Table](using Dialect): JoinBuilder2[A, B, C] = endJoin.rightJoin[C]
-  def fullJoin[C <: Product: Table](using Dialect): JoinBuilder2[A, B, C]  = endJoin.fullJoin[C]
+  def innerJoin[C: Table]: JoinBuilder2[A, B, C] = endJoin.innerJoin[C]
+  def leftJoin[C: Table]: JoinBuilder2[A, B, C]  = endJoin.leftJoin[C]
+  def rightJoin[C: Table]: JoinBuilder2[A, B, C] = endJoin.rightJoin[C]
+  def fullJoin[C: Table]: JoinBuilder2[A, B, C]  = endJoin.fullJoin[C]
 
 end OnChain1
 
@@ -671,7 +671,7 @@ end OnChain1
 // OnAndBuilder1 - Building chained ON condition
 // ============================================================================
 
-final case class OnAndBuilder1[A <: Product: Table, B <: Product: Table, T, From <: Product](
+final case class OnAndBuilder1[A: Table, B: Table, T, From](
     chain: OnChain1[A, B],
     fromAlias: Alias,
     fromColumn: Column[T],
@@ -717,7 +717,7 @@ end OnAndBuilder1
 // Query2Builder - Two tables joined (not yet ready to execute)
 // ============================================================================
 
-final case class Query2Builder[A <: Product: Table, B <: Product: Table](
+final case class Query2Builder[A: Table, B: Table](
     private[saferis] val gen: AliasGenerator,
     t1: Instance[A],
     t2: Instance[B],
@@ -739,10 +739,10 @@ final case class Query2Builder[A <: Product: Table, B <: Product: Table](
 
   // === JOIN Methods ===
 
-  def innerJoin[C <: Product: Table]: JoinBuilder2[A, B, C] = JoinBuilder2(this, JoinType.Inner)
-  def leftJoin[C <: Product: Table]: JoinBuilder2[A, B, C]  = JoinBuilder2(this, JoinType.Left)
-  def rightJoin[C <: Product: Table]: JoinBuilder2[A, B, C] = JoinBuilder2(this, JoinType.Right)
-  def fullJoin[C <: Product: Table]: JoinBuilder2[A, B, C]  = JoinBuilder2(this, JoinType.Full)
+  def innerJoin[C: Table]: JoinBuilder2[A, B, C] = JoinBuilder2(this, JoinType.Inner)
+  def leftJoin[C: Table]: JoinBuilder2[A, B, C]  = JoinBuilder2(this, JoinType.Left)
+  def rightJoin[C: Table]: JoinBuilder2[A, B, C] = JoinBuilder2(this, JoinType.Right)
+  def fullJoin[C: Table]: JoinBuilder2[A, B, C]  = JoinBuilder2(this, JoinType.Full)
 
   // === WHERE Methods (transition to Ready) ===
 
@@ -800,7 +800,7 @@ end Query2Builder
 // Query2Ready - Two tables joined, ready to execute
 // ============================================================================
 
-final case class Query2Ready[A <: Product: Table, B <: Product: Table](
+final case class Query2Ready[A: Table, B: Table](
     t1: Instance[A],
     t2: Instance[B],
     joins: Vector[JoinClause],
@@ -900,9 +900,9 @@ final case class Query2Ready[A <: Product: Table, B <: Product: Table](
     result
   end build
 
-  inline def query[R <: Product: Table](using Trace): ScopedQuery[Chunk[R]]     = build.query[R]
-  inline def queryOne[R <: Product: Table](using Trace): ScopedQuery[Option[R]] = build.queryOne[R]
-  inline def queryStream[R <: Product: Table](using Trace): ZStream[ConnectionProvider & Scope, SaferisError, R] =
+  inline def query[R: Table](using Trace): ScopedQuery[Chunk[R]]     = build.query[R]
+  inline def queryOne[R: Table](using Trace): ScopedQuery[Option[R]] = build.queryOne[R]
+  inline def queryStream[R: Table](using Trace): ZStream[ConnectionProvider & Scope, SaferisError, R] =
     build.queryStream[R]
 
 end Query2Ready
@@ -911,7 +911,7 @@ end Query2Ready
 // WhereBuilder2 - Type-safe WHERE for two-table queries (Builder -> Ready)
 // ============================================================================
 
-final case class WhereBuilder2[A <: Product: Table, B <: Product: Table, T](
+final case class WhereBuilder2[A: Table, B: Table, T](
     builder: Query2Builder[A, B],
     fromAlias: Alias,
     fromColumn: Column[T],
@@ -953,7 +953,7 @@ end WhereBuilder2
 // WhereBuilder2Ready - Type-safe WHERE for chaining on Ready
 // ============================================================================
 
-final case class WhereBuilder2Ready[A <: Product: Table, B <: Product: Table, T](
+final case class WhereBuilder2Ready[A: Table, B: Table, T](
     ready: Query2Ready[A, B],
     fromAlias: Alias,
     fromColumn: Column[T],
@@ -985,7 +985,7 @@ end WhereBuilder2Ready
 // JoinBuilder2 - Building ON clause for second join
 // ============================================================================
 
-final case class JoinBuilder2[A <: Product: Table, B <: Product: Table, C <: Product: Table](
+final case class JoinBuilder2[A: Table, B: Table, C: Table](
     query: Query2Builder[A, B],
     joinType: JoinType,
 ):
@@ -1009,7 +1009,7 @@ end JoinBuilder2
 // OnBuilder2 - Building ON condition for second join
 // ============================================================================
 
-final case class OnBuilder2[A <: Product: Table, B <: Product: Table, C <: Product: Table, T, From <: Product](
+final case class OnBuilder2[A: Table, B: Table, C: Table, T, From](
     query: Query2Builder[A, B],
     joinType: JoinType,
     leftAlias: Alias,
@@ -1044,14 +1044,14 @@ end OnBuilder2
 // OnChain2 - Chaining ON conditions for second join
 // ============================================================================
 
-final case class OnChain2[A <: Product: Table, B <: Product: Table, C <: Product: Table](
+final case class OnChain2[A: Table, B: Table, C: Table](
     query: Query2Builder[A, B],
     joinType: JoinType,
     rightAlias: Alias,
     rightInstance: Instance[C],
     conditions: Vector[Condition],
 ):
-  def endJoin(using Dialect): Query3Builder[A, B, C] =
+  def endJoin: Query3Builder[A, B, C] =
     val cTable        = summon[Table[C]]
     val conditionFrag = Condition.toSqlFragment(conditions)
     Query3Builder(
@@ -1064,11 +1064,11 @@ final case class OnChain2[A <: Product: Table, B <: Product: Table, C <: Product
     )
   end endJoin
 
-  def orderBy(sort: Sort[?])(using Dialect): Query3Builder[A, B, C]      = endJoin.orderBy(sort)
-  def limit(n: Int)(using Dialect): Query3Ready[A, B, C]                 = endJoin.limit(n)
-  def offset(n: Long)(using Dialect): Query3Builder[A, B, C]             = endJoin.offset(n)
-  def where(predicate: SqlFragment)(using Dialect): Query3Ready[A, B, C] = endJoin.where(predicate)
-  def all(using Dialect): Query3Ready[A, B, C]                           = endJoin.all
+  def orderBy(sort: Sort[?]): Query3Builder[A, B, C]      = endJoin.orderBy(sort)
+  def limit(n: Int): Query3Ready[A, B, C]                 = endJoin.limit(n)
+  def offset(n: Long): Query3Builder[A, B, C]             = endJoin.offset(n)
+  def where(predicate: SqlFragment): Query3Ready[A, B, C] = endJoin.where(predicate)
+  def all: Query3Ready[A, B, C]                           = endJoin.all
 
 end OnChain2
 
@@ -1076,7 +1076,7 @@ end OnChain2
 // Query3Builder - Three tables joined (not yet ready to execute)
 // ============================================================================
 
-final case class Query3Builder[A <: Product: Table, B <: Product: Table, C <: Product: Table](
+final case class Query3Builder[A: Table, B: Table, C: Table](
     private[saferis] val gen: AliasGenerator,
     t1: Instance[A],
     t2: Instance[B],
@@ -1118,10 +1118,10 @@ final case class Query3Builder[A <: Product: Table, B <: Product: Table, C <: Pr
     Query3Ready(t1, t2, t3, joins, Vector.empty, sorts, Vector.empty, None, None)
 
   // JOIN Methods
-  def innerJoin[D <: Product: Table]: JoinBuilder3[A, B, C, D] = JoinBuilder3(this, JoinType.Inner)
-  def leftJoin[D <: Product: Table]: JoinBuilder3[A, B, C, D]  = JoinBuilder3(this, JoinType.Left)
-  def rightJoin[D <: Product: Table]: JoinBuilder3[A, B, C, D] = JoinBuilder3(this, JoinType.Right)
-  def fullJoin[D <: Product: Table]: JoinBuilder3[A, B, C, D]  = JoinBuilder3(this, JoinType.Full)
+  def innerJoin[D: Table]: JoinBuilder3[A, B, C, D] = JoinBuilder3(this, JoinType.Inner)
+  def leftJoin[D: Table]: JoinBuilder3[A, B, C, D]  = JoinBuilder3(this, JoinType.Left)
+  def rightJoin[D: Table]: JoinBuilder3[A, B, C, D] = JoinBuilder3(this, JoinType.Right)
+  def fullJoin[D: Table]: JoinBuilder3[A, B, C, D]  = JoinBuilder3(this, JoinType.Full)
 
 end Query3Builder
 
@@ -1129,7 +1129,7 @@ end Query3Builder
 // Query3Ready - Three tables joined, ready to execute
 // ============================================================================
 
-final case class Query3Ready[A <: Product: Table, B <: Product: Table, C <: Product: Table](
+final case class Query3Ready[A: Table, B: Table, C: Table](
     t1: Instance[A],
     t2: Instance[B],
     t3: Instance[C],
@@ -1185,9 +1185,9 @@ final case class Query3Ready[A <: Product: Table, B <: Product: Table, C <: Prod
     result
   end build
 
-  inline def query[R <: Product: Table](using Trace): ScopedQuery[Chunk[R]]     = build.query[R]
-  inline def queryOne[R <: Product: Table](using Trace): ScopedQuery[Option[R]] = build.queryOne[R]
-  inline def queryStream[R <: Product: Table](using Trace): ZStream[ConnectionProvider & Scope, SaferisError, R] =
+  inline def query[R: Table](using Trace): ScopedQuery[Chunk[R]]     = build.query[R]
+  inline def queryOne[R: Table](using Trace): ScopedQuery[Option[R]] = build.queryOne[R]
+  inline def queryStream[R: Table](using Trace): ZStream[ConnectionProvider & Scope, SaferisError, R] =
     build.queryStream[R]
 
 end Query3Ready
@@ -1196,7 +1196,7 @@ end Query3Ready
 // JoinBuilder3 - Building ON clause for third join
 // ============================================================================
 
-final case class JoinBuilder3[A <: Product: Table, B <: Product: Table, C <: Product: Table, D <: Product: Table](
+final case class JoinBuilder3[A: Table, B: Table, C: Table, D: Table](
     query: Query3Builder[A, B, C],
     joinType: JoinType,
 ):
@@ -1214,7 +1214,7 @@ final case class JoinBuilder3[A <: Product: Table, B <: Product: Table, C <: Pro
 
 end JoinBuilder3
 
-final case class OnBuilder3[A <: Product: Table, B <: Product: Table, C <: Product: Table, D <: Product: Table, T](
+final case class OnBuilder3[A: Table, B: Table, C: Table, D: Table, T](
     query: Query3Builder[A, B, C],
     joinType: JoinType,
     leftAlias: Alias,
@@ -1235,14 +1235,14 @@ final case class OnBuilder3[A <: Product: Table, B <: Product: Table, C <: Produ
 
 end OnBuilder3
 
-final case class OnChain3[A <: Product: Table, B <: Product: Table, C <: Product: Table, D <: Product: Table](
+final case class OnChain3[A: Table, B: Table, C: Table, D: Table](
     query: Query3Builder[A, B, C],
     joinType: JoinType,
     rightAlias: Alias,
     rightInstance: Instance[D],
     conditions: Vector[Condition],
 ):
-  def endJoin(using Dialect): Query4Builder[A, B, C, D] =
+  def endJoin: Query4Builder[A, B, C, D] =
     val dTable        = summon[Table[D]]
     val conditionFrag = Condition.toSqlFragment(conditions)
     Query4Builder(
@@ -1256,11 +1256,11 @@ final case class OnChain3[A <: Product: Table, B <: Product: Table, C <: Product
     )
   end endJoin
 
-  def orderBy(sort: Sort[?])(using Dialect): Query4Builder[A, B, C, D]      = endJoin.orderBy(sort)
-  def limit(n: Int)(using Dialect): Query4Ready[A, B, C, D]                 = endJoin.limit(n)
-  def offset(n: Long)(using Dialect): Query4Builder[A, B, C, D]             = endJoin.offset(n)
-  def where(predicate: SqlFragment)(using Dialect): Query4Ready[A, B, C, D] = endJoin.where(predicate)
-  def all(using Dialect): Query4Ready[A, B, C, D]                           = endJoin.all
+  def orderBy(sort: Sort[?]): Query4Builder[A, B, C, D]      = endJoin.orderBy(sort)
+  def limit(n: Int): Query4Ready[A, B, C, D]                 = endJoin.limit(n)
+  def offset(n: Long): Query4Builder[A, B, C, D]             = endJoin.offset(n)
+  def where(predicate: SqlFragment): Query4Ready[A, B, C, D] = endJoin.where(predicate)
+  def all: Query4Ready[A, B, C, D]                           = endJoin.all
 
 end OnChain3
 
@@ -1268,7 +1268,7 @@ end OnChain3
 // Query4Builder - Four tables joined (not yet ready to execute)
 // ============================================================================
 
-final case class Query4Builder[A <: Product: Table, B <: Product: Table, C <: Product: Table, D <: Product: Table](
+final case class Query4Builder[A: Table, B: Table, C: Table, D: Table](
     private[saferis] val gen: AliasGenerator,
     t1: Instance[A],
     t2: Instance[B],
@@ -1315,10 +1315,10 @@ final case class Query4Builder[A <: Product: Table, B <: Product: Table, C <: Pr
   def all: Query4Ready[A, B, C, D] =
     Query4Ready(t1, t2, t3, t4, joins, Vector.empty, sorts, Vector.empty, None, None)
 
-  def innerJoin[E <: Product: Table]: JoinBuilder4[A, B, C, D, E] = JoinBuilder4(this, JoinType.Inner)
-  def leftJoin[E <: Product: Table]: JoinBuilder4[A, B, C, D, E]  = JoinBuilder4(this, JoinType.Left)
-  def rightJoin[E <: Product: Table]: JoinBuilder4[A, B, C, D, E] = JoinBuilder4(this, JoinType.Right)
-  def fullJoin[E <: Product: Table]: JoinBuilder4[A, B, C, D, E]  = JoinBuilder4(this, JoinType.Full)
+  def innerJoin[E: Table]: JoinBuilder4[A, B, C, D, E] = JoinBuilder4(this, JoinType.Inner)
+  def leftJoin[E: Table]: JoinBuilder4[A, B, C, D, E]  = JoinBuilder4(this, JoinType.Left)
+  def rightJoin[E: Table]: JoinBuilder4[A, B, C, D, E] = JoinBuilder4(this, JoinType.Right)
+  def fullJoin[E: Table]: JoinBuilder4[A, B, C, D, E]  = JoinBuilder4(this, JoinType.Full)
 
 end Query4Builder
 
@@ -1326,7 +1326,7 @@ end Query4Builder
 // Query4Ready - Four tables joined, ready to execute
 // ============================================================================
 
-final case class Query4Ready[A <: Product: Table, B <: Product: Table, C <: Product: Table, D <: Product: Table](
+final case class Query4Ready[A: Table, B: Table, C: Table, D: Table](
     t1: Instance[A],
     t2: Instance[B],
     t3: Instance[C],
@@ -1387,9 +1387,9 @@ final case class Query4Ready[A <: Product: Table, B <: Product: Table, C <: Prod
     result
   end build
 
-  inline def query[R <: Product: Table](using Trace): ScopedQuery[Chunk[R]]     = build.query[R]
-  inline def queryOne[R <: Product: Table](using Trace): ScopedQuery[Option[R]] = build.queryOne[R]
-  inline def queryStream[R <: Product: Table](using Trace): ZStream[ConnectionProvider & Scope, SaferisError, R] =
+  inline def query[R: Table](using Trace): ScopedQuery[Chunk[R]]     = build.query[R]
+  inline def queryOne[R: Table](using Trace): ScopedQuery[Option[R]] = build.queryOne[R]
+  inline def queryStream[R: Table](using Trace): ZStream[ConnectionProvider & Scope, SaferisError, R] =
     build.queryStream[R]
 
 end Query4Ready
@@ -1399,11 +1399,11 @@ end Query4Ready
 // ============================================================================
 
 final case class JoinBuilder4[
-    A <: Product: Table,
-    B <: Product: Table,
-    C <: Product: Table,
-    D <: Product: Table,
-    E <: Product: Table,
+    A: Table,
+    B: Table,
+    C: Table,
+    D: Table,
+    E: Table,
 ](
     query: Query4Builder[A, B, C, D],
     joinType: JoinType,
@@ -1423,11 +1423,11 @@ final case class JoinBuilder4[
 end JoinBuilder4
 
 final case class OnBuilder4[
-    A <: Product: Table,
-    B <: Product: Table,
-    C <: Product: Table,
-    D <: Product: Table,
-    E <: Product: Table,
+    A: Table,
+    B: Table,
+    C: Table,
+    D: Table,
+    E: Table,
     T,
 ](
     query: Query4Builder[A, B, C, D],
@@ -1457,11 +1457,11 @@ final case class OnBuilder4[
 end OnBuilder4
 
 final case class OnChain4[
-    A <: Product: Table,
-    B <: Product: Table,
-    C <: Product: Table,
-    D <: Product: Table,
-    E <: Product: Table,
+    A: Table,
+    B: Table,
+    C: Table,
+    D: Table,
+    E: Table,
 ](
     query: Query4Builder[A, B, C, D],
     joinType: JoinType,
@@ -1469,7 +1469,7 @@ final case class OnChain4[
     rightInstance: Instance[E],
     conditions: Vector[Condition],
 ):
-  def endJoin(using Dialect): Query5Builder[A, B, C, D, E] =
+  def endJoin: Query5Builder[A, B, C, D, E] =
     val eTable        = summon[Table[E]]
     val conditionFrag = Condition.toSqlFragment(conditions)
     Query5Builder(
@@ -1484,11 +1484,11 @@ final case class OnChain4[
     )
   end endJoin
 
-  def orderBy(sort: Sort[?])(using Dialect): Query5Builder[A, B, C, D, E]      = endJoin.orderBy(sort)
-  def limit(n: Int)(using Dialect): Query5Ready[A, B, C, D, E]                 = endJoin.limit(n)
-  def offset(n: Long)(using Dialect): Query5Builder[A, B, C, D, E]             = endJoin.offset(n)
-  def where(predicate: SqlFragment)(using Dialect): Query5Ready[A, B, C, D, E] = endJoin.where(predicate)
-  def all(using Dialect): Query5Ready[A, B, C, D, E]                           = endJoin.all
+  def orderBy(sort: Sort[?]): Query5Builder[A, B, C, D, E]      = endJoin.orderBy(sort)
+  def limit(n: Int): Query5Ready[A, B, C, D, E]                 = endJoin.limit(n)
+  def offset(n: Long): Query5Builder[A, B, C, D, E]             = endJoin.offset(n)
+  def where(predicate: SqlFragment): Query5Ready[A, B, C, D, E] = endJoin.where(predicate)
+  def all: Query5Ready[A, B, C, D, E]                           = endJoin.all
 
 end OnChain4
 
@@ -1497,11 +1497,11 @@ end OnChain4
 // ============================================================================
 
 final case class Query5Builder[
-    A <: Product: Table,
-    B <: Product: Table,
-    C <: Product: Table,
-    D <: Product: Table,
-    E <: Product: Table,
+    A: Table,
+    B: Table,
+    C: Table,
+    D: Table,
+    E: Table,
 ](
     private[saferis] val gen: AliasGenerator,
     t1: Instance[A],
@@ -1558,11 +1558,11 @@ end Query5Builder
 // ============================================================================
 
 final case class Query5Ready[
-    A <: Product: Table,
-    B <: Product: Table,
-    C <: Product: Table,
-    D <: Product: Table,
-    E <: Product: Table,
+    A: Table,
+    B: Table,
+    C: Table,
+    D: Table,
+    E: Table,
 ](
     t1: Instance[A],
     t2: Instance[B],
@@ -1625,9 +1625,9 @@ final case class Query5Ready[
     result
   end build
 
-  inline def query[R <: Product: Table](using Trace): ScopedQuery[Chunk[R]]     = build.query[R]
-  inline def queryOne[R <: Product: Table](using Trace): ScopedQuery[Option[R]] = build.queryOne[R]
-  inline def queryStream[R <: Product: Table](using Trace): ZStream[ConnectionProvider & Scope, SaferisError, R] =
+  inline def query[R: Table](using Trace): ScopedQuery[Chunk[R]]     = build.query[R]
+  inline def queryOne[R: Table](using Trace): ScopedQuery[Option[R]] = build.queryOne[R]
+  inline def queryStream[R: Table](using Trace): ZStream[ConnectionProvider & Scope, SaferisError, R] =
     build.queryStream[R]
 
 end Query5Ready
@@ -1650,7 +1650,7 @@ object Query:
     *     .query[UserWithOrder]
     * }}}
     */
-  inline def apply[A <: Product: Table]: Query1Builder[A] =
+  inline def apply[A: Table]: Query1Builder[A] =
     val gen      = AliasGenerator.create()
     val instance = gen.aliasedInstance[A]
     Query1Builder(gen, instance)
@@ -1677,7 +1677,7 @@ object Query:
     *     .query[UserWithTotal]
     * }}}
     */
-  inline def from[A <: Product: Table](subquery: SelectQuery[A], inline alias: String): Query1Builder[A] =
+  inline def from[A: Table](subquery: SelectQuery[A], inline alias: String): Query1Builder[A] =
     val gen       = AliasGenerator.create()
     val userAlias = Alias(alias)
     val table     = summon[Table[A]]

@@ -34,7 +34,7 @@ final case class SetClause(columnLabel: String, write: Write[?])
   *     .queryOne[User]  // Option[User]
   * }}}
   */
-final case class ReturningQuery[A <: Product: Table](fragment: SqlFragment):
+final case class ReturningQuery[A: Table](fragment: SqlFragment):
   /** Execute query and return all matching rows */
   inline def query(using Trace): ScopedQuery[Chunk[A]] = fragment.query[A]
 
@@ -63,7 +63,7 @@ end ReturningQuery
   *     .execute
   * }}}
   */
-final case class Insert[A <: Product: Table](
+final case class Insert[A: Table](
     private[saferis] val tableName: String,
     private[saferis] val fieldNamesToColumns: Map[String, Column[?]],
     private[saferis] val values: Vector[ValueClause] = Vector.empty,
@@ -91,7 +91,7 @@ end Insert
 
 object Insert:
   /** Create an Insert builder for a table type */
-  def apply[A <: Product: Table]: Insert[A] =
+  def apply[A: Table]: Insert[A] =
     val table = summon[Table[A]]
     Insert(table.name, table.columnMap)
 
@@ -114,7 +114,7 @@ object Insert:
   *     .execute
   * }}}
   */
-final case class UpdateBuilder[A <: Product: Table](
+final case class UpdateBuilder[A: Table](
     private[saferis] val tableName: String,
     private[saferis] val fieldNamesToColumns: Map[String, Column[?]],
     private[saferis] val setClauses: Vector[SetClause] = Vector.empty,
@@ -153,7 +153,7 @@ end UpdateBuilder
   *
   * This type has `.build` and `.returning` methods.
   */
-final case class UpdateReady[A <: Product: Table](
+final case class UpdateReady[A: Table](
     private[saferis] val tableName: String,
     private[saferis] val fieldNamesToColumns: Map[String, Column[?]],
     private[saferis] val setClauses: Vector[SetClause],
@@ -233,7 +233,7 @@ end UpdateReady
 
 object Update:
   /** Create an Update builder for a table type */
-  def apply[A <: Product: Table]: UpdateBuilder[A] =
+  def apply[A: Table]: UpdateBuilder[A] =
     val table = summon[Table[A]]
     UpdateBuilder(table.name, table.columnMap)
 
@@ -245,7 +245,7 @@ object Update:
   *
   * Extends WhereBuilderOps to inherit all comparison operators. Returns UpdateReady.
   */
-final case class UpdateWhereBuilder[A <: Product: Table, T](
+final case class UpdateWhereBuilder[A: Table, T](
     builder: UpdateBuilder[A],
     fromAlias: Alias,
     fromColumn: Column[T],
@@ -265,7 +265,7 @@ end UpdateWhereBuilder
   *
   * Extends WhereBuilderOps to inherit all comparison operators.
   */
-final case class UpdateReadyWhereBuilder[A <: Product: Table, T](
+final case class UpdateReadyWhereBuilder[A: Table, T](
     ready: UpdateReady[A],
     fromAlias: Alias,
     fromColumn: Column[T],
@@ -294,7 +294,7 @@ end UpdateReadyWhereBuilder
   *     .execute
   * }}}
   */
-final case class DeleteBuilder[A <: Product: Table](
+final case class DeleteBuilder[A: Table](
     private[saferis] val tableName: String,
     private[saferis] val fieldNamesToColumns: Map[String, Column[?]],
 ):
@@ -325,7 +325,7 @@ end DeleteBuilder
   *
   * This type has `.build` and `.returning` methods.
   */
-final case class DeleteReady[A <: Product: Table](
+final case class DeleteReady[A: Table](
     private[saferis] val tableName: String,
     private[saferis] val fieldNamesToColumns: Map[String, Column[?]],
     private[saferis] val wherePredicates: Vector[SqlFragment],
@@ -398,7 +398,7 @@ end DeleteReady
 
 object Delete:
   /** Create a Delete builder for a table type */
-  def apply[A <: Product: Table]: DeleteBuilder[A] =
+  def apply[A: Table]: DeleteBuilder[A] =
     val table = summon[Table[A]]
     DeleteBuilder(table.name, table.columnMap)
 
@@ -410,7 +410,7 @@ object Delete:
   *
   * Extends WhereBuilderOps to inherit all comparison operators. Returns DeleteReady.
   */
-final case class DeleteWhereBuilder[A <: Product: Table, T](
+final case class DeleteWhereBuilder[A: Table, T](
     builder: DeleteBuilder[A],
     fromAlias: Alias,
     fromColumn: Column[T],
@@ -430,7 +430,7 @@ end DeleteWhereBuilder
   *
   * Extends WhereBuilderOps to inherit all comparison operators.
   */
-final case class DeleteReadyWhereBuilder[A <: Product: Table, T](
+final case class DeleteReadyWhereBuilder[A: Table, T](
     ready: DeleteReady[A],
     fromAlias: Alias,
     fromColumn: Column[T],

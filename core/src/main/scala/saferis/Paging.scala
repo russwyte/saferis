@@ -54,7 +54,7 @@ object PagedStreamOps:
     *
     * State: (cursor, pageNum, done) - done flag prevents infinite loop when last page is partial
     */
-  inline def pagedStream[A <: Product: Table, K](
+  inline def pagedStream[A: Table, K](
       ready: Query1Ready[A],
       column: Column[K],
       extractCursor: A => K,
@@ -86,7 +86,7 @@ object PagedStreamOps:
     *
     * State: (cursor, done) - done flag prevents infinite loop when last batch is partial
     */
-  inline def seekingStream[A <: Product: Table, K](
+  inline def seekingStream[A: Table, K](
       ready: Query1Ready[A],
       column: Column[K],
       extractCursor: A => K,

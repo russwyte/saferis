@@ -9,7 +9,7 @@ package saferis
   * @param constraintName
   *   Optional custom constraint name (auto-generated if None)
   */
-final case class UniqueConstraintSpec[A <: Product](
+final case class UniqueConstraintSpec[A](
     columns: Seq[String],
     constraintName: Option[String] = None,
 ):

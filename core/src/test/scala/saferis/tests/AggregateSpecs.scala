@@ -23,7 +23,7 @@ object AggregateSpecs extends ZIOSpecDefault:
   final case class EventPayload(name: String, value: Int) derives JsonCodec
 
   @tableName("generic_aggregate_test")
-  final case class GenericEventRow[E: JsonCodec](
+  final case class GenericEventRow[E](
       @generated @key id: Int,
       @label("instance_id") instanceId: String,
       @label("sequence_nr") sequenceNr: Long,

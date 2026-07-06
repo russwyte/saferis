@@ -30,7 +30,7 @@ import scala.annotation.unused
   * @tparam A
   *   The case class type representing the table
   */
-final case class Instance[A <: Product](
+final case class Instance[A](
     private[saferis] val tableName: String,
     private[saferis] val columns: Seq[Column[?]],
     private[saferis] val alias: Option[Alias],

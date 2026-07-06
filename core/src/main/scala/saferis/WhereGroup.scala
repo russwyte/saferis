@@ -56,7 +56,7 @@ final case class AndGroup(conditions: Vector[WhereGroup]) extends WhereGroup:
   *
   * Generates: `WHERE active = ? AND (status IS NULL OR deleted_at IS NOT NULL)`
   */
-final case class WhereGroupBuilder[A <: Product](
+final case class WhereGroupBuilder[A](
     private[saferis] val fieldNamesToColumns: Map[String, Column[?]],
     private[saferis] val tableAlias: Alias,
 )(using Table[A]):
@@ -74,7 +74,7 @@ final case class WhereGroupBuilder[A <: Product](
   *
   * After completing (e.g., `.eq(value)`), returns a WhereGroupChain that allows `.or()` or `.and()` chaining.
   */
-final case class WhereGroupColumnBuilder[A <: Product: Table, T](
+final case class WhereGroupColumnBuilder[A: Table, T](
     builder: WhereGroupBuilder[A],
     alias: Alias,
     column: Column[T],
@@ -135,7 +135,7 @@ end WhereGroupColumnBuilder
   *
   * After completing a condition, use `.or(_.field)` or `.and(_.field)` to add more conditions.
   */
-final case class WhereGroupChain[A <: Product: Table](
+final case class WhereGroupChain[A: Table](
     builder: WhereGroupBuilder[A],
     group: WhereGroup,
 ):
@@ -153,7 +153,7 @@ final case class WhereGroupChain[A <: Product: Table](
 end WhereGroupChain
 
 object WhereGroupChain:
-  inline def chainOr[A <: Product: Table, T](
+  inline def chainOr[A: Table, T](
       chain: WhereGroupChain[A],
       inline selector: A => T,
   ): WhereGroupOrBuilder[A, T] =
@@ -161,7 +161,7 @@ object WhereGroupChain:
     val col       = chain.builder.fieldNamesToColumns(fieldName).asInstanceOf[Column[T]]
     WhereGroupOrBuilder(chain.builder, chain.builder.tableAlias, col, chain.group, isOr = true)
 
-  inline def chainAnd[A <: Product: Table, T](
+  inline def chainAnd[A: Table, T](
       chain: WhereGroupChain[A],
       inline selector: A => T,
   ): WhereGroupOrBuilder[A, T] =
@@ -175,7 +175,7 @@ end WhereGroupChain
 // ============================================================================
 
 /** Builder for the next condition after `.or()` or `.and()`. */
-final case class WhereGroupOrBuilder[A <: Product: Table, T](
+final case class WhereGroupOrBuilder[A: Table, T](
     builder: WhereGroupBuilder[A],
     alias: Alias,
     column: Column[T],

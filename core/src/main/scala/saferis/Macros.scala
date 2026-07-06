@@ -21,7 +21,7 @@ object Macros:
       .getOrElse(Expr(tpe.typeSymbol.name))
   end nameOfImpl
 
-  private[saferis] inline def columnsOf[A <: Product]: Seq[Column[?]] = ${ columnsOfImpl[A] }
+  private[saferis] inline def columnsOf[A ]: Seq[Column[?]] = ${ columnsOfImpl[A] }
 
   // Scala field names that cannot be used because they would shadow Selectable trait methods
   private val reservedFieldNames = Set("selectDynamic", "applyDynamic")
@@ -175,10 +175,10 @@ object Macros:
     Expr.ofSeq(columns)
   end columnsOfImpl
 
-  private[saferis] transparent inline def instanceOf[A <: Product](alias: Option[String]) =
+  private[saferis] transparent inline def instanceOf[A](alias: Option[String]) =
     ${ instanceImpl[A]('alias) }
 
-  private def instanceImpl[A <: Product: Type](alias: Expr[Option[String]])(using Quotes) =
+  private def instanceImpl[A: Type](alias: Expr[Option[String]])(using Quotes) =
     import quotes.reflect.*
     val columns         = columnsOfImpl[A]
     val name            = nameOfImpl[A]
@@ -366,7 +366,7 @@ object Macros:
     end if
   end getDefaultValue
 
-  private def summonTable[T <: Product: Type](using Quotes): Expr[Table[T]] =
+  private def summonTable[T : Type](using Quotes): Expr[Table[T]] =
     import quotes.reflect.*
     Expr
       .summon[Table[T]]
@@ -502,11 +502,11 @@ object Macros:
       .getOrElse(report.errorAndAbort(s"Could not find Encoder for ${Type.show[T]}"))
   end summonEncoder
 
-  private[saferis] inline def columnPlaceholders[A <: Product](instance: A): List[(String, Placeholder)] = ${
+  private[saferis] inline def columnPlaceholders[A](instance: A): List[(String, Placeholder)] = ${
     columnPlaceholdersImpl('instance)
   }
 
-  private def columnPlaceholdersImpl[A <: Product: Type](instance: Expr[A])(using
+  private def columnPlaceholdersImpl[A: Type](instance: Expr[A])(using
       Quotes
   ): Expr[List[(String, Placeholder)]] =
     import quotes.reflect.*
@@ -553,12 +553,12 @@ object Macros:
     *
     * Use via extension method: `instance.column(_.fieldName)` for better type inference.
     */
-  private[saferis] inline def extractColumn[A <: Product, T](
+  private[saferis] inline def extractColumn[A, T](
       inline instance: Instance[A],
       inline selector: A => T,
   ): Column[T] = ${ extractColumnImpl[A, T]('instance, 'selector) }
 
-  private def extractColumnImpl[A <: Product: Type, T: Type](
+  private def extractColumnImpl[A: Type, T: Type](
       instance: Expr[Instance[A]],
       selector: Expr[A => T],
   )(using Quotes): Expr[Column[T]] =
@@ -620,24 +620,23 @@ object Macros:
     * @return
     *   A function that extracts the field value from an instance
     */
-  private[saferis] inline def extractFieldValueFunc[A <: Product, T](inline selector: A => T): A => T =
+  private[saferis] inline def extractFieldValueFunc[A , T](inline selector: A => T): A => T =
     ${ extractFieldValueFuncImpl[A, T]('selector) }
 
-  private def extractFieldValueFuncImpl[A <: Product: Type, T: Type](
+  private def extractFieldValueFuncImpl[A : Type, T: Type](
       selector: Expr[A => T]
   )(using Quotes): Expr[A => T] =
     import quotes.reflect.*
     val fieldName = extractFieldNameFromSelector(selector)
 
-    // Generate a simple function that selects the field by name
-    // We use productElement for safety across all Product types
-    val tpe    = TypeRepr.of[A]
-    val fields = tpe.typeSymbol.caseFields
-    val idx    = fields.indexWhere(_.name == fieldName)
+    // Generate a function that reads the field via its case-field accessor
+    // rather than Product.productElement, so Table types need not be
+    // recognized as scala.Product.
+    val field = TypeRepr.of[A].typeSymbol.caseFields
+      .find(_.name == fieldName)
+      .getOrElse(report.errorAndAbort(s"Field '$fieldName' not found in ${Type.show[A]}"))
 
-    if idx < 0 then report.errorAndAbort(s"Field '$fieldName' not found in ${Type.show[A]}")
-
-    '{ (a: A) => a.productElement(${ Expr(idx) }).asInstanceOf[T] }
+    '{ (a: A) => ${ Select('a.asTerm, field).asExprOf[T] } }
   end extractFieldValueFuncImpl
 
 end Macros

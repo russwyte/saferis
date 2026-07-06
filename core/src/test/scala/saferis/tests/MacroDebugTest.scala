@@ -8,12 +8,12 @@ import zio.json.*
 object MacroDebugTest:
   // Generic case class with @label
   @tableName("debug_generic")
-  final case class DebugGeneric[E: JsonCodec](
+  final case class DebugGeneric[E](
       @generated @key id: Int,
       @label("instance_id") instanceId: String,
   )
   object DebugGeneric:
-    given [E: JsonCodec]: Table[DebugGeneric[E]] = Table.derived
+    given [E]: Table[DebugGeneric[E]] = Table.derived
 
   // Non-generic case class with @label
   @tableName("debug_concrete")

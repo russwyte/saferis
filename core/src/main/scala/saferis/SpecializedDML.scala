@@ -6,7 +6,7 @@ import zio.*
 object SpecializedDML:
 
   /** Insert with RETURNING clause - only available for dialects that support it */
-  inline def insertReturning[A <: Product](entity: A)(using
+  inline def insertReturning[A](entity: A)(using
       table: Table[A],
       dialect: Dialect & ReturningSupport,
   )(using trace: Trace): ZIO[ConnectionProvider & Scope, SaferisError, Option[A]] =
@@ -22,7 +22,7 @@ object SpecializedDML:
   end insertReturning
 
   /** Update with RETURNING clause - only available for dialects that support it */
-  inline def updateReturning[A <: Product](entity: A)(using
+  inline def updateReturning[A](entity: A)(using
       table: Table[A],
       dialect: Dialect & ReturningSupport,
   )(using trace: Trace): ZIO[ConnectionProvider & Scope, SaferisError, Option[A]] =
@@ -40,7 +40,7 @@ object SpecializedDML:
   end updateReturning
 
   /** Delete with RETURNING clause - only available for dialects that support it */
-  inline def deleteReturning[A <: Product](entity: A)(using
+  inline def deleteReturning[A](entity: A)(using
       table: Table[A],
       dialect: Dialect & ReturningSupport,
   )(using trace: Trace): ZIO[ConnectionProvider & Scope, SaferisError, Option[A]] =
@@ -61,7 +61,7 @@ object SpecializedDML:
     * public API. The safe public path is the fluent `Upsert[A].values(...).onConflict(_.col)` DSL, which resolves
     * conflict columns from type-safe selectors. Kept `private[saferis]`.
     */
-  private[saferis] inline def upsert[A <: Product](entity: A, conflictColumns: Seq[String])(using
+  private[saferis] inline def upsert[A](entity: A, conflictColumns: Seq[String])(using
       table: Table[A],
       dialect: Dialect & UpsertSupport,
   )(using trace: Trace): ZIO[ConnectionProvider & Scope, SaferisError, Int] =
@@ -78,7 +78,7 @@ object SpecializedDML:
   end upsert
 
   /** Create index with IF NOT EXISTS - only available for dialects that support it */
-  inline def createIndexIfNotExists[A <: Product](
+  inline def createIndexIfNotExists[A](
       indexName: String,
       columnNames: Seq[String],
       unique: Boolean = false,
@@ -124,7 +124,7 @@ object SpecializedDML:
     * Internal: takes raw column-name/SQL strings, so this is not a safe public API. Use the fluent `Upsert` DSL. Kept
     * `private[saferis]`.
     */
-  private[saferis] def upsertSql[A <: Product](
+  private[saferis] def upsertSql[A](
       insertColumns: String,
       conflictColumns: Seq[String],
       updateColumns: String,

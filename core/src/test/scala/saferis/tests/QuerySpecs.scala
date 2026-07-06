@@ -1,7 +1,6 @@
 package saferis.tests
 
 import saferis.*
-import saferis.postgres.given
 import zio.*
 import zio.test.*
 

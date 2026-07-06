@@ -27,7 +27,7 @@ package saferis
   */
 object Upsert:
   /** Create an Upsert builder for a table type */
-  inline def apply[A <: Product: Table]: UpsertBuilder[A] =
+  inline def apply[A: Table]: UpsertBuilder[A] =
     val table = summon[Table[A]]
     UpsertBuilder(table.name, table.columnMap, table.columns.toVector)
 
@@ -36,7 +36,7 @@ object Upsert:
 // ============================================================================
 
 /** Initial upsert builder - needs entity values. */
-final case class UpsertBuilder[A <: Product: Table](
+final case class UpsertBuilder[A: Table](
     private[saferis] val tableName: String,
     private[saferis] val fieldNamesToColumns: Map[String, Column[?]],
     private[saferis] val allColumns: Vector[Column[?]],
@@ -50,7 +50,7 @@ final case class UpsertBuilder[A <: Product: Table](
 // ============================================================================
 
 /** Upsert builder with entity values - needs conflict columns. */
-final case class UpsertValuesReady[A <: Product: Table](
+final case class UpsertValuesReady[A: Table](
     private[saferis] val tableName: String,
     private[saferis] val fieldNamesToColumns: Map[String, Column[?]],
     private[saferis] val allColumns: Vector[Column[?]],
@@ -68,7 +68,7 @@ end UpsertValuesReady
 // ============================================================================
 
 /** Upsert builder with conflict columns - needs update action. */
-final case class UpsertConflictReady[A <: Product: Table](
+final case class UpsertConflictReady[A: Table](
     private[saferis] val tableName: String,
     private[saferis] val fieldNamesToColumns: Map[String, Column[?]],
     private[saferis] val allColumns: Vector[Column[?]],
@@ -107,7 +107,7 @@ end UpsertConflictReady
 // ============================================================================
 
 /** Upsert with DO NOTHING - ready to build. */
-final case class UpsertDoNothingReady[A <: Product: Table](
+final case class UpsertDoNothingReady[A: Table](
     private[saferis] val tableName: String,
     private[saferis] val fieldNamesToColumns: Map[String, Column[?]],
     private[saferis] val allColumns: Vector[Column[?]],
@@ -129,7 +129,7 @@ end UpsertDoNothingReady
 // ============================================================================
 
 /** Upsert with DO UPDATE - can add WHERE clause or build directly. */
-final case class UpsertActionReady[A <: Product: Table](
+final case class UpsertActionReady[A: Table](
     private[saferis] val tableName: String,
     private[saferis] val fieldNamesToColumns: Map[String, Column[?]],
     private[saferis] val allColumns: Vector[Column[?]],
@@ -164,7 +164,7 @@ end UpsertActionReady
 // ============================================================================
 
 /** Builder for WHERE conditions on upsert conflict update. */
-final case class UpsertWhereBuilder[A <: Product: Table, T](
+final case class UpsertWhereBuilder[A: Table, T](
     action: UpsertActionReady[A],
     alias: Alias,
     column: Column[T],
@@ -230,7 +230,7 @@ end UpsertWhereBuilder
 // ============================================================================
 
 /** Upsert with WHERE clause - can chain more conditions or build. */
-final case class UpsertWhereReady[A <: Product: Table](
+final case class UpsertWhereReady[A: Table](
     private[saferis] val action: UpsertActionReady[A],
     private[saferis] val wherePredicates: Vector[SqlFragment],
 ):
@@ -274,7 +274,7 @@ final case class UpsertWhereReady[A <: Product: Table](
 end UpsertWhereReady
 
 object UpsertWhereReady:
-  inline def chainOr[A <: Product: Table, T](
+  inline def chainOr[A: Table, T](
       ready: UpsertWhereReady[A],
       inline selector: A => T,
   ): UpsertOrBuilder[A, T] =
@@ -282,7 +282,7 @@ object UpsertWhereReady:
     val col       = ready.action.fieldNamesToColumns(fieldName).asInstanceOf[Column[T]]
     UpsertOrBuilder(ready, Alias.unsafe(ready.action.tableName), col)
 
-  inline def chainAnd[A <: Product: Table, T](
+  inline def chainAnd[A: Table, T](
       ready: UpsertWhereReady[A],
       inline selector: A => T,
   ): UpsertAndBuilder[A, T] =
@@ -296,7 +296,7 @@ end UpsertWhereReady
 // ============================================================================
 
 /** Builder for OR conditions in upsert WHERE clause. */
-final case class UpsertOrBuilder[A <: Product: Table, T](
+final case class UpsertOrBuilder[A: Table, T](
     ready: UpsertWhereReady[A],
     alias: Alias,
     column: Column[T],
@@ -362,7 +362,7 @@ end UpsertOrBuilder
 // ============================================================================
 
 /** Builder for AND conditions in upsert WHERE clause. */
-final case class UpsertAndBuilder[A <: Product: Table, T](
+final case class UpsertAndBuilder[A: Table, T](
     ready: UpsertWhereReady[A],
     alias: Alias,
     column: Column[T],

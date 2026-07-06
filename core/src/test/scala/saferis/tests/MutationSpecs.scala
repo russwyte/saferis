@@ -17,7 +17,7 @@ object MutationSpecs extends ZIOSpecDefault:
   final case class MutationPayload(name: String, value: Int) derives JsonCodec
 
   @tableName("generic_mutation_test")
-  final case class GenericMutationRow[E: JsonCodec](
+  final case class GenericMutationRow[E](
       @generated @key id: Int,
       @label("instance_id") instanceId: String,
       @label("sequence_nr") sequenceNr: Long,

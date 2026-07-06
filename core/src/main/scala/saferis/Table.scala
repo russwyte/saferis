@@ -4,7 +4,7 @@ import scala.annotation.StaticAnnotation
 
 final case class tableName(name: String) extends StaticAnnotation
 
-sealed trait Table[A <: Product]:
+sealed trait Table[A]:
   private[saferis] def name: String
   def columns: Seq[Column[?]]
   private[saferis] def columnMap                               = columns.map(c => c.name -> c).toMap
@@ -55,13 +55,13 @@ sealed trait Table[A <: Product]:
 end Table
 
 object Table:
-  transparent inline def apply[A <: Product: Table](using table: Table[A])                       = table.instance
-  transparent inline def apply[A <: Product: Table](inline alias: String)(using table: Table[A]) =
+  transparent inline def apply[A](using table: Table[A])                       = table.instance
+  transparent inline def apply[A](inline alias: String)(using table: Table[A]) =
     table.aliasedInstance(alias)
 
-  final case class Derived[A <: Product](name: String, columns: Seq[Column[?]]) extends Table[A]
+  final case class Derived[A](name: String, columns: Seq[Column[?]]) extends Table[A]
 
-  inline def derived[A <: Product]: Table[A] =
+  inline def derived[A]: Table[A] =
     Derived[A](Macros.nameOf[A], Macros.columnsOf[A])
 
 end Table

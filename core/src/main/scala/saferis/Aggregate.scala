@@ -93,7 +93,7 @@ def countAll: CountAll.type = CountAll
   *
   * Created by calling `.selectAggregate(...)` on a Query1Ready.
   */
-final case class AggregateQuery[A <: Product, T](
+final case class AggregateQuery[A, T](
     tableName: String,
     tableAlias: Option[Alias],
     wherePredicates: Vector[SqlFragment],

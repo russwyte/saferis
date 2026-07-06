@@ -8,7 +8,7 @@ package saferis
   *   toSql(users)  // "users" or "users as u" if aliased
   * }}}
   */
-def toSql[A <: Product](instance: Instance[A]): String =
+def toSql[A](instance: Instance[A]): String =
   instance.alias.fold(instance.tableName)(a => s"${instance.tableName} as ${a.value}")
 
 /** Create an aliased version of a table instance (function style).
@@ -24,26 +24,26 @@ def toSql[A <: Product](instance: Instance[A]): String =
   *   val u = Table[User] as "u"
   * }}}
   */
-inline def aliased[A <: Product: Table](instance: Instance[A], inline alias: String): Instance[A] =
+inline def aliased[A: Table](instance: Instance[A], inline alias: String): Instance[A] =
   val userAlias  = Alias(alias)
   val newColumns = instance.columns.map(_.withTableAlias(Some(userAlias)))
   instance.copy(alias = Some(userAlias), columns = newColumns)
 
 /** Remove alias from a table instance. */
-def unaliased[A <: Product: Table](instance: Instance[A]): Instance[A] =
+def unaliased[A: Table](instance: Instance[A]): Instance[A] =
   val newColumns = instance.columns.map(_.withTableAlias(None))
   instance.copy(alias = None, columns = newColumns)
 
 /** Get foreign key constraint SQL for a table. */
-def foreignKeyConstraints[A <: Product](instance: Instance[A]): Seq[String] =
+def foreignKeyConstraints[A](instance: Instance[A]): Seq[String] =
   instance.foreignKeyConstraints
 
 /** Get unique constraint SQL for a table. */
-def uniqueConstraints[A <: Product](instance: Instance[A]): Seq[String] =
+def uniqueConstraints[A](instance: Instance[A]): Seq[String] =
   instance.uniqueConstraintsSql
 
 /** Extension methods for Instance - fluent API */
-extension [A <: Product](instance: Instance[A])
+extension [A](instance: Instance[A])
   /** Create an aliased version of this table instance (fluent style).
     *
     * Usage:

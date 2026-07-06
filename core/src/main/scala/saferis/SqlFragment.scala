@@ -14,7 +14,7 @@ final case class SqlFragment(
     override private[saferis] val issues: List[FragmentIssue] = Nil,
 ) extends Placeholder:
 
-  inline private def make[E <: Product](rs: ResultSet)(using table: Table[E])(using trace: Trace): Task[E] =
+  inline private def make[E](rs: ResultSet)(using table: Table[E])(using trace: Trace): Task[E] =
     for cs <- ZIO.foreach(table.columns)(c => c.read(rs))
     yield (Macros.make[E](cs))
 
@@ -68,7 +68,7 @@ final case class SqlFragment(
     *
     * @return
     */
-  inline def query[E <: Product: Table](using trace: Trace): ScopedQuery[Chunk[E]] =
+  inline def query[E: Table](using trace: Trace): ScopedQuery[Chunk[E]] =
     validateIssues:
       val effect = for
         connection <- ZIO.serviceWithZIO[ConnectionProvider](_.getConnection)
@@ -91,7 +91,7 @@ final case class SqlFragment(
     *
     * @return
     */
-  inline def queryOne[E <: Product: Table](using trace: Trace): ScopedQuery[Option[E]] =
+  inline def queryOne[E: Table](using trace: Trace): ScopedQuery[Option[E]] =
     validateIssues:
       val effect = for
         connection <- ZIO.serviceWithZIO[ConnectionProvider](_.getConnection)
@@ -139,7 +139,7 @@ final case class SqlFragment(
     * @return
     *   A ZStream that lazily iterates through result rows
     */
-  inline def queryStream[E <: Product: Table](using
+  inline def queryStream[E: Table](using
       trace: Trace
   ): ZStream[ConnectionProvider & Scope, SaferisError, E] =
     if issues.nonEmpty then ZStream.fail(SaferisError.InvalidStatement(issues))

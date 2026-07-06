@@ -43,9 +43,9 @@ object Alias:
 
     value.asTerm match
       case Inlined(_, _, Literal(StringConstant(s))) =>
-        '{ Alias.fromLiteral(${ Expr(s) }) }
+        '{ Alias.unsafe(${ Expr(s) }) }
       case Literal(StringConstant(s)) =>
-        '{ Alias.fromLiteral(${ Expr(s) }) }
+        '{ Alias.unsafe(${ Expr(s) }) }
       case _ =>
         report.errorAndAbort(
           "Alias requires a string literal. " +
@@ -54,17 +54,11 @@ object Alias:
     end match
   end applyImpl
 
-  /** Internal factory used by the `apply` macro to construct an `Alias` from a verified string literal.
-    *
-    * `private[saferis]` so it cannot be called from user code with a runtime string (which would bypass the
-    * literal-only injection guard in `apply`). Scala 3 macro hygiene lets the spliced reference resolve even though the
-    * symbol is package-private. Use `Alias("literal")` in user code.
-    */
-  private[saferis] def fromLiteral(value: String): Alias = new Alias(value)
-
-  /** Internal constructor for library use - bypasses the literal check.
-    *
-    * This is used internally when we know the value is safe (e.g., generated aliases like "users_ref_1").
+  /** Internal constructor that bypasses the literal-only check. Used for values the library knows are safe: generated
+    * aliases (e.g. `users_ref_1`), the compile-time-verified string literal spliced by the `apply` macro, and table
+    * names. `private[saferis]` so user code cannot supply a runtime string (which would bypass the injection guard in
+    * `apply`); Scala 3 macro hygiene lets the `apply` splice resolve this even though it is package-private. Use
+    * `Alias("literal")` in user code.
     */
   private[saferis] def unsafe(value: String): Alias = new Alias(value)
 end Alias

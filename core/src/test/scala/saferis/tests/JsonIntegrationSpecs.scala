@@ -25,7 +25,7 @@ object JsonIntegrationSpecs extends ZIOSpecDefault:
   final case class QueryTestEvent(name: String, value: Int) derives JsonCodec
 
   @tableName("query_generic_events")
-  case class QueryEventRow[E: JsonCodec](@generated @key id: Long, name: String, data: Json[E])
+  case class QueryEventRow[E](@generated @key id: Long, name: String, data: Json[E])
   object QueryEventRow:
     given [E: JsonCodec]: Table[QueryEventRow[E]] = Table.derived
 
@@ -422,7 +422,7 @@ object JsonIntegrationSpecs extends ZIOSpecDefault:
 
         // For generic types with Json[E] fields, provide a polymorphic given in the companion
         @tableName("generic_json_events")
-        case class GenericRow[E: JsonCodec](@generated @key id: Long, data: Json[E])
+        case class GenericRow[E](@generated @key id: Long, data: Json[E])
         object GenericRow:
           given [E: JsonCodec]: Table[GenericRow[E]] = Table.derived
 

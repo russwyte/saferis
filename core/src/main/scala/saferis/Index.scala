@@ -13,7 +13,7 @@ package saferis
   * @param where
   *   Optional WHERE clause for partial indexes (pre-rendered SQL)
   */
-final case class IndexSpec[A <: Product](
+final case class IndexSpec[A](
     columns: Seq[String],
     name: Option[String] = None,
     unique: Boolean = false,
