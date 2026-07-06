@@ -54,11 +54,13 @@ object Alias:
     end match
   end applyImpl
 
-  /** Internal factory for macro use - DO NOT CALL DIRECTLY.
+  /** Internal factory used by the `apply` macro to construct an `Alias` from a verified string literal.
     *
-    * This method exists because inline macros cannot access private constructors. Use `Alias("literal")` instead.
+    * `private[saferis]` so it cannot be called from user code with a runtime string (which would bypass the
+    * literal-only injection guard in `apply`). Scala 3 macro hygiene lets the spliced reference resolve even though the
+    * symbol is package-private. Use `Alias("literal")` in user code.
     */
-  def fromLiteral(value: String): Alias = new Alias(value)
+  private[saferis] def fromLiteral(value: String): Alias = new Alias(value)
 
   /** Internal constructor for library use - bypasses the literal check.
     *
