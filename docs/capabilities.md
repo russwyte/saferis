@@ -11,9 +11,9 @@ Each dialect mixes in capability traits that enable specific operations:
 | Trait | Operations Enabled |
 |-------|-------------------|
 | `ReturningSupport` | `insertReturning`, `updateReturning`, `deleteReturning` |
-| `JsonSupport` | `jsonExtract`, JSON type mappings |
-| `ArraySupport` | `arrayContains`, array type mappings |
-| `UpsertSupport` | `upsert` |
+| `JsonSupport` | JSON query ops (`.where(_.col).jsonContains/jsonHasKey/jsonPath`), JSON type mappings |
+| `ArraySupport` | array containment queries, array type mappings |
+| `UpsertSupport` | `Upsert` DSL (`Upsert[A].values(...).onConflict(_.col)`) |
 | `IndexIfNotExistsSupport` | Conditional index creation |
 
 ## Using SpecializedDML
@@ -83,9 +83,9 @@ Available capability-constrained operations in `SpecializedDML`:
 | `insertReturning` | `ReturningSupport` |
 | `updateReturning` | `ReturningSupport` |
 | `deleteReturning` | `ReturningSupport` |
-| `upsert` | `UpsertSupport` |
-| `jsonExtract` | `JsonSupport` |
-| `arrayContains` | `ArraySupport` |
+| `Upsert` DSL (`onConflict(_.col)`) | `UpsertSupport` |
+| JSON query ops (`.where(_.col).jsonContains`/`jsonHasKey`/`jsonPath`) | `JsonSupport` |
+| array containment queries | `ArraySupport` |
 
 ## Generic Functions with Capability Constraints
 
