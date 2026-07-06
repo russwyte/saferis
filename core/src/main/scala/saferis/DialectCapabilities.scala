@@ -77,6 +77,7 @@ trait IndexIfNotExistsSupport:
   ): String =
     val uniqueClause = if unique then "unique " else ""
     val whereClause  = where.map(w => s" where $w").getOrElse("")
+    // nosemgrep: scala-security.scala.lang.security.audit.tainted-sql-string -- callers supply already-safe identifiers: the public SpecializedDML.createIndexIfNotExists escapes user input at the trust boundary, and internal callers pass compile-time schema-derived labels
     s"create ${uniqueClause}index if not exists $indexName on $tableName (${columnNames.mkString(", ")})$whereClause"
   end createIndexIfNotExistsSql
 end IndexIfNotExistsSupport

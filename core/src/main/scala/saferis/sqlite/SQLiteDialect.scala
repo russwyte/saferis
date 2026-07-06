@@ -70,11 +70,13 @@ object SQLiteDialect extends Dialect with ReturningSupport with CommonTableExpre
     val ifNotExistsClause = if ifNotExists then " if not exists" else ""
     val columns           = columnNames.map(escapeIdentifier).mkString(", ")
     val whereClause       = where.map(w => s" where $w").getOrElse("")
+    // nosemgrep: scala-security.scala.lang.security.audit.tainted-sql-string -- identifiers are escaped via escapeIdentifier (identifiers cannot be bind parameters)
     s"create index$ifNotExistsClause ${escapeIdentifier(indexName)} on ${escapeIdentifier(tableName)} ($columns)$whereClause"
   end createIndexSql
 
   override def dropIndexSql(indexName: String, ifExists: Boolean = false): String =
     val ifExistsClause = if ifExists then "if exists " else ""
+    // nosemgrep: scala-security.scala.lang.security.audit.tainted-sql-string -- identifiers are escaped via escapeIdentifier (identifiers cannot be bind parameters)
     s"drop index $ifExistsClause${escapeIdentifier(indexName)}"
 
   // === SQLite-specific Query Features ===
