@@ -1059,34 +1059,34 @@ extension [A <: Product, T](builder: InstanceWhereColumnBuilder[A, Json[T]])
       value: T
   )(using codec: zio.json.JsonCodec[T], dialect: Dialect & JsonSupport): InstanceWhereConditionBuilder[A] =
     val jsonValue = codec.encoder.encodeJson(value, None).toString
-    val condition = dialect.jsonContainsSql(builder.columnName, jsonValue)
+    val condition = dialect.jsonContainsSql(builder.parent.instance.fieldToLabel(builder.columnName), jsonValue)
     InstanceWhereConditionBuilder(builder.parent, builder.parent.conditions :+ condition, builder.operator)
 
   /** Check if JSON column has the specified key. PostgreSQL: `column ? 'key'` MySQL:
     * `JSON_CONTAINS_PATH(column, 'one', '$.key')`
     */
   def jsonHasKey(key: String)(using dialect: Dialect & JsonSupport): InstanceWhereConditionBuilder[A] =
-    val condition = dialect.jsonHasKeySql(builder.columnName, key)
+    val condition = dialect.jsonHasKeySql(builder.parent.instance.fieldToLabel(builder.columnName), key)
     InstanceWhereConditionBuilder(builder.parent, builder.parent.conditions :+ condition, builder.operator)
 
   /** Check if JSON column has any of the specified keys. PostgreSQL: `column ?| array['key1', 'key2']` MySQL:
     * `JSON_CONTAINS_PATH(column, 'one', '$.key1', '$.key2')`
     */
   def jsonHasAnyKey(keys: Seq[String])(using dialect: Dialect & JsonSupport): InstanceWhereConditionBuilder[A] =
-    val condition = dialect.jsonHasAnyKeySql(builder.columnName, keys)
+    val condition = dialect.jsonHasAnyKeySql(builder.parent.instance.fieldToLabel(builder.columnName), keys)
     InstanceWhereConditionBuilder(builder.parent, builder.parent.conditions :+ condition, builder.operator)
 
   /** Check if JSON column has all of the specified keys. PostgreSQL: `column ?& array['key1', 'key2']` MySQL:
     * `JSON_CONTAINS_PATH(column, 'all', '$.key1', '$.key2')`
     */
   def jsonHasAllKeys(keys: Seq[String])(using dialect: Dialect & JsonSupport): InstanceWhereConditionBuilder[A] =
-    val condition = dialect.jsonHasAllKeysSql(builder.columnName, keys)
+    val condition = dialect.jsonHasAllKeysSql(builder.parent.instance.fieldToLabel(builder.columnName), keys)
     InstanceWhereConditionBuilder(builder.parent, builder.parent.conditions :+ condition, builder.operator)
 
   /** Start building a JSON path comparison. Usage: `.where(_.data).jsonPath("user.email").eql("test@example.com")`
     */
   def jsonPath(path: String)(using dialect: Dialect & JsonSupport): JsonPathBuilder[A] =
-    JsonPathBuilder(builder.parent, builder.columnName, path, builder.operator)
+    JsonPathBuilder(builder.parent, builder.parent.instance.fieldToLabel(builder.columnName), path, builder.operator)
 end extension
 
 /** Builder for JSON path comparisons. Created via `.jsonPath("field.path")` on a JSON column WHERE builder.
