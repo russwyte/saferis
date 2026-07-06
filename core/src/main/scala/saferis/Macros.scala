@@ -21,7 +21,7 @@ object Macros:
       .getOrElse(Expr(tpe.typeSymbol.name))
   end nameOfImpl
 
-  private[saferis] inline def columnsOf[A ]: Seq[Column[?]] = ${ columnsOfImpl[A] }
+  private[saferis] inline def columnsOf[A]: Seq[Column[?]] = ${ columnsOfImpl[A] }
 
   // Scala field names that cannot be used because they would shadow Selectable trait methods
   private val reservedFieldNames = Set("selectDynamic", "applyDynamic")
@@ -366,7 +366,7 @@ object Macros:
     end if
   end getDefaultValue
 
-  private def summonTable[T : Type](using Quotes): Expr[Table[T]] =
+  private def summonTable[T: Type](using Quotes): Expr[Table[T]] =
     import quotes.reflect.*
     Expr
       .summon[Table[T]]
@@ -620,10 +620,10 @@ object Macros:
     * @return
     *   A function that extracts the field value from an instance
     */
-  private[saferis] inline def extractFieldValueFunc[A , T](inline selector: A => T): A => T =
+  private[saferis] inline def extractFieldValueFunc[A, T](inline selector: A => T): A => T =
     ${ extractFieldValueFuncImpl[A, T]('selector) }
 
-  private def extractFieldValueFuncImpl[A : Type, T: Type](
+  private def extractFieldValueFuncImpl[A: Type, T: Type](
       selector: Expr[A => T]
   )(using Quotes): Expr[A => T] =
     import quotes.reflect.*
@@ -632,7 +632,10 @@ object Macros:
     // Generate a function that reads the field via its case-field accessor
     // rather than Product.productElement, so Table types need not be
     // recognized as scala.Product.
-    val field = TypeRepr.of[A].typeSymbol.caseFields
+    val field = TypeRepr
+      .of[A]
+      .typeSymbol
+      .caseFields
       .find(_.name == fieldName)
       .getOrElse(report.errorAndAbort(s"Field '$fieldName' not found in ${Type.show[A]}"))
 
