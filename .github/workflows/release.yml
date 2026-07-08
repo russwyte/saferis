@@ -38,7 +38,7 @@ jobs:
 
       - name: Publish to Maven Central
         env:
-          PGP_KEY_HEX: FEDF83887D777EC053C0B0BC79C4122F7D97ADEC
+          PGP_KEY_HEX: ${{ secrets.PGP_KEY_HEX }}
           PGP_PASSPHRASE: ${{ secrets.PGP_PASSPHRASE }}
           SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
           SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}

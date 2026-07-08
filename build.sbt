@@ -33,9 +33,11 @@ ThisBuild / publishTo := {
   else localStaging.value
 }
 
-// CI overrides the key via PGP_KEY_HEX (dedicated GitHub Actions signing key);
-// local manual publishing falls back to the personal key on this machine.
-usePgpKeyHex(sys.env.getOrElse("PGP_KEY_HEX", "2F64727A87F1BCF42FD307DD8582C4F16659A7D6"))
+// CI-only publishing: the signing key hex comes from the PGP_KEY_HEX env var, set by
+// the shared early-effect org secret in the release workflow. There is no real key in
+// this file — the "MISSING_KEY_HEX" sentinel keeps the build loadable for local
+// compile/test but makes signing fail loudly if anyone tries to publish off-CI.
+usePgpKeyHex(sys.env.getOrElse("PGP_KEY_HEX", "MISSING_KEY_HEX"))
 
 lazy val commonSettings = Seq(
   scalacOptions ++= Seq(
