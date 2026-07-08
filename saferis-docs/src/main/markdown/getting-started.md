@@ -7,7 +7,7 @@
 Add Saferis to your `build.sbt`:
 
 ```scala marklit:passthrough
-libraryDependencies += "io.github.russwyte" %% "saferis" % "0.15.0"
+libraryDependencies += "rocks.earlyeffect" %% "saferis" % "0.18.0"
 ```
 
 Saferis requires ZIO as a provided dependency:

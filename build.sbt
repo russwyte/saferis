@@ -3,15 +3,15 @@ val zioVersion    = "2.1.26"
 
 // Global settings using ThisBuild scope
 ThisBuild / scalaVersion         := scala3Version
-ThisBuild / organization         := "io.github.russwyte"
-ThisBuild / organizationName     := "russwyte"
-ThisBuild / organizationHomepage := Some(url("https://github.com/russwyte"))
+ThisBuild / organization         := "rocks.earlyeffect"
+ThisBuild / organizationName     := "Early Effect"
+ThisBuild / organizationHomepage := Some(url("https://www.earlyeffect.rocks"))
 ThisBuild / licenses             := List("Apache-2.0" -> url("http://www.apache.org/licenses/LICENSE-2.0.txt"))
-ThisBuild / homepage             := Some(url("https://github.com/russwyte/saferis"))
+ThisBuild / homepage             := Some(url("https://github.com/early-effect/saferis"))
 ThisBuild / scmInfo              := Some(
   ScmInfo(
-    url("https://github.com/russwyte/saferis"),
-    "scm:git@github.com:russwyte/saferis.git",
+    url("https://github.com/early-effect/saferis"),
+    "scm:git@github.com:early-effect/saferis.git",
   )
 )
 ThisBuild / developers := List(

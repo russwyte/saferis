@@ -1,7 +1,7 @@
 # saferis
 
 [![Scala CI](https://github.com/russwyte/saferis/actions/workflows/scala.yml/badge.svg)](https://github.com/russwyte/saferis/actions/workflows/scala.yml)
-[![Maven Repository](https://img.shields.io/maven-central/v/io.github.russwyte/saferis_3?logo=apachemaven)](https://mvnrepository.com/artifact/io.github.russwyte/saferis)
+[![Maven Repository](https://img.shields.io/maven-central/v/rocks.earlyeffect/saferis_3?logo=apachemaven)](https://mvnrepository.com/artifact/rocks.earlyeffect/saferis)
 
 *The name is derived from 'safe' and 'eris' (Greek for 'strife' or 'discord')*
 
@@ -23,7 +23,7 @@
 Add to your `build.sbt`:
 
 ```scala
-libraryDependencies += "io.github.russwyte" %% "saferis" % "<version>"
+libraryDependencies += "rocks.earlyeffect" %% "saferis" % "<version>"
 ```
 
 ## Database Dialects
