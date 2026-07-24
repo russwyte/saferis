@@ -39,6 +39,17 @@ ThisBuild / publishTo := {
 // compile/test but makes signing fail loudly if anyone tries to publish off-CI.
 usePgpKeyHex(sys.env.getOrElse("PGP_KEY_HEX", "MISSING_KEY_HEX"))
 
+// zipx: Aggregate verify (tests + marklit docs) + Central publish + Scala Steward.
+zipxJavaVersion  := "25"
+zipxScalaSteward := true
+zipxCapabilities += Capability.once("fmt", "scalafmtCheckAll")
+zipxCapabilities += Capability.once(
+  name = "test",
+  command = "test; docs/marklitCompile",
+  needsCapabilities = List("fmt"),
+)
+zipxCapabilities += ZipxCentral.release.copy(command = _ => "+publishSigned; sonaRelease")
+
 lazy val commonSettings = Seq(
   scalacOptions ++= Seq(
     "-deprecation",
